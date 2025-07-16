@@ -19,12 +19,34 @@ builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
     .AddCookie(options =>
     {
-        options.LoginPath = "/auth/login";     // Redirect otomatis jika belum login
-        options.LogoutPath = "/auth/logout";   // Lokasi logout
-        options.ExpireTimeSpan = TimeSpan.FromMinutes(30); // Expire setelah 30 menit
-        options.Cookie.SameSite = SameSiteMode.Lax;        // Perbolehkan cookie antar origin
-        options.Cookie.SecurePolicy = CookieSecurePolicy.None; // Non-HTTPS untuk development
+        options.LoginPath = "/auth/login";
+        options.LogoutPath = "/auth/logout";
+        options.AccessDeniedPath = "/auth/access-denied";
+        options.ExpireTimeSpan = TimeSpan.FromMinutes(30);
+        options.SlidingExpiration = true;
+
+        // 🔧 Critical Cookie Settings for CORS
+        options.Cookie.Name = ".AspNetCore.Cookies";
+        options.Cookie.HttpOnly = false; // Allow JS access for debugging
+        options.Cookie.SecurePolicy = CookieSecurePolicy.None; // HTTP for development
+        options.Cookie.SameSite = SameSiteMode.Lax; // Allow cross-origin
+        options.Cookie.Domain = null; // Auto-detect domain
+        options.Cookie.Path = "/";
+        options.Cookie.MaxAge = TimeSpan.FromMinutes(30);
+
+        // 🔧 Important: Return JSON responses instead of redirects
+        options.Events.OnRedirectToLogin = context =>
+        {
+            context.Response.StatusCode = 401;
+            return Task.CompletedTask;
+        };
+        options.Events.OnRedirectToAccessDenied = context =>
+        {
+            context.Response.StatusCode = 403;
+            return Task.CompletedTask;
+        };
     });
+
 
 // Tambahkan sistem otorisasi
 builder.Services.AddAuthorization();
@@ -42,10 +64,15 @@ builder.Services.AddCors(options =>
 {
     options.AddDefaultPolicy(policy =>
     {
-        policy.WithOrigins("http://localhost:4200") // Alamat frontend
+        policy.WithOrigins("http://localhost:4200")
               .AllowAnyHeader()
               .AllowAnyMethod()
-              .AllowCredentials(); //untuk kirim cookie
+              .AllowCredentials() // 🔑 CRITICAL for cookies
+              .SetIsOriginAllowed(origin =>
+              {
+                  Console.WriteLine($"🌐 CORS Origin: {origin}");
+                  return origin.StartsWith("http://localhost");
+              });
     });
 });
 

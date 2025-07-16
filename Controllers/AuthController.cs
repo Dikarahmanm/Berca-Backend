@@ -30,20 +30,59 @@ namespace Berca_Backend.Controllers
                 return Unauthorized(new { message = "Invalid credentials" });
 
             var claims = new List<Claim>
-            {
-                new Claim(ClaimTypes.Name, user.Username),
-                new Claim(ClaimTypes.Role, user.Role ?? "User")
-            };
+    {
+        new Claim(ClaimTypes.Name, user.Username),
+        new Claim(ClaimTypes.Role, user.Role ?? "User"),
+        new Claim("UserId", user.Id.ToString()) // Tambah UserId juga
+    };
 
             var identity = new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme);
             var principal = new ClaimsPrincipal(identity);
 
+            // 🔍 Debug: Log sebelum SignIn
+            Console.WriteLine($"🔐 Attempting SignIn for user: {user.Username}");
+            Console.WriteLine($"🔐 Claims count: {claims.Count}");
+
             await HttpContext.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, principal);
 
-            // 🔍 Log login
+            // 🔍 Debug: Log setelah SignIn
+            Console.WriteLine($"✅ SignIn completed for user: {user.Username}");
+            Console.WriteLine($"🍪 Response cookies count: {HttpContext.Response.Cookies}");
+
+            // Log login activity
             await _context.LogActivityAsync(user.Username, $"User {user.Username} logged in");
 
-            return Ok(new { message = "Login successful", user = user.Username });
+            return Ok(new
+            {
+                message = "Login successful",
+                user = user.Username,
+                role = user.Role,
+                success = true
+            });
+        }
+
+        // Tambah endpoint untuk debug auth status
+        [HttpGet("debug-auth")]
+        public IActionResult DebugAuth()
+        {
+            var isAuthenticated = User.Identity?.IsAuthenticated ?? false;
+            var username = User.Identity?.Name;
+            var role = User.Claims.FirstOrDefault(c => c.Type == ClaimTypes.Role)?.Value;
+            var allClaims = User.Claims.Select(c => new { c.Type, c.Value }).ToList();
+
+            Console.WriteLine($"🔍 Debug Auth - IsAuthenticated: {isAuthenticated}");
+            Console.WriteLine($"🔍 Debug Auth - Username: {username}");
+            Console.WriteLine($"🔍 Debug Auth - Role: {role}");
+
+            return Ok(new
+            {
+                isAuthenticated = isAuthenticated,
+                username = username,
+                role = role,
+                claims = allClaims,
+                cookieCount = Request.Cookies.Count,
+                cookies = Request.Cookies.Keys.ToList()
+            });
         }
 
         [HttpPost("logout")]
