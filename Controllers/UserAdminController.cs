@@ -22,15 +22,25 @@ namespace Berca_Backend.Controllers
         }
 
         // 1. List semua user dengan pagination dan search
+        // In UserAdminController.cs
         [HttpGet("users")]
         public async Task<IActionResult> GetUsers(
-            [FromQuery] int page = 1,
-            [FromQuery] int pageSize = 10,
-            [FromQuery] string? search = null)
+    [FromQuery] int page = 1,
+    [FromQuery] int pageSize = 10,
+    [FromQuery] string? search = null)
         {
-            _logger.LogInformation("GET /admin/users dipanggil dengan page={Page}, pageSize={PageSize}, search={Search}", page, pageSize, search);
+            _logger.LogInformation("GET /admin/users called - page={Page}, pageSize={PageSize}, search={Search}", page, pageSize, search);
 
-            var query = _context.Users.AsQueryable();
+            // 🔍 DEBUG: Check all users first
+            var allUsers = await _context.Users.ToListAsync();
+            var deletedCount = allUsers.Count(u => u.IsDeleted);
+            var activeCount = allUsers.Count(u => !u.IsDeleted);
+
+            _logger.LogInformation("🔍 DEBUG: Total users in DB: {Total}, Deleted: {Deleted}, Active: {Active}",
+                allUsers.Count, deletedCount, activeCount);
+
+            // ✅ CRITICAL: Filter out deleted users
+            var query = _context.Users.Where(u => !u.IsDeleted).AsQueryable();
 
             if (!string.IsNullOrWhiteSpace(search))
             {
@@ -50,10 +60,11 @@ namespace Berca_Backend.Controllers
                     u.Username,
                     u.Role,
                     u.IsActive,
+                    u.IsDeleted // 🔍 Add for debugging
                 })
                 .ToListAsync();
 
-            _logger.LogInformation("Mengembalikan {Count} user dari total {Total}", users.Count, total);
+            _logger.LogInformation("✅ Returning {Count} active users from total {Total}", users.Count, total);
 
             return Ok(new { total, users });
         }
@@ -97,15 +108,21 @@ namespace Berca_Backend.Controllers
         public async Task<IActionResult> DeleteUser(int id)
         {
             var user = await _context.Users.FindAsync(id);
-            if (user == null) return NotFound();
+            if (user == null)
+                return NotFound(new { message = "User not found" });
 
+            // Check if user is already deleted
+            if (user.IsDeleted)
+                return BadRequest(new { message = "User already deleted" });
+
+            // Soft delete
             user.IsDeleted = true;
             await _context.SaveChangesAsync();
 
             var adminUsername = User.Identity?.Name ?? "unknown-admin";
             await _context.LogActivityAsync(adminUsername, $"Soft deleted user {user.Username} (ID: {user.Id})");
 
-            return Ok(new { message = "User deleted (soft)" });
+            return Ok(new { message = "User deleted successfully" });
         }
 
         // GET /admin/logs?page=1&pageSize=10&search=admin
@@ -187,6 +204,56 @@ namespace Berca_Backend.Controllers
             var fileName = $"LogActivity_{DateTime.Now:yyyyMMdd_HHmmss}.xlsx";
             return File(stream.ToArray(), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", fileName);
 
+        }
+        [HttpPut("users/{id}/restore")]
+        public async Task<IActionResult> RestoreUser(int id)
+        {
+            var user = await _context.Users.FindAsync(id);
+            if (user == null)
+                return NotFound(new { message = "User not found" });
+
+            if (!user.IsDeleted)
+                return BadRequest(new { message = "User is not deleted" });
+
+            user.IsDeleted = false;
+            await _context.SaveChangesAsync();
+
+            var adminUsername = User.Identity?.Name ?? "unknown-admin";
+            await _context.LogActivityAsync(adminUsername, $"Restored user {user.Username} (ID: {user.Id})");
+
+            _logger.LogInformation("✅ User {Username} (ID: {Id}) restored", user.Username, user.Id);
+
+            return Ok(new { message = "User restored successfully" });
+        }
+
+        // Get deleted users
+        [HttpGet("users/deleted")]
+        public async Task<IActionResult> GetDeletedUsers(
+            [FromQuery] int page = 1,
+            [FromQuery] int pageSize = 10)
+        {
+            _logger.LogInformation("GET /admin/users/deleted called - page={Page}, pageSize={PageSize}", page, pageSize);
+
+            var query = _context.Users.Where(u => u.IsDeleted).AsQueryable();
+
+            var total = await query.CountAsync();
+            var users = await query
+                .OrderByDescending(u => u.Id) // Most recently deleted first
+                .Skip((page - 1) * pageSize)
+                .Take(pageSize)
+                .Select(u => new
+                {
+                    u.Id,
+                    u.Username,
+                    u.Role,
+                    u.IsActive,
+                    u.IsDeleted
+                })
+                .ToListAsync();
+
+            _logger.LogInformation("✅ Returning {Count} deleted users from total {Total}", users.Count, total);
+
+            return Ok(new { total, users });
         }
 
 
