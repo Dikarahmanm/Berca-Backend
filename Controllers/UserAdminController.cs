@@ -4,12 +4,13 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using ClosedXML.Excel;
+using System.Security.Claims; // ✅ NEW: Add for ClaimTypes
 
 namespace Berca_Backend.Controllers
 {
     [ApiController]
     [Route("admin")]
-    [Authorize(Roles = "Admin")] // Hanya admin yang bisa akses
+    [Authorize(Roles = "Admin,Manager")] // ✅ UPDATED: Both Admin and Manager can access
     public class UserAdminController : ControllerBase
     {
         private readonly AppDbContext _context;
@@ -21,13 +22,61 @@ namespace Berca_Backend.Controllers
             _logger = logger;
         }
 
+        // ✅ UPDATED: Helper method to check permissions with better debugging
+        private bool CanPerformAction(string action)
+        {
+            var userRole = User.FindFirst("role")?.Value ??
+                          User.FindFirst(ClaimTypes.Role)?.Value ??
+                          User.FindFirst("http://schemas.microsoft.com/ws/2008/06/identity/claims/role")?.Value ?? "";
+
+            var username = User.Identity?.Name ?? "unknown";
+            var isAuthenticated = User.Identity?.IsAuthenticated ?? false;
+
+            _logger.LogInformation("🔐 Permission check - Authenticated: {Auth}, Username: {User}, Role: {Role}, Action: {Action}",
+                isAuthenticated, username, userRole, action);
+
+            // ✅ NEW: Debug all claims
+            if (User.Claims.Any())
+            {
+                _logger.LogInformation("📋 Available claims:");
+                foreach (var claim in User.Claims)
+                {
+                    _logger.LogInformation("- {Type}: {Value}", claim.Type, claim.Value);
+                }
+            }
+            else
+            {
+                _logger.LogWarning("⚠️ No claims found in User.Claims");
+            }
+
+            if (!isAuthenticated)
+            {
+                _logger.LogWarning("❌ User is not authenticated for action: {Action}", action);
+                return false;
+            }
+
+            if (string.IsNullOrEmpty(userRole))
+            {
+                _logger.LogWarning("❌ No role found for user {Username} for action: {Action}", username, action);
+                return false;
+            }
+
+            return action switch
+            {
+                "ChangeRole" => userRole == "Manager",
+                "ToggleActive" => userRole == "Admin" || userRole == "Manager",
+                "DeleteUser" => userRole == "Manager",
+                "RestoreUser" => userRole == "Manager",
+                _ => false
+            };
+        }
+
         // 1. List semua user dengan pagination dan search
-        // In UserAdminController.cs
         [HttpGet("users")]
         public async Task<IActionResult> GetUsers(
-    [FromQuery] int page = 1,
-    [FromQuery] int pageSize = 10,
-    [FromQuery] string? search = null)
+            [FromQuery] int page = 1,
+            [FromQuery] int pageSize = 10,
+            [FromQuery] string? search = null)
         {
             _logger.LogInformation("GET /admin/users called - page={Page}, pageSize={PageSize}, search={Search}", page, pageSize, search);
 
@@ -77,16 +126,35 @@ namespace Berca_Backend.Controllers
             if (user == null) return NotFound();
 
             var adminUsername = User.Identity?.Name ?? "unknown-admin";
+            var userRole = User.FindFirst("role")?.Value ?? "";
             var changes = new List<string>();
 
+            // ✅ NEW: Check role change permission
             if (user.Role != request.Role && request.Role != null)
             {
+                if (!CanPerformAction("ChangeRole"))
+                {
+                    return Forbid($"User with role '{userRole}' cannot change user roles");
+                }
+
+                // ✅ NEW: Validate allowed roles for Manager
+                if (userRole == "Manager" && !new[] { "User", "Admin" }.Contains(request.Role))
+                {
+                    return BadRequest($"Manager can only set roles to User or Admin");
+                }
+
                 changes.Add($"Role: {user.Role} → {request.Role}");
                 user.Role = request.Role;
             }
 
+            // ✅ NEW: Check active status change permission
             if (user.IsActive != request.IsActive)
             {
+                if (!CanPerformAction("ToggleActive"))
+                {
+                    return Forbid($"User with role '{userRole}' cannot change user active status");
+                }
+
                 changes.Add($"IsActive: {user.IsActive} → {request.IsActive}");
                 user.IsActive = request.IsActive;
             }
@@ -102,11 +170,17 @@ namespace Berca_Backend.Controllers
             return Ok(new { message = "User updated successfully" });
         }
 
-
         // 3. Hapus user
         [HttpDelete("users/{id}")]
         public async Task<IActionResult> DeleteUser(int id)
         {
+            // ✅ NEW: Check delete permission
+            if (!CanPerformAction("DeleteUser"))
+            {
+                var userRole = User.FindFirst("role")?.Value ?? "";
+                return Forbid($"User with role '{userRole}' cannot delete users");
+            }
+
             var user = await _context.Users.FindAsync(id);
             if (user == null)
                 return NotFound(new { message = "User not found" });
@@ -166,6 +240,7 @@ namespace Berca_Backend.Controllers
                 Data = logs
             });
         }
+
         [HttpGet("logs/export")]
         public IActionResult ExportLogsToXlsx([FromQuery] string? search, [FromQuery] DateTime? from, [FromQuery] DateTime? to)
         {
@@ -203,11 +278,18 @@ namespace Berca_Backend.Controllers
 
             var fileName = $"LogActivity_{DateTime.Now:yyyyMMdd_HHmmss}.xlsx";
             return File(stream.ToArray(), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", fileName);
-
         }
+
         [HttpPut("users/{id}/restore")]
         public async Task<IActionResult> RestoreUser(int id)
         {
+            // ✅ NEW: Check restore permission
+            if (!CanPerformAction("RestoreUser"))
+            {
+                var userRole = User.FindFirst("role")?.Value ?? "";
+                return Forbid($"User with role '{userRole}' cannot restore users");
+            }
+
             var user = await _context.Users.FindAsync(id);
             if (user == null)
                 return NotFound(new { message = "User not found" });
@@ -256,7 +338,61 @@ namespace Berca_Backend.Controllers
             return Ok(new { total, users });
         }
 
+        // ✅ NEW: Debug authentication endpoint
+        [HttpGet("debug-auth")]
+        [AllowAnonymous] // Allow access to debug auth issues
+        public IActionResult DebugAuth()
+        {
+            var isAuthenticated = User.Identity?.IsAuthenticated ?? false;
+            var username = User.Identity?.Name ?? "Not found";
+            var authType = User.Identity?.AuthenticationType ?? "Not found";
 
+            var claims = User.Claims.Select(c => new { c.Type, c.Value }).ToList();
+            var cookies = Request.Cookies.Select(c => new { c.Key, HasValue = !string.IsNullOrEmpty(c.Value) }).ToList();
+
+            var debugInfo = new
+            {
+                IsAuthenticated = isAuthenticated,
+                Username = username,
+                AuthenticationType = authType,
+                Claims = claims,
+                Cookies = cookies,
+                Headers = Request.Headers.Select(h => new { h.Key, Values = h.Value.ToArray() }).ToList()
+            };
+
+            _logger.LogInformation("🔍 Auth Debug - Authenticated: {Auth}, User: {User}, Claims: {ClaimCount}",
+                isAuthenticated, username, claims.Count);
+
+            return Ok(debugInfo);
+        }
+
+        // ✅ NEW: Get current user permissions (for frontend)
+        [HttpGet("permissions")]
+        public IActionResult GetPermissions()
+        {
+            if (!User.Identity?.IsAuthenticated == true)
+            {
+                return Unauthorized(new { message = "User not authenticated" });
+            }
+
+            var userRole = User.FindFirst("role")?.Value ??
+                          User.FindFirst(ClaimTypes.Role)?.Value ??
+                          User.FindFirst("http://schemas.microsoft.com/ws/2008/06/identity/claims/role")?.Value ?? "";
+            var username = User.Identity?.Name ?? "";
+
+            var permissions = new
+            {
+                Role = userRole,
+                Username = username,
+                CanChangeRole = CanPerformAction("ChangeRole"),
+                CanToggleActive = CanPerformAction("ToggleActive"),
+                CanDeleteUser = CanPerformAction("DeleteUser"),
+                CanRestoreUser = CanPerformAction("RestoreUser"),
+                AllowedRoles = userRole == "Manager" ? new[] { "User", "Admin" } : new string[0]
+            };
+
+            return Ok(permissions);
+        }
     }
 
     // DTO untuk update user
