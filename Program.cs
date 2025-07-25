@@ -1,4 +1,4 @@
-﻿// QUICK FIX - Update Program.cs (remove EnableAnnotations line)
+﻿// Program.cs - Updated dengan CategoryService (based on existing structure)
 
 using Berca_Backend.Data;
 using Berca_Backend.Services;
@@ -13,7 +13,7 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
 
-// ✅ ADD: Configure file upload options untuk UserProfile foto
+// ✅ Configure file upload options untuk UserProfile foto
 builder.Services.Configure<Microsoft.AspNetCore.Http.Features.FormOptions>(options =>
 {
     options.MultipartBodyLengthLimit = 500 * 1024; // 500KB limit untuk foto
@@ -21,8 +21,9 @@ builder.Services.Configure<Microsoft.AspNetCore.Http.Features.FormOptions>(optio
     options.ValueCountLimit = int.MaxValue;
 });
 
-// Daftarkan AuthService ke DI container untuk logika login/register
+// ✅ Register all services
 builder.Services.AddScoped<IAuthService, AuthService>();
+builder.Services.AddScoped<ICategoryService, CategoryService>(); // ✅ NEW: Category service
 
 // Konfigurasi cookie-based authentication
 builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
@@ -68,10 +69,8 @@ builder.Services.AddSwaggerGen(c =>
     {
         Title = "Toko Eniwan POS API",
         Version = "v1",
-        Description = "API untuk sistem Point of Sale Toko Eniwan"
+        Description = "API untuk sistem Point of Sale Toko Eniwan dengan Category Management"
     });
-
-    // ✅ REMOVED: EnableAnnotations() - not needed for basic functionality
 });
 
 // Setup CORS agar frontend (Angular) bisa akses backend (ASP.NET Core)
@@ -93,7 +92,7 @@ builder.Services.AddCors(options =>
 
 var app = builder.Build();
 
-// ✅ ADD: Enable static files untuk serving uploaded images
+// ✅ Enable static files untuk serving uploaded images
 app.UseStaticFiles();
 
 // Aktifkan Swagger UI
@@ -110,7 +109,7 @@ app.UseCookiePolicy();    // Kelola kebijakan cookie
 app.UseAuthentication();  // Periksa autentikasi (cookie)
 app.UseAuthorization();   // Cek hak akses (kalau pakai [Authorize])
 
-// ✅ ADD: Auto-create uploads directory dan database check
+// ✅ Auto-create uploads directory dan database check + migration
 if (app.Environment.IsDevelopment())
 {
     using var scope = app.Services.CreateScope();
@@ -118,6 +117,10 @@ if (app.Environment.IsDevelopment())
 
     try
     {
+        // ✅ Auto-migrate database (includes new Category table)
+        context.Database.Migrate();
+        Console.WriteLine("✅ Database migration completed successfully");
+
         // Check database connection
         var canConnect = context.Database.CanConnect();
         Console.WriteLine($"🔗 Database connection: {canConnect}");
@@ -125,7 +128,9 @@ if (app.Environment.IsDevelopment())
         if (canConnect)
         {
             var userCount = context.Users.Count();
+            var categoryCount = context.Categories.Count(); // ✅ NEW: Check categories
             Console.WriteLine($"👥 Users in database: {userCount}");
+            Console.WriteLine($"📂 Categories in database: {categoryCount}");
 
             // Create uploads directory if it doesn't exist
             var uploadsPath = Path.Combine(app.Environment.WebRootPath ?? app.Environment.ContentRootPath, "uploads", "avatars");
@@ -142,12 +147,13 @@ if (app.Environment.IsDevelopment())
 // Aktifkan routing controller
 app.MapControllers();
 
-// ✅ ADD: Log important URLs on startup
+// ✅ Log important URLs on startup (updated with Category endpoints)
 Console.WriteLine("🚀 Toko Eniwan POS API Starting...");
 Console.WriteLine($"📍 API Base URL: http://localhost:5106");
 Console.WriteLine($"📖 Swagger UI: http://localhost:5106/swagger");
 Console.WriteLine($"🔐 Auth endpoints: http://localhost:5106/auth/login");
 Console.WriteLine($"👤 Profile endpoint: http://localhost:5106/api/UserProfile");
+Console.WriteLine($"📂 Category endpoints: http://localhost:5106/api/Category");
 
 // Jalankan aplikasi
 app.Run();
