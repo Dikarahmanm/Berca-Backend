@@ -1,4 +1,5 @@
-﻿
+﻿// QUICK FIX - Update Program.cs (remove EnableAnnotations line)
+
 using Berca_Backend.Data;
 using Berca_Backend.Services;
 using Microsoft.AspNetCore.Authentication.Cookies;
@@ -11,6 +12,14 @@ var builder = WebApplication.CreateBuilder(args);
 // Setup koneksi ke SQL Server menggunakan AppDbContext
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
+
+// ✅ ADD: Configure file upload options untuk UserProfile foto
+builder.Services.Configure<Microsoft.AspNetCore.Http.Features.FormOptions>(options =>
+{
+    options.MultipartBodyLengthLimit = 500 * 1024; // 500KB limit untuk foto
+    options.ValueLengthLimit = int.MaxValue;
+    options.ValueCountLimit = int.MaxValue;
+});
 
 // Daftarkan AuthService ke DI container untuk logika login/register
 builder.Services.AddScoped<IAuthService, AuthService>();
@@ -47,7 +56,6 @@ builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationSc
         };
     });
 
-
 // Tambahkan sistem otorisasi
 builder.Services.AddAuthorization();
 
@@ -56,7 +64,14 @@ builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>
 {
-    c.SwaggerDoc("v1", new OpenApiInfo { Title = "Berca API", Version = "v1" });
+    c.SwaggerDoc("v1", new OpenApiInfo
+    {
+        Title = "Toko Eniwan POS API",
+        Version = "v1",
+        Description = "API untuk sistem Point of Sale Toko Eniwan"
+    });
+
+    // ✅ REMOVED: EnableAnnotations() - not needed for basic functionality
 });
 
 // Setup CORS agar frontend (Angular) bisa akses backend (ASP.NET Core)
@@ -78,11 +93,15 @@ builder.Services.AddCors(options =>
 
 var app = builder.Build();
 
+// ✅ ADD: Enable static files untuk serving uploaded images
+app.UseStaticFiles();
+
 // Aktifkan Swagger UI
 app.UseSwagger();
 app.UseSwaggerUI(c =>
 {
-    c.SwaggerEndpoint("/swagger/v1/swagger.json", "Berca API v1");
+    c.SwaggerEndpoint("/swagger/v1/swagger.json", "Toko Eniwan POS API v1");
+    c.RoutePrefix = "swagger"; // Swagger UI akan available di /swagger
 });
 
 // Middleware yang dijalankan secara berurutan
@@ -91,8 +110,44 @@ app.UseCookiePolicy();    // Kelola kebijakan cookie
 app.UseAuthentication();  // Periksa autentikasi (cookie)
 app.UseAuthorization();   // Cek hak akses (kalau pakai [Authorize])
 
+// ✅ ADD: Auto-create uploads directory dan database check
+if (app.Environment.IsDevelopment())
+{
+    using var scope = app.Services.CreateScope();
+    var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+    try
+    {
+        // Check database connection
+        var canConnect = context.Database.CanConnect();
+        Console.WriteLine($"🔗 Database connection: {canConnect}");
+
+        if (canConnect)
+        {
+            var userCount = context.Users.Count();
+            Console.WriteLine($"👥 Users in database: {userCount}");
+
+            // Create uploads directory if it doesn't exist
+            var uploadsPath = Path.Combine(app.Environment.WebRootPath ?? app.Environment.ContentRootPath, "uploads", "avatars");
+            Directory.CreateDirectory(uploadsPath);
+            Console.WriteLine($"📁 Uploads directory: {uploadsPath}");
+        }
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"⚠️ Database warning: {ex.Message}");
+    }
+}
+
 // Aktifkan routing controller
 app.MapControllers();
+
+// ✅ ADD: Log important URLs on startup
+Console.WriteLine("🚀 Toko Eniwan POS API Starting...");
+Console.WriteLine($"📍 API Base URL: http://localhost:5106");
+Console.WriteLine($"📖 Swagger UI: http://localhost:5106/swagger");
+Console.WriteLine($"🔐 Auth endpoints: http://localhost:5106/auth/login");
+Console.WriteLine($"👤 Profile endpoint: http://localhost:5106/api/UserProfile");
 
 // Jalankan aplikasi
 app.Run();
