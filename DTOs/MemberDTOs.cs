@@ -25,7 +25,9 @@ namespace Berca_Backend.DTOs
         public DateTime? LastTransactionDate { get; set; }
         public decimal AverageTransactionValue { get; set; }
         public DateTime CreatedAt { get; set; }
+        public DateTime UpdatedAt { get; set; }
     }
+
 
     // Create Member Request
     public class CreateMemberRequest
@@ -58,6 +60,11 @@ namespace Berca_Backend.DTOs
         [Required]
         [StringLength(100)]
         public string Name { get; set; } = string.Empty;
+
+        [Required] // ✅ Added missing Phone property
+        [StringLength(20)]
+        [Phone]
+        public string Phone { get; set; } = string.Empty;
 
         [StringLength(100)]
         [EmailAddress]
@@ -92,6 +99,57 @@ namespace Berca_Backend.DTOs
     public class MemberSearchResponse
     {
         public List<MemberDto> Members { get; set; } = new();
-        public int TotalCount { get; set; }
+        public int TotalItems { get; set; } // ✅ Added
+        public int TotalPages { get; set; } // ✅ Added
+        public int CurrentPage { get; set; } // ✅ Added
+        public int PageSize { get; set; } // ✅ Added
     }
+    //public class MemberStatsDto
+    //{
+    //    public int TotalTransactions { get; set; }
+    //    public decimal TotalSpent { get; set; }
+    //    public decimal AverageTransactionValue { get; set; }
+    //    public int TotalPoints { get; set; }
+    //    public int AvailablePoints { get; set; }
+    //    public DateTime? LastTransactionDate { get; set; }
+    //    public DateTime MemberSince { get; set; } // ✅ Added
+    //    public string CurrentTier { get; set; } = string.Empty;
+    //}
+    public class MemberPointDto
+    {
+        public int Id { get; set; }
+        public int Points { get; set; }
+        public string Type { get; set; } = string.Empty;
+        public string Description { get; set; } = string.Empty;
+        public string? ReferenceNumber { get; set; }
+        public DateTime CreatedAt { get; set; }
+        public bool IsEarning { get; set; }
+        public bool IsRedemption { get; set; }
+    }
+
+    public class MemberStatsDto
+    {
+        public int TotalTransactions { get; set; }
+        public decimal TotalSpent { get; set; }
+        public decimal AverageTransactionValue { get; set; }
+        public int TotalPoints { get; set; }
+        public int AvailablePoints { get; set; }
+        public DateTime? LastTransactionDate { get; set; }
+        public string CurrentTier { get; set; } = string.Empty;
+        public decimal NextTierRequirement { get; set; }
+        public DateTime MemberSince { get; set; }
+    }
+
+    public class TopMemberDto
+    {
+        public int MemberId { get; set; }
+        public string MemberName { get; set; } = string.Empty;
+        public string MemberNumber { get; set; } = string.Empty;
+        public int TransactionCount { get; set; }
+        public decimal TotalSpent { get; set; }
+        public decimal AverageTransaction { get; set; }
+        public DateTime LastTransactionDate { get; set; }
+    }
+
+
 }

@@ -24,7 +24,7 @@ namespace Berca_Backend.Models
         [StringLength(1000)]
         public string Message { get; set; } = string.Empty;
 
-        public NotificationPriority Priority { get; set; } = NotificationPriority.Normal;
+        public NotificationPriority? Priority { get; set; }
 
         // Status
         public bool IsRead { get; set; } = false;

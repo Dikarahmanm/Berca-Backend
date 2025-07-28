@@ -1,4 +1,4 @@
-// Models/SaleItem.cs - Sprint 2 Transaction Detail
+﻿// Models/SaleItem.cs - Sprint 2 Transaction Detail
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 
@@ -32,17 +32,17 @@ namespace Berca_Backend.Models
 
         [Required]
         [Column(TypeName = "decimal(18,2)")]
-        public decimal UnitPrice { get; set; } // Harga jual saat transaksi
+        public decimal UnitPrice { get; set; }
 
         [Column(TypeName = "decimal(18,2)")]
-        public decimal UnitCost { get; set; } // Harga beli untuk kalkulasi profit
+        public decimal UnitCost { get; set; }
 
         [Column(TypeName = "decimal(18,2)")]
         public decimal DiscountAmount { get; set; } = 0;
 
         [Required]
         [Column(TypeName = "decimal(18,2)")]
-        public decimal Subtotal { get; set; } // (UnitPrice * Quantity) - DiscountAmount
+        public decimal Subtotal { get; set; } // ✅ Fixed: was TotalPrice
 
         [StringLength(20)]
         public string Unit { get; set; } = "pcs";
@@ -60,4 +60,5 @@ namespace Berca_Backend.Models
         [NotMapped]
         public decimal DiscountPercentage => UnitPrice > 0 ? (DiscountAmount / (UnitPrice * Quantity)) * 100 : 0;
     }
+
 }
