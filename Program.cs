@@ -1,67 +1,125 @@
-﻿// Program.cs - Updated dengan CategoryService (based on existing structure)
-
+﻿// Program.cs - Fixed Program.cs with Corrected Logger Issue
+using Microsoft.EntityFrameworkCore;
+using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.OpenApi.Models;
 using Berca_Backend.Data;
 using Berca_Backend.Services;
-using Microsoft.AspNetCore.Authentication.Cookies;
-using Microsoft.EntityFrameworkCore;
-using Microsoft.OpenApi.Models;
-using System.ComponentModel.DataAnnotations; // digunakan untuk validasi model
+using System.Reflection;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Setup koneksi ke SQL Server menggunakan AppDbContext
+builder.Services.AddScoped<IAuthService, AuthService>();
+
+// ✅ Add Entity Framework dengan connection string
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
 
-// ✅ Configure file upload options untuk UserProfile foto
-builder.Services.Configure<Microsoft.AspNetCore.Http.Features.FormOptions>(options =>
+// ✅ Add controllers
+builder.Services.AddControllers();
+
+// ✅ Add CORS policy untuk Angular development
+builder.Services.AddCors(options =>
 {
-    options.MultipartBodyLengthLimit = 500 * 1024; // 500KB limit untuk foto
-    options.ValueLengthLimit = int.MaxValue;
-    options.ValueCountLimit = int.MaxValue;
+    options.AddDefaultPolicy(policy =>
+    {
+        policy.WithOrigins("http://localhost:4200", "http://localhost:5173") // Angular dev servers
+              .AllowAnyMethod()
+              .AllowAnyHeader()
+              .AllowCredentials(); // Penting untuk cookie-based auth
+    });
 });
 
-// ✅ Register all services
-builder.Services.AddScoped<IAuthService, AuthService>();
-builder.Services.AddScoped<ICategoryService, CategoryService>(); // ✅ NEW: Category service
-
-// Konfigurasi cookie-based authentication
+// ✅ Cookie-based Authentication
 builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
     .AddCookie(options =>
     {
         options.LoginPath = "/auth/login";
         options.LogoutPath = "/auth/logout";
         options.AccessDeniedPath = "/auth/access-denied";
-        options.ExpireTimeSpan = TimeSpan.FromMinutes(30);
+        options.ExpireTimeSpan = TimeSpan.FromHours(8); // 8 hours
         options.SlidingExpiration = true;
-
-        // 🔧 Critical Cookie Settings for CORS
-        options.Cookie.Name = ".AspNetCore.Cookies";
-        options.Cookie.HttpOnly = false; // Allow JS access for debugging
-        options.Cookie.SecurePolicy = CookieSecurePolicy.None; // HTTP for development
-        options.Cookie.SameSite = SameSiteMode.Lax; // Allow cross-origin
-        options.Cookie.Domain = null; // Auto-detect domain
-        options.Cookie.Path = "/";
-        options.Cookie.MaxAge = TimeSpan.FromMinutes(30);
-
-        // 🔧 Important: Return JSON responses instead of redirects
-        options.Events.OnRedirectToLogin = context =>
-        {
-            context.Response.StatusCode = 401;
-            return Task.CompletedTask;
-        };
-        options.Events.OnRedirectToAccessDenied = context =>
-        {
-            context.Response.StatusCode = 403;
-            return Task.CompletedTask;
-        };
+        options.Cookie.Name = "TokoEniwanAuth";
+        options.Cookie.HttpOnly = true;
+        options.Cookie.SecurePolicy = CookieSecurePolicy.SameAsRequest;
+        options.Cookie.SameSite = SameSiteMode.Lax;
     });
 
-// Tambahkan sistem otorisasi
-builder.Services.AddAuthorization();
+// ✅ Policy-Based Authorization
+builder.Services.AddAuthorization(options =>
+{
+    // Dashboard Policies
+    options.AddPolicy("Dashboard.Read", policy =>
+        policy.RequireRole("Admin", "Manager", "User"));
+    options.AddPolicy("Dashboard.Write", policy =>
+        policy.RequireRole("Admin", "Manager"));
 
-// Daftarkan controller dan Swagger (API docs)
-builder.Services.AddControllers();
+    // POS Policies
+    options.AddPolicy("POS.Read", policy =>
+        policy.RequireRole("Admin", "Manager", "User"));
+    options.AddPolicy("POS.Write", policy =>
+        policy.RequireRole("Admin", "Manager", "User"));
+    options.AddPolicy("POS.Delete", policy =>
+        policy.RequireRole("Admin", "Manager"));
+
+    // Inventory Policies
+    options.AddPolicy("Inventory.Read", policy =>
+        policy.RequireRole("Admin", "Manager", "User"));
+    options.AddPolicy("Inventory.Write", policy =>
+        policy.RequireRole("Admin", "Manager", "User"));
+    options.AddPolicy("Inventory.Delete", policy =>
+        policy.RequireRole("Admin", "Manager"));
+
+    // Category Policies
+    options.AddPolicy("Category.Read", policy =>
+        policy.RequireRole("Admin", "Manager", "User"));
+    options.AddPolicy("Category.Write", policy =>
+        policy.RequireRole("Admin", "Manager"));
+    options.AddPolicy("Category.Delete", policy =>
+        policy.RequireRole("Admin", "Manager"));
+
+    // Membership Policies
+    options.AddPolicy("Membership.Read", policy =>
+        policy.RequireRole("Admin", "Manager", "User"));
+    options.AddPolicy("Membership.Write", policy =>
+        policy.RequireRole("Admin", "Manager", "User"));
+    options.AddPolicy("Membership.Delete", policy =>
+        policy.RequireRole("Admin", "Manager"));
+
+    // User Management Policies
+    options.AddPolicy("UserManagement.Read", policy =>
+        policy.RequireRole("Admin", "Manager"));
+    options.AddPolicy("UserManagement.Write", policy =>
+        policy.RequireRole("Admin", "Manager"));
+    options.AddPolicy("UserManagement.Delete", policy =>
+        policy.RequireRole("Admin"));
+
+    // Reports Policies
+    options.AddPolicy("Reports.Read", policy =>
+        policy.RequireRole("Admin", "Manager"));
+    options.AddPolicy("Reports.Write", policy =>
+        policy.RequireRole("Admin", "Manager"));
+
+    // Notifications Policies
+    options.AddPolicy("Notifications.Read", policy =>
+        policy.RequireRole("Admin", "Manager", "User"));
+    options.AddPolicy("Notifications.Write", policy =>
+        policy.RequireRole("Admin", "Manager"));
+
+    // Admin-only policies
+    options.AddPolicy("Admin", policy =>
+        policy.RequireRole("Admin"));
+});
+
+// ✅ Register Sprint 2 Services
+builder.Services.AddScoped<IProductService, ProductService>();
+builder.Services.AddScoped<IPOSService, POSService>();
+builder.Services.AddScoped<IMemberService, MemberService>();
+builder.Services.AddScoped<INotificationService, NotificationService>();
+builder.Services.AddScoped<IDashboardService, DashboardService>(); // ✅ Fixed: DashboardService now exists
+builder.Services.AddScoped<ICategoryService, CategoryService>();
+
+// ✅ Add Swagger for API documentation
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>
 {
@@ -69,25 +127,52 @@ builder.Services.AddSwaggerGen(c =>
     {
         Title = "Toko Eniwan POS API",
         Version = "v1",
-        Description = "API untuk sistem Point of Sale Toko Eniwan dengan Category Management"
+        Description = "Sprint 2 - POS, Inventory, Membership, Notifications & Dashboard APIs"
+    });
+
+    // Include XML comments for better documentation
+    var xmlFile = $"{Assembly.GetExecutingAssembly().GetName().Name}.xml";
+    var xmlPath = Path.Combine(AppContext.BaseDirectory, xmlFile);
+    if (File.Exists(xmlPath))
+    {
+        c.IncludeXmlComments(xmlPath);
+    }
+
+    // Add security definition for cookie authentication
+    c.AddSecurityDefinition("Cookie", new OpenApiSecurityScheme
+    {
+        Type = SecuritySchemeType.ApiKey,
+        In = ParameterLocation.Cookie,
+        Name = "TokoEniwanAuth",
+        Description = "Cookie-based authentication"
+    });
+
+    c.AddSecurityRequirement(new OpenApiSecurityRequirement
+    {
+        {
+            new OpenApiSecurityScheme
+            {
+                Reference = new OpenApiReference
+                {
+                    Type = ReferenceType.SecurityScheme,
+                    Id = "Cookie"
+                }
+            },
+            Array.Empty<string>()
+        }
     });
 });
 
-// Setup CORS agar frontend (Angular) bisa akses backend (ASP.NET Core)
-builder.Services.AddCors(options =>
+// ✅ Add logging
+builder.Logging.ClearProviders();
+builder.Logging.AddConsole();
+builder.Logging.AddDebug();
+
+// ✅ Add cookie policy
+builder.Services.Configure<CookiePolicyOptions>(options =>
 {
-    options.AddDefaultPolicy(policy =>
-    {
-        policy.WithOrigins("http://localhost:4200")
-              .AllowAnyHeader()
-              .AllowAnyMethod()
-              .AllowCredentials() // 🔑 CRITICAL for cookies
-              .SetIsOriginAllowed(origin =>
-              {
-                  Console.WriteLine($"🌐 CORS Origin: {origin}");
-                  return origin.StartsWith("http://localhost");
-              });
-    });
+    options.CheckConsentNeeded = context => false; // Disable consent for API
+    options.MinimumSameSitePolicy = SameSiteMode.Lax;
 });
 
 var app = builder.Build();
@@ -95,65 +180,132 @@ var app = builder.Build();
 // ✅ Enable static files untuk serving uploaded images
 app.UseStaticFiles();
 
-// Aktifkan Swagger UI
-app.UseSwagger();
-app.UseSwaggerUI(c =>
+// ✅ Enable Swagger in development and staging
+if (app.Environment.IsDevelopment() || app.Environment.IsStaging())
 {
-    c.SwaggerEndpoint("/swagger/v1/swagger.json", "Toko Eniwan POS API v1");
-    c.RoutePrefix = "swagger"; // Swagger UI akan available di /swagger
-});
+    app.UseSwagger();
+    app.UseSwaggerUI(c =>
+    {
+        c.SwaggerEndpoint("/swagger/v1/swagger.json", "Toko Eniwan POS API v1");
+        c.RoutePrefix = "swagger";
+        c.DisplayRequestDuration();
+        c.EnableDeepLinking();
+        c.EnableFilter();
+        c.ShowExtensions();
+    });
+}
 
-// Middleware yang dijalankan secara berurutan
-app.UseCors();            // Izinkan request dari Angular
-app.UseCookiePolicy();    // Kelola kebijakan cookie
-app.UseAuthentication();  // Periksa autentikasi (cookie)
-app.UseAuthorization();   // Cek hak akses (kalau pakai [Authorize])
+// ✅ Middleware pipeline (order matters!)
+app.UseCors();            // CORS harus sebelum Authentication
+app.UseCookiePolicy();    // Cookie policy
+app.UseAuthentication();  // Authentication harus sebelum Authorization
+app.UseAuthorization();   // Authorization
 
-// ✅ Auto-create uploads directory dan database check + migration
+// ✅ Auto-setup database dan directories
 if (app.Environment.IsDevelopment())
 {
     using var scope = app.Services.CreateScope();
     var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+    var appLogger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>(); // ✅ Fixed: renamed to avoid conflict
 
     try
     {
-        // ✅ Auto-migrate database (includes new Category table)
-        context.Database.Migrate();
-        Console.WriteLine("✅ Database migration completed successfully");
+        // ✅ Auto-migrate database
+        await context.Database.MigrateAsync();
+        appLogger.LogInformation("✅ Database migration completed successfully");
 
         // Check database connection
-        var canConnect = context.Database.CanConnect();
-        Console.WriteLine($"🔗 Database connection: {canConnect}");
+        var canConnect = await context.Database.CanConnectAsync();
+        appLogger.LogInformation("🔗 Database connection: {CanConnect}", canConnect);
 
         if (canConnect)
         {
-            var userCount = context.Users.Count();
-            var categoryCount = context.Categories.Count(); // ✅ NEW: Check categories
-            Console.WriteLine($"👥 Users in database: {userCount}");
-            Console.WriteLine($"📂 Categories in database: {categoryCount}");
+            // Log table counts
+            var userCount = await context.Users.CountAsync();
+            var categoryCount = await context.Categories.CountAsync();
+            var productCount = await context.Products.CountAsync();
+            var memberCount = await context.Members.CountAsync();
+            var saleCount = await context.Sales.CountAsync();
+            var notificationCount = await context.Notifications.CountAsync();
 
-            // Create uploads directory if it doesn't exist
-            var uploadsPath = Path.Combine(app.Environment.WebRootPath ?? app.Environment.ContentRootPath, "uploads", "avatars");
-            Directory.CreateDirectory(uploadsPath);
-            Console.WriteLine($"📁 Uploads directory: {uploadsPath}");
+            appLogger.LogInformation("📊 Database Statistics:");
+            appLogger.LogInformation("   👥 Users: {UserCount}", userCount);
+            appLogger.LogInformation("   📂 Categories: {CategoryCount}", categoryCount);
+            appLogger.LogInformation("   📦 Products: {ProductCount}", productCount);
+            appLogger.LogInformation("   🎫 Members: {MemberCount}", memberCount);
+            appLogger.LogInformation("   💰 Sales: {SaleCount}", saleCount);
+            appLogger.LogInformation("   🔔 Notifications: {NotificationCount}", notificationCount);
+
+            // Create uploads directories
+            var uploadsPath = Path.Combine(app.Environment.WebRootPath ?? app.Environment.ContentRootPath, "uploads");
+            var avatarsPath = Path.Combine(uploadsPath, "avatars");
+            var receiptsPath = Path.Combine(uploadsPath, "receipts");
+
+            Directory.CreateDirectory(avatarsPath);
+            Directory.CreateDirectory(receiptsPath);
+
+            appLogger.LogInformation("📁 Upload directories created:");
+            appLogger.LogInformation("   📸 Avatars: {AvatarsPath}", avatarsPath);
+            appLogger.LogInformation("   🧾 Receipts: {ReceiptsPath}", receiptsPath);
         }
     }
     catch (Exception ex)
     {
-        Console.WriteLine($"⚠️ Database warning: {ex.Message}");
+        appLogger.LogError(ex, "⚠️ Database setup error: {Message}", ex.Message);
     }
 }
 
-// Aktifkan routing controller
+// ✅ Map controllers
 app.MapControllers();
 
-// ✅ Log important URLs on startup (updated with Category endpoints)
-Console.WriteLine("🚀 Toko Eniwan POS API Starting...");
-Console.WriteLine($"📍 API Base URL: http://localhost:5106");
-Console.WriteLine($"📖 Swagger UI: http://localhost:5106/swagger");
-Console.WriteLine($"🔐 Auth endpoints: http://localhost:5106/auth/login");
-Console.WriteLine($"👤 Profile endpoint: http://localhost:5106/api/UserProfile");
-Console.WriteLine($"📂 Category endpoints: http://localhost:5106/api/Category");
+// ✅ Global exception handling
+app.UseExceptionHandler(errorApp =>
+{
+    errorApp.Run(async context =>
+    {
+        context.Response.StatusCode = 500;
+        context.Response.ContentType = "application/json";
 
-// Jalankan aplikasi
-app.Run();
+        var contextLogger = context.RequestServices.GetRequiredService<ILogger<Program>>(); // ✅ Fixed: avoid conflict
+        contextLogger.LogError("Unhandled exception occurred");
+
+        await context.Response.WriteAsync(System.Text.Json.JsonSerializer.Serialize(new
+        {
+            success = false,
+            message = "An internal server error occurred",
+            timestamp = DateTime.UtcNow
+        }));
+    });
+});
+
+// ✅ Log startup information
+var startupLogger = app.Services.GetRequiredService<ILogger<Program>>(); // ✅ Fixed: avoid conflict
+startupLogger.LogInformation("🚀 Toko Eniwan POS API Starting...");
+startupLogger.LogInformation("📍 Environment: {Environment}", app.Environment.EnvironmentName);
+startupLogger.LogInformation("📍 API Base URL: http://localhost:5171");
+
+if (app.Environment.IsDevelopment() || app.Environment.IsStaging())
+{
+    startupLogger.LogInformation("📖 Swagger UI: http://localhost:5171/swagger");
+}
+
+startupLogger.LogInformation("🔐 Available Endpoints:");
+startupLogger.LogInformation("   🔑 Auth: http://localhost:5171/auth/*");
+startupLogger.LogInformation("   👤 Profile: http://localhost:5171/api/UserProfile");
+startupLogger.LogInformation("   📂 Categories: http://localhost:5171/api/Category");
+startupLogger.LogInformation("   📦 Products: http://localhost:5171/api/Product");
+startupLogger.LogInformation("   💰 POS: http://localhost:5171/api/POS");
+startupLogger.LogInformation("   🎫 Members: http://localhost:5171/api/Member");
+startupLogger.LogInformation("   🔔 Notifications: http://localhost:5171/api/Notification");
+startupLogger.LogInformation("   📊 Dashboard: http://localhost:5171/api/Dashboard");
+
+startupLogger.LogInformation("✨ Sprint 2 Services Registered:");
+startupLogger.LogInformation("   ✅ Product Service - Inventory management");
+startupLogger.LogInformation("   ✅ POS Service - Point of sale transactions");
+startupLogger.LogInformation("   ✅ Member Service - Membership & loyalty points");
+startupLogger.LogInformation("   ✅ Notification Service - Real-time notifications");
+startupLogger.LogInformation("   ✅ Dashboard Service - Analytics & reports");
+startupLogger.LogInformation("   ✅ Category Service - Product categorization");
+
+// ✅ Run the application
+await app.RunAsync();

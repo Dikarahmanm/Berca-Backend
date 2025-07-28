@@ -1,4 +1,4 @@
-// Models/Member.cs - Sprint 2 Customer Loyalty
+﻿// Models/Member.cs - Sprint 2 Customer Loyalty
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 
@@ -8,35 +8,34 @@ namespace Berca_Backend.Models
     {
         public int Id { get; set; }
 
-        [Required(ErrorMessage = "Member name is required")]
-        [StringLength(100, ErrorMessage = "Name cannot exceed 100 characters")]
+        [Required]
+        [StringLength(100)]
         public string Name { get; set; } = string.Empty;
 
-        [Required(ErrorMessage = "Phone number is required")]
-        [StringLength(20, ErrorMessage = "Phone number cannot exceed 20 characters")]
-        [RegularExpression(@"^[0-9+\-\s()]+$", ErrorMessage = "Invalid phone number format")]
+        [Required]
+        [StringLength(20)]
         public string Phone { get; set; } = string.Empty;
 
-        [StringLength(100, ErrorMessage = "Email cannot exceed 100 characters")]
-        [EmailAddress(ErrorMessage = "Invalid email format")]
+        [StringLength(100)]
+        [EmailAddress]
         public string? Email { get; set; }
 
-        [StringLength(500, ErrorMessage = "Address cannot exceed 500 characters")]
+        [StringLength(500)]
         public string? Address { get; set; }
 
         public DateTime? DateOfBirth { get; set; }
 
         [StringLength(10)]
-        public string? Gender { get; set; } // Male, Female, Other
+        public string? Gender { get; set; }
 
         // Membership Info
         [Required]
         [StringLength(20)]
-        public string MemberNumber { get; set; } = string.Empty; // e.g., "MBR20250728001"
+        public string MemberNumber { get; set; } = string.Empty;
 
         public MembershipTier Tier { get; set; } = MembershipTier.Bronze;
 
-        public DateTime JoinDate { get; set; } = DateTime.UtcNow;
+        public DateTime JoinDate { get; set; } = DateTime.UtcNow; // ✅ Fixed: was JoinedDate
 
         public bool IsActive { get; set; } = true;
 
@@ -70,23 +69,20 @@ namespace Berca_Backend.Models
 
         [NotMapped]
         public decimal AverageTransactionValue => TotalTransactions > 0 ? TotalSpent / TotalTransactions : 0;
-
-        [NotMapped]
-        public string TierDisplay => Tier switch
-        {
-            MembershipTier.Bronze => "Bronze",
-            MembershipTier.Silver => "Silver",
-            MembershipTier.Gold => "Gold",
-            MembershipTier.Platinum => "Platinum",
-            _ => "Bronze"
-        };
     }
 
     public enum MembershipTier
     {
-        Bronze = 0,    // 0 - 999,999
-        Silver = 1,    // 1,000,000 - 4,999,999  
-        Gold = 2,      // 5,000,000 - 9,999,999
-        Platinum = 3   // 10,000,000+
+        Bronze = 0,
+        Silver = 1,
+        Gold = 2,
+        Platinum = 3
+    }
+    public enum MemberPointType
+    {
+        Earned = 0,
+        Redeemed = 1,
+        Expired = 2,
+        Bonus = 3
     }
 }

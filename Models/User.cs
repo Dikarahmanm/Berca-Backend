@@ -23,5 +23,6 @@ namespace Berca_Backend.Models
 
         // ✅ ADD Navigation property to UserProfile
         public virtual UserProfile? UserProfile { get; set; }
+        public virtual UserNotificationSettings? UserNotificationSettings { get; set; }
     }
 }

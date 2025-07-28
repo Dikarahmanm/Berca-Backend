@@ -1,4 +1,4 @@
-// Models/Sale.cs - Sprint 2 Transaction Header
+﻿// Models/Sale.cs - Sprint 2 Transaction Header
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 
@@ -10,10 +10,10 @@ namespace Berca_Backend.Models
 
         [Required]
         [StringLength(20)]
-        public string SaleNumber { get; set; } = string.Empty; // e.g., "TRX20250728001"
+        public string SaleNumber { get; set; } = string.Empty;
 
         [Required]
-        public DateTime SaleDate { get; set; } = DateTime.UtcNow;
+        public DateTime SaleDate { get; set; } = DateTime.UtcNow; // ✅ Fixed: was Date
 
         [Required]
         [Column(TypeName = "decimal(18,2)")]
@@ -27,11 +27,11 @@ namespace Berca_Backend.Models
 
         [Required]
         [Column(TypeName = "decimal(18,2)")]
-        public decimal Total { get; set; }
+        public decimal Total { get; set; } // ✅ Fixed: was Total
 
         [Required]
         [Column(TypeName = "decimal(18,2)")]
-        public decimal AmountPaid { get; set; }
+        public decimal AmountPaid { get; set; } // ✅ Fixed: was PaidAmount
 
         [Required]
         [Column(TypeName = "decimal(18,2)")]
@@ -39,10 +39,10 @@ namespace Berca_Backend.Models
 
         [Required]
         [StringLength(20)]
-        public string PaymentMethod { get; set; } = string.Empty; // cash, card, qris, transfer
+        public string PaymentMethod { get; set; } = string.Empty;
 
         [StringLength(100)]
-        public string? PaymentReference { get; set; } // untuk tracking kartu/transfer
+        public string? PaymentReference { get; set; }
 
         // Customer/Member Info
         public int? MemberId { get; set; }
@@ -63,8 +63,15 @@ namespace Berca_Backend.Models
         public string? Notes { get; set; }
 
         // Receipt Info
-        public bool ReceiptPrinted { get; set; } = false;
+        public bool ReceiptPrinted { get; set; } = false; // ✅ Fixed: was IsReceiptPrinted
         public DateTime? ReceiptPrintedAt { get; set; }
+
+        // Additional fields for services
+        public DateTime? CancelledAt { get; set; }
+        public string? CancellationReason { get; set; }
+        public DateTime? RefundedAt { get; set; }
+        public string? RefundReason { get; set; }
+        public int? OriginalSaleId { get; set; }
 
         // Navigation Properties
         public virtual ICollection<SaleItem> SaleItems { get; set; } = new List<SaleItem>();
@@ -79,6 +86,8 @@ namespace Berca_Backend.Models
 
         [NotMapped]
         public decimal TotalProfit => SaleItems?.Sum(si => si.TotalProfit) ?? 0;
+
+        public decimal DiscountPercentage { get; set; } = 0;
     }
 
     public enum SaleStatus

@@ -71,6 +71,8 @@ namespace Berca_Backend.Models
         Redemption = 1,    // Menggunakan poin untuk diskon
         Bonus = 2,         // Bonus poin dari promo
         Adjustment = 3,    // Penyesuaian manual
-        Expiry = 4         // Poin kedaluwarsa
+        Expiry = 4,         // Poin kedaluwarsa
+        Earn=0,
+        Redeem=0,
     }
 }

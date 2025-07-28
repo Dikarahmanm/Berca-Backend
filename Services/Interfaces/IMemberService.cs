@@ -1,6 +1,6 @@
 // Services/IMemberService.cs - Sprint 2 Member Service Interface
 using Berca_Backend.DTOs;
-
+using Berca_Backend.Models;
 namespace Berca_Backend.Services
 {
     public interface IMemberService
@@ -30,40 +30,6 @@ namespace Berca_Backend.Services
 
         // Tier Management
         Task<bool> UpdateMemberTierAsync(int memberId);
-        Task<string> CalculateMemberTierAsync(decimal totalSpent);
-    }
-
-    public class MemberPointDto
-    {
-        public int Id { get; set; }
-        public int Points { get; set; }
-        public string Type { get; set; } = string.Empty;
-        public string Description { get; set; } = string.Empty;
-        public string? ReferenceNumber { get; set; }
-        public DateTime CreatedAt { get; set; }
-        public bool IsEarning { get; set; }
-        public bool IsRedemption { get; set; }
-    }
-
-    public class MemberStatsDto
-    {
-        public int TotalTransactions { get; set; }
-        public decimal TotalSpent { get; set; }
-        public decimal AverageTransactionValue { get; set; }
-        public int TotalPoints { get; set; }
-        public int AvailablePoints { get; set; }
-        public DateTime? LastTransactionDate { get; set; }
-        public string CurrentTier { get; set; } = string.Empty;
-        public decimal NextTierRequirement { get; set; }
-    }
-
-    public class TopMemberDto
-    {
-        public int Id { get; set; }
-        public string Name { get; set; } = string.Empty;
-        public string MemberNumber { get; set; } = string.Empty;
-        public decimal TotalSpent { get; set; }
-        public int TotalTransactions { get; set; }
-        public string Tier { get; set; } = string.Empty;
+        Task<MembershipTier> CalculateMemberTierAsync(decimal totalSpent);
     }
 }

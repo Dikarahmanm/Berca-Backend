@@ -23,6 +23,7 @@ namespace Berca_Backend.Data
         public DbSet<InventoryMutation> InventoryMutations { get; set; }
         public DbSet<Notification> Notifications { get; set; }
         public DbSet<NotificationSettings> NotificationSettings { get; set; }
+        public DbSet<UserNotificationSettings> UserNotificationSettings { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -331,6 +332,22 @@ namespace Berca_Backend.Data
                     UpdatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc)
                 }
             );
+            modelBuilder.Entity<UserNotificationSettings>(entity =>
+            {
+                entity.HasKey(e => e.Id);
+                entity.HasIndex(e => e.UserId).IsUnique();
+                entity.Property(e => e.CreatedAt)
+                      .HasDefaultValueSql("GETUTCDATE()");
+                entity.Property(e => e.UpdatedAt)
+                      .HasDefaultValueSql("GETUTCDATE()");
+                entity.HasOne(e => e.User)
+                      .WithOne(u => u.UserNotificationSettings)   // add this nav on your User class
+                      .HasForeignKey<UserNotificationSettings>(e => e.UserId)
+                      .OnDelete(DeleteBehavior.Cascade);
+            });
+
+
+
 
             // Sample Products Seed Data
             modelBuilder.Entity<Product>().HasData(

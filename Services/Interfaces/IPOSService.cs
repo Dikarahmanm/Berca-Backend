@@ -47,11 +47,11 @@ namespace Berca_Backend.Services
         public decimal AverageTransaction { get; set; }
     }
 
-    public class PaymentMethodSummaryDto
-    {
-        public string PaymentMethod { get; set; } = string.Empty;
-        public decimal TotalAmount { get; set; }
-        public int TransactionCount { get; set; }
-        public decimal Percentage { get; set; }
-    }
+    //public class PaymentMethodSummaryDto
+    //{
+    //    public string PaymentMethod { get; set; } = string.Empty;
+    //    public decimal Total { get; set; }
+    //    public int TransactionCount { get; set; }
+    //    public decimal Percentage { get; set; }
+    //}
 }
