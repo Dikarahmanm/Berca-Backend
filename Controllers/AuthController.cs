@@ -2,6 +2,7 @@
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.Extensions.Options; // ✅ ADD THIS
 using System.Security.Claims;
 using Berca_Backend.Models;
 using Berca_Backend.Services;
@@ -15,16 +16,21 @@ namespace Berca_Backend.Controllers
     {
         private readonly IAuthService _authService;
         private readonly AppDbContext _context;
+        private readonly ILogger<AuthController> _logger; // ✅ ADD THIS
 
-        public AuthController(IAuthService authService, AppDbContext context)
+        public AuthController(IAuthService authService, AppDbContext context, ILogger<AuthController> logger) // ✅ ADD LOGGER
         {
             _authService = authService;
             _context = context;
+            _logger = logger; // ✅ ADD THIS
         }
 
         [HttpPost("login")]
         public async Task<IActionResult> Login([FromBody] LoginRequest request)
         {
+            // ✅ Enhanced logging
+            _logger.LogInformation("🔐 Login attempt for user: {Username}", request.Username);
+
             // ✅ STEP 1: Validate input
             if (string.IsNullOrWhiteSpace(request.Username) || string.IsNullOrWhiteSpace(request.Password))
             {
@@ -119,31 +125,71 @@ namespace Berca_Backend.Controllers
             // ✅ STEP 5: Create authentication claims
             var claims = new List<Claim>
             {
+                new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
                 new Claim(ClaimTypes.Name, user.Username),
-                new Claim(ClaimTypes.Role, user.Role ?? "User"),
-                new Claim("UserId", user.Id.ToString()),
+                new Claim(ClaimTypes.Role, user.Role),
                 new Claim("IsActive", user.IsActive.ToString()),
                 new Claim("IsDeleted", user.IsDeleted.ToString())
             };
 
-            var identity = new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme);
-            var principal = new ClaimsPrincipal(identity);
-
-            // ✅ STEP 6: Sign in user
-            Console.WriteLine($"🔐 Signing in user: {user.Username} (Role: {user.Role})");
-            await HttpContext.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, principal);
-
-            // ✅ STEP 7: Log successful login
-            await _context.LogActivityAsync(user.Username, $"User {user.Username} logged in successfully");
-
-            return Ok(new
+            var claimsIdentity = new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme);
+            var authProperties = new AuthenticationProperties
             {
-                success = true,
-                message = "Login successful",
-                user = user.Username,
-                role = user.Role,
-                isActive = user.IsActive
-            });
+                IsPersistent = true,  // ✅ Persist across browser sessions
+                ExpiresUtc = DateTimeOffset.UtcNow.AddHours(8),
+                AllowRefresh = true
+            };
+
+            // ✅ CRITICAL: Sign in user - this sets the cookie!
+            await HttpContext.SignInAsync(
+                CookieAuthenticationDefaults.AuthenticationScheme,
+                new ClaimsPrincipal(claimsIdentity),
+                authProperties);
+
+            // ✅ Log successful login
+            _logger.LogInformation("✅ Login successful for user: {Username}, Role: {Role}", user.Username, user.Role);
+
+            // ✅ FIXED: Debug cookie information with proper using
+            try
+            {
+                var cookieOptions = HttpContext.RequestServices.GetRequiredService<IOptionsMonitor<CookieAuthenticationOptions>>();
+                var cookieName = cookieOptions.Get(CookieAuthenticationDefaults.AuthenticationScheme).Cookie.Name;
+                _logger.LogInformation("🍪 Auth cookie name: {CookieName}", cookieName);
+
+                return Ok(new
+                {
+                    success = true,
+                    message = "Login successful",
+                    user = user.Username,
+                    role = user.Role,
+                    isActive = user.IsActive,
+                    debug = new
+                    {
+                        cookieSet = true,
+                        cookieName = cookieName,
+                        expiresAt = authProperties.ExpiresUtc
+                    }
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning("Could not get cookie options: {Error}", ex.Message);
+
+                return Ok(new
+                {
+                    success = true,
+                    message = "Login successful",
+                    user = user.Username,
+                    role = user.Role,
+                    isActive = user.IsActive,
+                    debug = new
+                    {
+                        cookieSet = true,
+                        cookieName = "TokoEniwanAuth", // Fallback
+                        expiresAt = authProperties.ExpiresUtc
+                    }
+                });
+            }
         }
 
         [HttpPost("logout")]
@@ -205,7 +251,7 @@ namespace Berca_Backend.Controllers
             });
         }
 
-        // ✅ Enhanced debug endpoint
+        // ✅ FIXED: Enhanced debug endpoint with proper logging
         [HttpGet("debug-auth")]
         public IActionResult DebugAuth()
         {
@@ -215,22 +261,45 @@ namespace Berca_Backend.Controllers
             var isActive = User.Claims.FirstOrDefault(c => c.Type == "IsActive")?.Value;
             var isDeleted = User.Claims.FirstOrDefault(c => c.Type == "IsDeleted")?.Value;
 
-            Console.WriteLine($"🔍 Debug Auth - IsAuthenticated: {isAuthenticated}");
-            Console.WriteLine($"🔍 Debug Auth - Username: {username}");
-            Console.WriteLine($"🔍 Debug Auth - Role: {role}");
-            Console.WriteLine($"🔍 Debug Auth - IsActive: {isActive}");
-            Console.WriteLine($"🔍 Debug Auth - IsDeleted: {isDeleted}");
+            // ✅ Use _logger instead of Console.WriteLine
+            _logger.LogInformation("🔍 Debug Auth - IsAuthenticated: {IsAuthenticated}", isAuthenticated);
+            _logger.LogInformation("🔍 Debug Auth - Username: {Username}", username);
+            _logger.LogInformation("🔍 Debug Auth - Role: {Role}", role);
+            _logger.LogInformation("🔍 Debug Auth - IsActive: {IsActive}", isActive);
+            _logger.LogInformation("🔍 Debug Auth - IsDeleted: {IsDeleted}", isDeleted);
+
+            // ✅ Enhanced cookie debugging
+            var allCookies = Request.Cookies.ToDictionary(c => c.Key, c => c.Value);
+            var cookieNames = Request.Cookies.Keys.ToArray();
+            var authCookie = Request.Cookies["TokoEniwanAuth"];
+
+            _logger.LogInformation("🍪 Total cookies: {Count}", allCookies.Count);
+            _logger.LogInformation("🍪 Cookie names: {Names}", string.Join(", ", cookieNames));
+            _logger.LogInformation("🍪 Auth cookie exists: {Exists}", !string.IsNullOrEmpty(authCookie));
 
             return Ok(new
             {
+                success = true,
                 isAuthenticated = isAuthenticated,
-                username = username,
-                role = role,
-                isActive = isActive,
-                isDeleted = isDeleted,
-                claims = User.Claims.Select(c => new { c.Type, c.Value }).ToList(),
-                cookieCount = Request.Cookies.Count,
-                cookies = Request.Cookies.Keys.ToList()
+                user = isAuthenticated ? new
+                {
+                    username = username,
+                    role = role,
+                    isActive = isActive,
+                    isDeleted = isDeleted
+                } : null,
+                debug = new
+                {
+                    timestamp = DateTime.UtcNow,
+                    cookies = new
+                    {
+                        total = allCookies.Count,
+                        names = cookieNames,
+                        authCookieExists = !string.IsNullOrEmpty(authCookie),
+                        authCookieLength = authCookie?.Length ?? 0
+                    },
+                    claims = User.Claims.Select(c => new { c.Type, c.Value }).ToArray()
+                }
             });
         }
 
