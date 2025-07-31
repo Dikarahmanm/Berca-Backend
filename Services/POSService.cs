@@ -1,4 +1,4 @@
-// Services/POSService.cs - Sprint 2 POS Service Implementation
+﻿// Services/POSService.cs - Sprint 2 POS Service Implementation
 using Berca_Backend.DTOs;
 using Berca_Backend.Models;
 using Berca_Backend.Data;
@@ -22,10 +22,10 @@ namespace Berca_Backend.Services
             _memberService = memberService;
         }
 
+        // ✅ BACKEND FIX: Services/POSService.cs - CreateSaleAsync Method
         public async Task<SaleDto> CreateSaleAsync(CreateSaleRequest request, int cashierId)
         {
             using var transaction = await _context.Database.BeginTransactionAsync();
-
             try
             {
                 // Validate stock availability
@@ -58,21 +58,46 @@ namespace Berca_Backend.Services
                 _context.Sales.Add(sale);
                 await _context.SaveChangesAsync();
 
-                // Create sale items and update stock
+                // ✅ CREATE SALE ITEMS WITH DUAL COMPATIBLE MAPPING
                 foreach (var itemRequest in request.Items)
                 {
                     var product = await _context.Products.FindAsync(itemRequest.ProductId);
                     if (product == null)
                         throw new KeyNotFoundException($"Product {itemRequest.ProductId} not found");
 
+                    // ✅ Determine unit price (priority: SellPrice from request > Product price)
+                    var unitPrice = itemRequest.SellPrice > 0 ? itemRequest.SellPrice : product.SellPrice;
+                    var itemSubtotal = unitPrice * itemRequest.Quantity;
+
+                    // ✅ Calculate discount amount (support both percentage and amount)
+                    var itemDiscountAmount = 0m;
+                    if (itemRequest.DiscountAmount > 0)
+                    {
+                        // Direct amount provided
+                        itemDiscountAmount = itemRequest.DiscountAmount;
+                    }
+                    else if (itemRequest.Discount > 0)
+                    {
+                        // Percentage provided - convert to amount
+                        itemDiscountAmount = itemSubtotal * (itemRequest.Discount / 100);
+                    }
+
+                    var finalSubtotal = itemSubtotal - itemDiscountAmount;
+
                     var saleItem = new SaleItem
                     {
                         SaleId = sale.Id,
                         ProductId = itemRequest.ProductId,
+                        ProductName = product.Name,        // ✅ Snapshot
+                        ProductBarcode = product.Barcode,  // ✅ Snapshot
                         Quantity = itemRequest.Quantity,
-                        UnitPrice = itemRequest.UnitPrice,
-                        DiscountAmount = itemRequest.DiscountAmount,
-                        Subtotal = itemRequest.TotalPrice       // <-- use Subtotal
+                        UnitPrice = unitPrice,             // ✅ Real sell price
+                        UnitCost = product.BuyPrice,       // ✅ For profit calculation
+                        DiscountAmount = itemDiscountAmount, // ✅ Calculated discount
+                        Subtotal = finalSubtotal,          // ✅ Final amount
+                        Unit = "pcs",                      // ✅ Default unit
+                        Notes = null,
+                        CreatedAt = DateTime.UtcNow
                     };
 
                     _context.SaleItems.Add(saleItem);
@@ -89,7 +114,7 @@ namespace Berca_Backend.Services
                     );
                 }
 
-                // Handle member points
+                // Handle member points (existing logic)
                 if (request.MemberId.HasValue)
                 {
                     var pointsEarned = CalculatePointsEarned(request.Total);

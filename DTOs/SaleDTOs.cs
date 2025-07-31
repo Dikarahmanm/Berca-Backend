@@ -111,15 +111,22 @@ namespace Berca_Backend.DTOs
         [Range(1, int.MaxValue)]
         public int Quantity { get; set; }
 
+        // ✅ Support frontend percentage format
+        [Range(0, 100)]
+        public decimal Discount { get; set; } = 0; // Percentage 0-100
+
+        public decimal SellPrice { get; set; } = 0; // Price from frontend
+
+        // ✅ Support backend amount format  
         [Range(0, double.MaxValue)]
-        public decimal DiscountAmount { get; set; } = 0;
+        public decimal DiscountAmount { get; set; } = 0; // Amount in rupiah
 
         [StringLength(500)]
         public string? Notes { get; set; }
 
-        // ✅ Added missing properties that services expect
-        public decimal UnitPrice { get; set; }
-        public decimal TotalPrice { get; set; }
+        // ✅ Backend service fields
+        public decimal UnitPrice { get; set; } = 0;
+        public decimal TotalPrice { get; set; } = 0;
     }
 
     // Sale Summary DTO

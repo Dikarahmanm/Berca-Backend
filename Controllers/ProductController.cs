@@ -176,42 +176,46 @@ namespace Berca_Backend.Controllers
         /// </summary>
         [HttpPut("{id}")]
         [Authorize(Policy = "Inventory.Write")]
-        public async Task<ActionResult<ApiResponse<ProductDto>>> UpdateProduct(int id, [FromBody] UpdateProductRequest request)
+        public async Task<ActionResult<ApiResponse<ProductDto>>> UpdateProduct(
+            int id,
+            [FromBody] UpdateProductRequest request)
         {
             try
             {
-                var username = User.FindFirst(ClaimTypes.Name)?.Value ?? "Unknown";
+                _logger.LogInformation("📝 Updating product {ProductId}: {@Request}", id, request);
 
-                // Check if barcode already exists for another product
-                if (await _productService.IsBarcodeExistsAsync(request.Barcode, id))
-                {
-                    return Conflict(new ApiResponse<ProductDto>
-                    {
-                        Success = false,
-                        Message = "A product with this barcode already exists"
-                    });
-                }
+                var username = User.Identity?.Name ?? "system";
+                var result = await _productService.UpdateProductAsync(id, request, username);
 
-                var product = await _productService.UpdateProductAsync(id, request, username);
-
+                _logger.LogInformation("✅ Product {ProductId} updated successfully", id);
                 return Ok(new ApiResponse<ProductDto>
                 {
                     Success = true,
-                    Data = product,
+                    Data = result,
                     Message = "Product updated successfully"
                 });
             }
-            catch (KeyNotFoundException)
+            catch (KeyNotFoundException ex)
             {
+                _logger.LogWarning("❌ Product not found: {ProductId}", id);
                 return NotFound(new ApiResponse<ProductDto>
                 {
                     Success = false,
-                    Message = "Product not found"
+                    Message = ex.Message
+                });
+            }
+            catch (ArgumentException ex)
+            {
+                _logger.LogWarning("❌ Invalid product data: {Message}", ex.Message);
+                return BadRequest(new ApiResponse<ProductDto>
+                {
+                    Success = false,
+                    Message = ex.Message
                 });
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error updating product: {ProductId}", id);
+                _logger.LogError(ex, "❌ Error updating product {ProductId}", id);
                 return StatusCode(500, new ApiResponse<ProductDto>
                 {
                     Success = false,
@@ -229,26 +233,51 @@ namespace Berca_Backend.Controllers
         {
             try
             {
+                _logger.LogInformation("🗑️ Deleting product {ProductId}", id);
+
+                // ✅ FIX: Remove the username parameter - interface only takes id
                 var result = await _productService.DeleteProductAsync(id);
-                if (!result)
+
+                if (result)
                 {
-                    return NotFound(new ApiResponse<bool>
+                    _logger.LogInformation("✅ Product {ProductId} deleted successfully", id);
+                    return Ok(new ApiResponse<bool>
                     {
-                        Success = false,
-                        Message = "Product not found"
+                        Success = true,
+                        Data = true,
+                        Message = "Product deleted successfully"
                     });
                 }
-
-                return Ok(new ApiResponse<bool>
+                else
                 {
-                    Success = true,
-                    Data = true,
-                    Message = "Product deleted successfully"
+                    return BadRequest(new ApiResponse<bool>
+                    {
+                        Success = false,
+                        Message = "Failed to delete product"
+                    });
+                }
+            }
+            catch (KeyNotFoundException ex)
+            {
+                _logger.LogWarning("❌ Product not found: {ProductId}", id);
+                return NotFound(new ApiResponse<bool>
+                {
+                    Success = false,
+                    Message = ex.Message
+                });
+            }
+            catch (InvalidOperationException ex)
+            {
+                _logger.LogWarning("❌ Cannot delete product: {Message}", ex.Message);
+                return BadRequest(new ApiResponse<bool>
+                {
+                    Success = false,
+                    Message = ex.Message
                 });
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error deleting product: {ProductId}", id);
+                _logger.LogError(ex, "❌ Error deleting product {ProductId}", id);
                 return StatusCode(500, new ApiResponse<bool>
                 {
                     Success = false,
@@ -260,41 +289,79 @@ namespace Berca_Backend.Controllers
         /// <summary>
         /// Update product stock
         /// </summary>
-        [HttpPost("{id}/stock")]
+        [HttpPut("{id}/stock")]
         [Authorize(Policy = "Inventory.Write")]
-        public async Task<ActionResult<ApiResponse<bool>>> UpdateStock(int id, [FromBody] UpdateStockRequest request)
+        public async Task<ActionResult<ApiResponse<bool>>> UpdateProductStock(
+            int id,
+            [FromBody] StockUpdateRequest request)
         {
             try
             {
-                var username = User.FindFirst(ClaimTypes.Name)?.Value ?? "Unknown";
+                _logger.LogInformation("🔄 Updating stock for product {ProductId}: {@Request}", id, request);
 
-                var result = await _productService.UpdateStockAsync(
-                    id,
-                    request.Quantity,
-                    request.Type,
-                    request.Notes,
-                    request.ReferenceNumber,
-                    request.UnitCost,
-                    username);
-
-                if (!result)
+                // Validate request
+                if (request.Quantity == 0)
                 {
-                    return NotFound(new ApiResponse<bool>
+                    return BadRequest(new ApiResponse<bool>
                     {
                         Success = false,
-                        Message = "Product not found"
+                        Message = "Quantity must be greater than 0"
                     });
                 }
 
-                return Ok(new ApiResponse<bool>
+                if (string.IsNullOrWhiteSpace(request.Notes))
                 {
-                    Success = true,
-                    Data = true,
-                    Message = "Stock updated successfully"
+                    return BadRequest(new ApiResponse<bool>
+                    {
+                        Success = false,
+                        Message = "Notes are required for stock updates"
+                    });
+                }
+
+                var username = User.Identity?.Name ?? "system";
+
+                // ✅ FIX: Use the overloaded method that takes StockUpdateRequest
+                var result = await _productService.UpdateStockAsync(
+                    id,
+                    request.Quantity,
+                    request.MutationType,
+                    request.Notes, // <-- FIX: Pass notes here
+                    request.ReferenceNumber,
+                    request.UnitCost,
+                    username
+                );
+
+                if (result)
+                {
+                    _logger.LogInformation("✅ Stock updated successfully for product {ProductId}", id);
+                    return Ok(new ApiResponse<bool>
+                    {
+                        Success = true,
+                        Data = true,
+                        Message = "Stock updated successfully"
+                    });
+                }
+                else
+                {
+                    return BadRequest(new ApiResponse<bool>
+                    {
+                        Success = false,
+                        Message = "Failed to update stock"
+                    });
+                }
+            }
+            catch (KeyNotFoundException ex)
+            {
+                _logger.LogWarning("❌ Product not found: {ProductId}", id);
+                return NotFound(new ApiResponse<bool>
+                {
+                    Success = false,
+                    Message = ex.Message
                 });
             }
             catch (InvalidOperationException ex)
             {
+                _logger.LogWarning("❌ Invalid stock operation: {Message}", ex.Message);
                 return BadRequest(new ApiResponse<bool>
                 {
                     Success = false,
@@ -303,7 +370,7 @@ namespace Berca_Backend.Controllers
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error updating stock for product: {ProductId}", id);
+                _logger.LogError(ex, "❌ Error updating stock for product {ProductId}", id);
                 return StatusCode(500, new ApiResponse<bool>
                 {
                     Success = false,
@@ -462,10 +529,10 @@ namespace Berca_Backend.Controllers
     }
 
     // Request DTOs
-    public class UpdateStockRequest
+    public class StockUpdateRequest
     {
         public int Quantity { get; set; }
-        public MutationType Type { get; set; } // ✅ Sekarang MutationType bisa ditemukan
+        public MutationType MutationType { get; set; }
         public string Notes { get; set; } = string.Empty;
         public string? ReferenceNumber { get; set; }
         public decimal? UnitCost { get; set; }

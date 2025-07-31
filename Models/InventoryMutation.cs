@@ -1,6 +1,7 @@
 // Models/InventoryMutation.cs - Sprint 2 Stock Movement
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
+using System.Text.Json.Serialization;
 
 namespace Berca_Backend.Models
 {
@@ -66,14 +67,16 @@ namespace Berca_Backend.Models
         public bool IsStockOut => Quantity < 0;
     }
 
+    [JsonConverter(typeof(JsonStringEnumConverter))]
     public enum MutationType
     {
-        StockIn = 0,       // Stok masuk dari supplier
-        StockOut = 1,      // Stok keluar selain penjualan
-        Sale = 2,          // Penjualan
-        Return = 3,        // Return dari customer
-        Adjustment = 4,    // Penyesuaian stok
-        Damaged = 5,       // Barang rusak
-        Expired = 6        // Barang kedaluwarsa
+        StockIn,
+        StockOut,
+        Sale,
+        Return,
+        Adjustment,
+        Transfer,
+        Damaged,
+        Expired
     }
 }

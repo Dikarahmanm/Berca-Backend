@@ -1,5 +1,6 @@
 ﻿// DTOs/ProductDTOs.cs - Sprint 2 Product DTOs (FIXED)
-using System.ComponentModel.DataAnnotations; // ✅ ADDED
+using System.ComponentModel.DataAnnotations;
+using Berca_Backend.Models; // ✅ ADD this import for MutationType
 
 namespace Berca_Backend.DTOs
 {
@@ -69,14 +70,14 @@ namespace Berca_Backend.DTOs
     public class UpdateProductRequest
     {
         [Required(ErrorMessage = "Product name is required")]
-        [StringLength(100, ErrorMessage = "Product name cannot exceed 100 characters")]
+        [StringLength(200, ErrorMessage = "Product name cannot exceed 200 characters")]
         public string Name { get; set; } = string.Empty;
 
         [Required(ErrorMessage = "Barcode is required")]
         [StringLength(50, ErrorMessage = "Barcode cannot exceed 50 characters")]
         public string Barcode { get; set; } = string.Empty;
 
-        [StringLength(500, ErrorMessage = "Description cannot exceed 500 characters")]
+        [StringLength(1000, ErrorMessage = "Description cannot exceed 1000 characters")]
         public string? Description { get; set; }
 
         [Required(ErrorMessage = "Buy price is required")]
@@ -92,7 +93,7 @@ namespace Berca_Backend.DTOs
         public int Stock { get; set; }
 
         [Range(0, int.MaxValue, ErrorMessage = "Minimum stock must be greater than or equal to 0")]
-        public int MinimumStock { get; set; } = 5;
+        public int MinimumStock { get; set; } = 5; // ✅ Include MinimumStock
 
         [StringLength(20, ErrorMessage = "Unit cannot exceed 20 characters")]
         public string Unit { get; set; } = "pcs";
@@ -107,8 +108,9 @@ namespace Berca_Backend.DTOs
     public class StockUpdateRequest
     {
         [Required]
-        [Range(1, int.MaxValue, ErrorMessage = "Quantity must be greater than 0")]
         public int Quantity { get; set; }
+
+        public MutationType MutationType { get; set; }
 
         [Required]
         [StringLength(500, ErrorMessage = "Notes cannot exceed 500 characters")]
@@ -117,6 +119,7 @@ namespace Berca_Backend.DTOs
         [StringLength(50)]
         public string? ReferenceNumber { get; set; }
 
+        [Range(0, double.MaxValue, ErrorMessage = "Unit cost must be greater than or equal to 0")]
         public decimal? UnitCost { get; set; }
     }
 
