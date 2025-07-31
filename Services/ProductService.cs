@@ -1,8 +1,9 @@
-// Services/ProductService.cs - Sprint 2 Product Service Implementation
+﻿// Services/ProductService.cs - Sprint 2 Product Service Implementation
 using Berca_Backend.DTOs;
 using Berca_Backend.Models;
 using Berca_Backend.Data;
 using Microsoft.EntityFrameworkCore;
+using System.ComponentModel.DataAnnotations;
 
 namespace Berca_Backend.Services
 {
@@ -63,7 +64,9 @@ namespace Berca_Backend.Services
                         CategoryColor = p.Category.Color,
                         IsActive = p.IsActive,
                         CreatedAt = p.CreatedAt,
-                        UpdatedAt = p.UpdatedAt
+                        UpdatedAt = p.UpdatedAt,
+                        MinimumStock = p.MinimumStock, // <-- PASTIKAN INI ADA!
+                        // ... properti lain ...
                     })
                     .ToListAsync();
 
@@ -103,7 +106,8 @@ namespace Berca_Backend.Services
                         CategoryColor = p.Category.Color,
                         IsActive = p.IsActive,
                         CreatedAt = p.CreatedAt,
-                        UpdatedAt = p.UpdatedAt
+                        UpdatedAt = p.UpdatedAt,
+                        MinimumStock = p.MinimumStock // <-- PASTIKAN INI ADA!
                     })
                     .FirstOrDefaultAsync();
             }
@@ -134,7 +138,8 @@ namespace Berca_Backend.Services
                         CategoryColor = p.Category.Color,
                         IsActive = p.IsActive,
                         CreatedAt = p.CreatedAt,
-                        UpdatedAt = p.UpdatedAt
+                        UpdatedAt = p.UpdatedAt,
+                        MinimumStock = p.MinimumStock // <-- PASTIKAN INI ADA!
                     })
                     .FirstOrDefaultAsync();
             }
@@ -157,7 +162,9 @@ namespace Berca_Backend.Services
                     BuyPrice = request.BuyPrice,
                     SellPrice = request.SellPrice,
                     CategoryId = request.CategoryId,
-                    IsActive = true,
+                    MinimumStock = request.MinimumStock, // <-- PASTIKAN INI ADA!
+                    Unit = request.Unit,
+                    IsActive = request.IsActive,
                     CreatedAt = DateTime.UtcNow,
                     CreatedBy = createdBy
                 };
@@ -168,6 +175,7 @@ namespace Berca_Backend.Services
                 // Create initial stock mutation if stock > 0
                 if (product.Stock > 0)
                 {
+                    // ✅ FIX: Use the correct method signature with all required parameters
                     await UpdateStockAsync(product.Id, product.Stock, MutationType.StockIn,
                         "Initial stock", null, request.BuyPrice, createdBy);
                 }
@@ -189,8 +197,16 @@ namespace Berca_Backend.Services
                 if (product == null)
                     throw new KeyNotFoundException($"Product with ID {id} not found");
 
+                // Check for barcode uniqueness (excluding current product)
+                var existingBarcode = await _context.Products
+                    .AnyAsync(p => p.Barcode == request.Barcode && p.Id != id);
+
+                if (existingBarcode)
+                    throw new ArgumentException($"Barcode '{request.Barcode}' already exists");
+
                 var oldStock = product.Stock;
 
+                // Update product properties
                 product.Name = request.Name;
                 product.Barcode = request.Barcode;
                 product.BuyPrice = request.BuyPrice;
@@ -199,6 +215,7 @@ namespace Berca_Backend.Services
                 product.IsActive = request.IsActive;
                 product.UpdatedAt = DateTime.UtcNow;
                 product.UpdatedBy = updatedBy;
+                product.MinimumStock = request.MinimumStock; // <-- PASTIKAN INI ADA!
 
                 // Handle stock changes
                 if (request.Stock != oldStock)
@@ -226,78 +243,120 @@ namespace Berca_Backend.Services
 
                 await _context.SaveChangesAsync();
 
-                return await GetProductByIdAsync(id) ?? throw new Exception("Product updated but not found");
+                return await GetProductByIdAsync(id) ??
+                    throw new Exception("Product updated but not found");
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error updating product: {ProductId}", id);
+                _logger.LogError(ex, "❌ Error updating product: {ProductId}", id);
                 throw;
             }
         }
 
+        // ✅ FIX: Interface expects DeleteProductAsync(int id) not DeleteProductAsync(int id, string deletedBy)
         public async Task<bool> DeleteProductAsync(int id)
         {
             try
             {
                 var product = await _context.Products.FindAsync(id);
-                if (product == null) return false;
+                if (product == null)
+                    return false;
 
-                // Soft delete - mark as inactive
+                // Soft delete - mark as deleted
                 product.IsActive = false;
                 product.UpdatedAt = DateTime.UtcNow;
 
                 await _context.SaveChangesAsync();
+
+                _logger.LogInformation("✅ Product {ProductId} deleted successfully", id);
                 return true;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error deleting product: {ProductId}", id);
+                _logger.LogError(ex, "❌ Error deleting product {ProductId}", id);
                 throw;
             }
         }
 
-        public async Task<bool> UpdateStockAsync(int productId, int quantity, MutationType type, string notes,
+        // ✅ FIX: Interface expects this signature
+        public async Task<bool> UpdateStockAsync(int productId, int quantity, MutationType type, string notes, 
             string? referenceNumber = null, decimal? unitCost = null, string? createdBy = null)
         {
+            using var transaction = await _context.Database.BeginTransactionAsync();
+
             try
             {
                 var product = await _context.Products.FindAsync(productId);
-                if (product == null) return false;
+                if (product == null)
+                    return false;
+
+                if (!product.IsActive)
+                    throw new InvalidOperationException("Cannot update stock for inactive product");
 
                 var oldStock = product.Stock;
-                var newStock = type == MutationType.StockIn ? oldStock + quantity : oldStock - quantity;
+                int newStock = oldStock;
+
+                if (quantity == 0)
+                    throw new InvalidOperationException("Quantity must not be zero");
+
+                // Logic: allow negative quantity as long as stock is enough
+                if (quantity < 0)
+                {
+                    if (oldStock < Math.Abs(quantity))
+                        throw new InvalidOperationException($"Insufficient stock. Available: {oldStock}, Requested: {Math.Abs(quantity)}");
+                    newStock = oldStock + quantity; // quantity negative, so stock berkurang
+                    type = MutationType.StockOut;
+                }
+                else
+                {
+                    newStock = oldStock + quantity;
+                    type = MutationType.StockIn;
+                }
 
                 if (newStock < 0)
-                    throw new InvalidOperationException("Insufficient stock");
+                    throw new InvalidOperationException("Stock cannot be negative");
 
                 product.Stock = newStock;
                 product.UpdatedAt = DateTime.UtcNow;
+                product.UpdatedBy = createdBy;
 
                 var mutation = new InventoryMutation
                 {
                     ProductId = productId,
                     Type = type,
-                    Quantity = quantity,
+                    Quantity = Math.Abs(quantity),
                     StockBefore = oldStock,
                     StockAfter = newStock,
                     Notes = notes,
                     ReferenceNumber = referenceNumber,
                     UnitCost = unitCost,
-                    TotalCost = unitCost.HasValue ? unitCost.Value * quantity : null,
+                    TotalCost = unitCost.HasValue ? unitCost.Value * Math.Abs(quantity) : null,
                     CreatedAt = DateTime.UtcNow,
                     CreatedBy = createdBy
                 };
 
                 _context.InventoryMutations.Add(mutation);
                 await _context.SaveChangesAsync();
+                await transaction.CommitAsync();
+
+                _logger.LogInformation("✅ Stock updated: Product {ProductId} from {OldStock} to {NewStock}",
+                    productId, oldStock, newStock);
 
                 return true;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error updating stock for product: {ProductId}", productId);
+                await transaction.RollbackAsync();
+                _logger.LogError(ex, "❌ Error updating stock for product {ProductId}", productId);
                 throw;
             }
+        }
+
+        // ✅ ADD: Overload for StockUpdateRequest to support controller
+        public async Task<bool> UpdateStockAsync(int productId, StockUpdateRequest request, string updatedBy)
+        {
+            return await UpdateStockAsync(productId, request.Quantity, request.MutationType, 
+                request.Notes, request.ReferenceNumber, request.UnitCost, updatedBy);
         }
 
         public async Task<List<ProductDto>> GetLowStockProductsAsync(int threshold = 0)
@@ -320,7 +379,8 @@ namespace Berca_Backend.Services
                         CategoryColor = p.Category.Color,
                         IsActive = p.IsActive,
                         CreatedAt = p.CreatedAt,
-                        UpdatedAt = p.UpdatedAt
+                        UpdatedAt = p.UpdatedAt,
+                        MinimumStock = p.MinimumStock, // <-- PASTIKAN INI ADA!
                     })
                     .ToListAsync();
             }
