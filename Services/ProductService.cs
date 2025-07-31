@@ -11,11 +11,13 @@ namespace Berca_Backend.Services
     {
         private readonly AppDbContext _context;
         private readonly ILogger<ProductService> _logger;
+        private readonly INotificationService? _notificationService; // <-- Tambahkan field ini
 
-        public ProductService(AppDbContext context, ILogger<ProductService> logger)
+        public ProductService(AppDbContext context, ILogger<ProductService> logger, INotificationService? notificationService = null)
         {
             _context = context;
             _logger = logger;
+            _notificationService = notificationService; // <-- Injeksi melalui konstruktor
         }
 
         public async Task<ProductListResponse> GetProductsAsync(int page = 1, int pageSize = 20, string? search = null, int? categoryId = null, bool? isActive = null)
@@ -243,6 +245,32 @@ namespace Berca_Backend.Services
 
                 await _context.SaveChangesAsync();
 
+                // Cek dan kirim notifikasi stok rendah jika perlu
+                if (_notificationService != null && product.Stock <= product.MinimumStock && product.Stock > 0)
+                {
+                    try
+                    {
+                        await _notificationService.CreateLowStockNotificationAsync(product.Id, product.Stock);
+                    }
+                    catch (Exception notifyEx)
+                    {
+                        _logger.LogWarning(notifyEx, "Failed to create low stock notification for product {ProductId}", product.Id);
+                    }
+                }
+
+                // Notifikasi stok habis
+                if (_notificationService != null && product.Stock == 0)
+                {
+                    try
+                    {
+                        await _notificationService.CreateOutOfStockNotificationAsync(product.Id);
+                    }
+                    catch (Exception notifyEx)
+                    {
+                        _logger.LogWarning(notifyEx, "Failed to create out of stock notification for product {ProductId}", product.Id);
+                    }
+                }
+
                 return await GetProductByIdAsync(id) ??
                     throw new Exception("Product updated but not found");
             }
@@ -282,8 +310,6 @@ namespace Berca_Backend.Services
         public async Task<bool> UpdateStockAsync(int productId, int quantity, MutationType type, string notes, 
             string? referenceNumber = null, decimal? unitCost = null, string? createdBy = null)
         {
-            using var transaction = await _context.Database.BeginTransactionAsync();
-
             try
             {
                 var product = await _context.Products.FindAsync(productId);
@@ -299,12 +325,11 @@ namespace Berca_Backend.Services
                 if (quantity == 0)
                     throw new InvalidOperationException("Quantity must not be zero");
 
-                // Logic: allow negative quantity as long as stock is enough
                 if (quantity < 0)
                 {
                     if (oldStock < Math.Abs(quantity))
                         throw new InvalidOperationException($"Insufficient stock. Available: {oldStock}, Requested: {Math.Abs(quantity)}");
-                    newStock = oldStock + quantity; // quantity negative, so stock berkurang
+                    newStock = oldStock + quantity;
                     type = MutationType.StockOut;
                 }
                 else
@@ -337,7 +362,32 @@ namespace Berca_Backend.Services
 
                 _context.InventoryMutations.Add(mutation);
                 await _context.SaveChangesAsync();
-                await transaction.CommitAsync();
+
+                // Trigger low stock notification if needed
+                if (_notificationService != null && product.Stock <= product.MinimumStock)
+                {
+                    try
+                    {
+                        await _notificationService.CreateLowStockNotificationAsync(product.Id, product.Stock);
+                    }
+                    catch (Exception notifyEx)
+                    {
+                        _logger.LogWarning(notifyEx, "Failed to create low stock notification for product {ProductId}", product.Id);
+                    }
+                }
+
+                // Stock adjustment notification
+                if (_notificationService != null && type == MutationType.Adjustment)
+                {
+                    try
+                    {
+                        await _notificationService.CreateStockAdjustmentNotificationAsync(product.Id, quantity, notes);
+                    }
+                    catch (Exception notifyEx)
+                    {
+                        _logger.LogWarning(notifyEx, "Failed to create stock adjustment notification for product {ProductId}", product.Id);
+                    }
+                }
 
                 _logger.LogInformation("✅ Stock updated: Product {ProductId} from {OldStock} to {NewStock}",
                     productId, oldStock, newStock);
@@ -346,7 +396,6 @@ namespace Berca_Backend.Services
             }
             catch (Exception ex)
             {
-                await transaction.RollbackAsync();
                 _logger.LogError(ex, "❌ Error updating stock for product {ProductId}", productId);
                 throw;
             }
@@ -477,6 +526,67 @@ namespace Berca_Backend.Services
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error calculating inventory value");
+                throw;
+            }
+        }
+
+        public async Task NotifySaleCompletedAsync(int saleId, string saleNumber, decimal totalAmount)
+        {
+            try
+            {
+                // 1. Get the sale by ID
+                var sale = await _context.Sales.FindAsync(saleId);
+                if (sale == null)
+                    throw new KeyNotFoundException($"Sale with ID {saleId} not found");
+
+                // 2. Update sale details if needed
+                sale.SaleNumber = saleNumber;
+                sale.Total = totalAmount;
+                sale.UpdatedAt = DateTime.UtcNow;
+
+                // 3. Notify stock updates for each product in the sale
+                foreach (var item in sale.SaleItems)
+                {
+                    var product = await _context.Products.FindAsync(item.ProductId);
+                    if (product != null)
+                    {
+                        product.Stock -= item.Quantity;
+                        product.UpdatedAt = DateTime.UtcNow;
+
+                        // Optional: create inventory mutation records for the sale
+                        var mutation = new InventoryMutation
+                        {
+                            ProductId = product.Id,
+                            Type = MutationType.StockOut,
+                            Quantity = item.Quantity,
+                            StockBefore = product.Stock + item.Quantity,
+                            StockAfter = product.Stock,
+                            Notes = $"Sale completed: {saleId}",
+                            CreatedAt = DateTime.UtcNow
+                        };
+
+                        _context.InventoryMutations.Add(mutation);
+                    }
+                }
+
+                await _context.SaveChangesAsync();
+
+                // Send notification
+                if (_notificationService != null)
+                {
+                    try
+                    {
+                        await _notificationService.CreateSaleCompletedNotificationAsync(sale.Id, sale.SaleNumber, sale.Total);
+                    }
+                    catch (Exception notifyEx)
+                    {
+                        _logger.LogWarning(notifyEx, "Failed to create sale completed notification for sale {SaleId}", sale.Id);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error notifying sale completion: {SaleId}", saleId);
                 throw;
             }
         }

@@ -57,6 +57,7 @@ namespace Berca_Backend.Models
             MutationType.Adjustment => "Penyesuaian",
             MutationType.Damaged => "Rusak",
             MutationType.Expired => "Kedaluwarsa",
+            MutationType.Transfer => "Transfer",
             _ => "Lainnya"
         };
 
@@ -67,16 +68,19 @@ namespace Berca_Backend.Models
         public bool IsStockOut => Quantity < 0;
     }
 
+    /// <summary>
+    /// Jenis mutasi stok. Gunakan string pada JSON agar lebih aman dan mudah dibaca.
+    /// </summary>
     [JsonConverter(typeof(JsonStringEnumConverter))]
     public enum MutationType
     {
-        StockIn,
-        StockOut,
-        Sale,
-        Return,
-        Adjustment,
-        Transfer,
-        Damaged,
-        Expired
+        StockIn,      // "StockIn"
+        StockOut,     // "StockOut"
+        Sale,         // "Sale"
+        Return,       // "Return"
+        Adjustment,   // "Adjustment"
+        Transfer,     // "Transfer"
+        Damaged,      // "Damaged"
+        Expired       // "Expired"
     }
 }

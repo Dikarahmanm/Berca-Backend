@@ -550,5 +550,57 @@ namespace Berca_Backend.Services
                 throw;
             }
         }
+
+        public async Task<bool> CreateOutOfStockNotificationAsync(int productId)
+        {
+            // Contoh implementasi sederhana
+            var product = await _context.Products.FindAsync(productId);
+            if (product == null) return false;
+
+            var notification = new Notification
+            {
+                Type = "OUT_OF_STOCK",
+                Title = $"Stok Habis: {product.Name}",
+                Message = $"Stok produk {product.Name} telah habis.",
+                Priority = NotificationPriority.High, // <-- Perbaiki ini
+                CreatedAt = DateTime.UtcNow
+            };
+            _context.Notifications.Add(notification);
+            await _context.SaveChangesAsync();
+            return true;
+        }
+
+        public async Task<bool> CreateSaleCompletedNotificationAsync(int saleId, string saleNumber, decimal Total)
+        {
+            var notification = new Notification
+            {
+                Type = "SALE_COMPLETED",
+                Title = $"Penjualan Selesai: {saleNumber}",
+                Message = $"Transaksi penjualan #{saleNumber} telah selesai. Total: Rp{Total:N0}",
+                Priority = NotificationPriority.Normal,
+                CreatedAt = DateTime.UtcNow
+            };
+            _context.Notifications.Add(notification);
+            await _context.SaveChangesAsync();
+            return true;
+        }
+
+        public async Task<bool> CreateStockAdjustmentNotificationAsync(int productId, int quantity, string notes)
+        {
+            var product = await _context.Products.FindAsync(productId);
+            if (product == null) return false;
+
+            var notification = new Notification
+            {
+                Type = "ADJUSTMENT",
+                Title = $"Penyesuaian Stok: {product.Name}",
+                Message = $"Stok produk {product.Name} disesuaikan sebanyak {quantity}. Catatan: {notes}",
+                Priority = NotificationPriority.Normal,
+                CreatedAt = DateTime.UtcNow
+            };
+            _context.Notifications.Add(notification);
+            await _context.SaveChangesAsync();
+            return true;
+        }
     }
 }

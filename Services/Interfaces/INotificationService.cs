@@ -30,6 +30,10 @@ namespace Berca_Backend.Services
         // Cleanup
         Task<int> CleanupExpiredNotificationsAsync();
         Task<int> ArchiveOldNotificationsAsync(int daysOld = 30);
+
+        Task<bool> CreateOutOfStockNotificationAsync(int productId);
+        Task<bool> CreateSaleCompletedNotificationAsync(int saleId, string saleNumber, decimal totalAmount);
+        Task<bool> CreateStockAdjustmentNotificationAsync(int productId, int quantity, string notes);
     }
 
     public class NotificationSettingsDto
