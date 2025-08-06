@@ -1,4 +1,4 @@
-// DTOs/DashboardDTOs.cs - Dashboard DTOs (Separate File)
+﻿// DTOs/DashboardDTOs.cs - Dashboard DTOs (Separate File)
 
 namespace Berca_Backend.DTOs
 {
@@ -34,6 +34,14 @@ namespace Berca_Backend.DTOs
         public decimal TotalRevenue { get; set; }
         public decimal TotalProfit { get; set; }
         public int TransactionCount { get; set; }
+        public decimal WeightedScore { get; set; }
+        public decimal NormalizedScore { get; set; } // ✅ ADDED: Score out of 100 (max)
+        public decimal ProfitMargin { get; set; }
+        public decimal AverageQuantityPerTransaction { get; set; }
+        public string PerformanceCategory { get; set; } = string.Empty;
+        public string PerformanceBadgeColor { get; set; } = string.Empty;
+        public DateTime LastSaleDate { get; set; } // ✅ ADDED: For time-based analysis
+        public int DaysSinceLastSale { get; set; } // ✅ ADDED: Days since last sale
     }
 
     public class CategorySalesDto
@@ -191,5 +199,36 @@ namespace Berca_Backend.DTOs
         public int TransactionCount { get; set; }
         public int DaysWithoutSale { get; set; }
         public int CurrentStock { get; set; }
+        public decimal PerformanceScore { get; set; }
+        public decimal NormalizedScore { get; set; } // ✅ ADDED: Score out of 100 (max)
+        public string PerformanceCategory { get; set; } = string.Empty;
+        public DateTime? LastSaleDate { get; set; } // ✅ ADDED
+        public decimal StockTurnoverRatio { get; set; } // ✅ ADDED
+    }
+
+    // Enhanced Time Period Filter
+    public class DateRangeFilter
+    {
+        public DateTime StartDate { get; set; }
+        public DateTime EndDate { get; set; }
+        public string Period { get; set; } = string.Empty; // "today", "yesterday", "week", "month", "year", "custom"
+    }
+
+    // Scoring Configuration
+    public class ScoringConfig
+    {
+        public decimal MaxScore { get; set; } = 100; // ✅ Maximum possible score
+        public bool EnableDailyReset { get; set; } = true; // ✅ Reset scores daily
+        public DateTime LastResetDate { get; set; }
+        public ScoringWeights Weights { get; set; } = new();
+    }
+
+    public class ScoringWeights
+    {
+        public decimal QuantityWeight { get; set; } = 0.40m; // 40%
+        public decimal RevenueWeight { get; set; } = 0.30m;  // 30%  
+        public decimal ProfitWeight { get; set; } = 0.20m;   // 20%
+        public decimal FrequencyWeight { get; set; } = 0.10m; // 10%
+        public decimal TimeDecayFactor { get; set; } = 0.95m; // Daily decay factor
     }
 }

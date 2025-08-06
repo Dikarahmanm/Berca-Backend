@@ -1,8 +1,10 @@
-// Services/MemberService.cs - Sprint 2 Member Service Implementation
+﻿// Services/MemberService.cs - Fixed: All timezone and enum issues
 using Berca_Backend.DTOs;
 using Berca_Backend.Models;
 using Berca_Backend.Data;
 using Microsoft.EntityFrameworkCore;
+using Berca_Backend.Extensions;
+using Berca_Backend.Services.Interfaces;
 
 namespace Berca_Backend.Services
 {
@@ -10,11 +12,13 @@ namespace Berca_Backend.Services
     {
         private readonly AppDbContext _context;
         private readonly ILogger<MemberService> _logger;
+        private readonly ITimezoneService _timezoneService;
 
-        public MemberService(AppDbContext context, ILogger<MemberService> logger)
+        public MemberService(AppDbContext context, ILogger<MemberService> logger, ITimezoneService timezoneService)
         {
             _context = context;
             _logger = logger;
+            _timezoneService = timezoneService; // ✅ FIXED: Remove nullable and throw
         }
 
         public async Task<MemberSearchResponse> SearchMembersAsync(string? search = null, bool? isActive = null, int page = 1, int pageSize = 20)
@@ -33,7 +37,6 @@ namespace Berca_Backend.Services
                        || (m.Email != null && m.Email.Contains(search))
                     );
                 }
-
 
                 if (isActive.HasValue)
                 {
@@ -57,14 +60,14 @@ namespace Berca_Backend.Services
                         DateOfBirth = m.DateOfBirth,
                         Gender = m.Gender,
                         Address = m.Address,
-                        Tier = m.Tier.ToString(),            // enum to string
+                        Tier = m.Tier.ToString(),
                         TotalSpent = m.TotalSpent,
                         IsActive = m.IsActive,
-                        JoinDate = m.JoinDate,               // pakai JoinDate dari model
+                        JoinDate = m.JoinDate,
                         LastTransactionDate = m.LastTransactionDate,
                         TotalPoints = m.TotalPoints,
                         UsedPoints = m.UsedPoints,
-                        AvailablePoints = m.AvailablePoints, // atau bisa Sum poin di MemberPoints, konsistenkan
+                        AvailablePoints = m.AvailablePoints,
                         TotalTransactions = m.TotalTransactions,
                         AverageTransactionValue = m.AverageTransactionValue,
                         CreatedAt = m.CreatedAt,
@@ -104,14 +107,14 @@ namespace Berca_Backend.Services
                         DateOfBirth = m.DateOfBirth,
                         Gender = m.Gender,
                         Address = m.Address,
-                        Tier = m.Tier.ToString(),            // enum to string
+                        Tier = m.Tier.ToString(),
                         TotalSpent = m.TotalSpent,
                         IsActive = m.IsActive,
-                        JoinDate = m.JoinDate,               // pakai JoinDate dari model
+                        JoinDate = m.JoinDate,
                         LastTransactionDate = m.LastTransactionDate,
                         TotalPoints = m.TotalPoints,
                         UsedPoints = m.UsedPoints,
-                        AvailablePoints = m.AvailablePoints, // atau bisa Sum poin di MemberPoints, konsistenkan
+                        AvailablePoints = m.AvailablePoints,
                         TotalTransactions = m.TotalTransactions,
                         AverageTransactionValue = m.AverageTransactionValue,
                         CreatedAt = m.CreatedAt,
@@ -142,14 +145,14 @@ namespace Berca_Backend.Services
                         DateOfBirth = m.DateOfBirth,
                         Gender = m.Gender,
                         Address = m.Address,
-                        Tier = m.Tier.ToString(),            // enum to string
+                        Tier = m.Tier.ToString(),
                         TotalSpent = m.TotalSpent,
                         IsActive = m.IsActive,
-                        JoinDate = m.JoinDate,               // pakai JoinDate dari model
+                        JoinDate = m.JoinDate,
                         LastTransactionDate = m.LastTransactionDate,
                         TotalPoints = m.TotalPoints,
                         UsedPoints = m.UsedPoints,
-                        AvailablePoints = m.AvailablePoints, // atau bisa Sum poin di MemberPoints, konsistenkan
+                        AvailablePoints = m.AvailablePoints,
                         TotalTransactions = m.TotalTransactions,
                         AverageTransactionValue = m.AverageTransactionValue,
                         CreatedAt = m.CreatedAt,
@@ -180,14 +183,14 @@ namespace Berca_Backend.Services
                         DateOfBirth = m.DateOfBirth,
                         Gender = m.Gender,
                         Address = m.Address,
-                        Tier = m.Tier.ToString(),            // enum to string
+                        Tier = m.Tier.ToString(),
                         TotalSpent = m.TotalSpent,
                         IsActive = m.IsActive,
-                        JoinDate = m.JoinDate,               // pakai JoinDate dari model
+                        JoinDate = m.JoinDate,
                         LastTransactionDate = m.LastTransactionDate,
                         TotalPoints = m.TotalPoints,
                         UsedPoints = m.UsedPoints,
-                        AvailablePoints = m.AvailablePoints, // atau bisa Sum poin di MemberPoints, konsistenkan
+                        AvailablePoints = m.AvailablePoints,
                         TotalTransactions = m.TotalTransactions,
                         AverageTransactionValue = m.AverageTransactionValue,
                         CreatedAt = m.CreatedAt,
@@ -206,23 +209,41 @@ namespace Berca_Backend.Services
         {
             try
             {
-                var memberNumber = await GenerateMemberNumberAsync();
+                // Check if phone number already exists
+                var existingMember = await _context.Members
+                    .AnyAsync(m => m.Phone == request.Phone);
+
+                if (existingMember)
+                    throw new ArgumentException($"Phone number '{request.Phone}' already exists");
+
+                // Check if email already exists (if provided)
+                if (!string.IsNullOrEmpty(request.Email))
+                {
+                    var existingEmail = await _context.Members
+                        .AnyAsync(m => m.Email == request.Email);
+
+                    if (existingEmail)
+                        throw new ArgumentException($"Email '{request.Email}' already exists");
+                }
 
                 var member = new Member
                 {
-                    MemberNumber = memberNumber,
+                    MemberNumber = await GenerateMemberNumberAsync(),
                     Name = request.Name,
                     Phone = request.Phone,
                     Email = request.Email,
                     DateOfBirth = request.DateOfBirth,
                     Gender = request.Gender,
                     Address = request.Address,
-                    Tier = MembershipTier.Bronze,  // enum, bukan string
-                    TotalSpent = 0,
+                    JoinDate = _timezoneService.Now, // ✅ FIXED: Use Indonesia time
+                    CreatedAt = _timezoneService.Now, // ✅ FIXED: Use Indonesia time
+                    CreatedBy = createdBy,
                     IsActive = true,
-                    JoinDate = DateTime.UtcNow,
-                    CreatedAt = DateTime.UtcNow,
-                    CreatedBy = createdBy
+                    Tier = MembershipTier.Bronze, // ✅ FIXED: Use MembershipTier instead of MemberTier
+                    TotalPoints = 0,
+                    UsedPoints = 0,
+                    TotalSpent = 0,
+                    TotalTransactions = 0
                 };
 
                 _context.Members.Add(member);
@@ -241,7 +262,6 @@ namespace Berca_Backend.Services
             }
         }
 
-
         public async Task<MemberDto> UpdateMemberAsync(int id, UpdateMemberRequest request, string updatedBy)
         {
             try
@@ -257,7 +277,7 @@ namespace Berca_Backend.Services
                 member.Gender = request.Gender;
                 member.Address = request.Address;
                 member.IsActive = request.IsActive;
-                member.UpdatedAt = DateTime.UtcNow;
+                member.UpdatedAt = _timezoneService.Now; // ✅ FIXED: Use Indonesia time
                 member.UpdatedBy = updatedBy;
 
                 await _context.SaveChangesAsync();
@@ -280,7 +300,7 @@ namespace Berca_Backend.Services
 
                 // Soft delete - mark as inactive
                 member.IsActive = false;
-                member.UpdatedAt = DateTime.UtcNow;
+                member.UpdatedAt = _timezoneService.Now; // ✅ FIXED: Use Indonesia time
 
                 await _context.SaveChangesAsync();
                 return true;
@@ -307,7 +327,7 @@ namespace Berca_Backend.Services
                     Description = description,
                     SaleId = saleId,
                     ReferenceNumber = referenceNumber,
-                    CreatedAt = DateTime.UtcNow,
+                    CreatedAt = _timezoneService.Now, // ✅ FIXED: Use Indonesia time
                     CreatedBy = createdBy
                 };
 
@@ -316,7 +336,7 @@ namespace Berca_Backend.Services
                 // Update member's last transaction date if this is from a sale
                 if (saleId.HasValue)
                 {
-                    member.LastTransactionDate = DateTime.UtcNow;
+                    member.LastTransactionDate = _timezoneService.Now; // ✅ FIXED: Use Indonesia time
                 }
 
                 await _context.SaveChangesAsync();
@@ -344,7 +364,7 @@ namespace Berca_Backend.Services
                     Type = PointTransactionType.Redeem,
                     Description = description,
                     ReferenceNumber = referenceNumber,
-                    CreatedAt = DateTime.UtcNow,
+                    CreatedAt = _timezoneService.Now, // ✅ FIXED: Use Indonesia time
                     CreatedBy = createdBy
                 };
 
@@ -423,7 +443,7 @@ namespace Berca_Backend.Services
                     .SumAsync(mp => mp.Points),
                 AvailablePoints = totalPoints,
                 LastTransactionDate = member.LastTransactionDate,
-                MemberSince = member.JoinDate,       // safe karena member != null
+                MemberSince = member.JoinDate,
                 CurrentTier = member.Tier.ToString()
             };
         }
@@ -442,12 +462,12 @@ namespace Berca_Backend.Services
                     query = query.Where(s => s.SaleDate <= endDate.Value);
 
                 return await query
-                    .GroupBy(s => s.MemberId.Value)
+                    .GroupBy(s => s.MemberId!.Value) // ✅ FIXED: Use ! operator to handle nullable warning
                     .Select(g => new TopMemberDto
                     {
                         MemberId = g.Key,
-                        MemberName = g.First().Member.Name,
-                        MemberNumber = g.First().Member.MemberNumber,
+                        MemberName = g.First().Member!.Name, // ✅ FIXED: Use ! operator
+                        MemberNumber = g.First().Member!.MemberNumber, // ✅ FIXED: Use ! operator
                         TransactionCount = g.Count(),
                         TotalSpent = g.Sum(s => s.Total),
                         AverageTransaction = g.Average(s => s.Total),
@@ -506,7 +526,7 @@ namespace Berca_Backend.Services
                 if (member.Tier != newTier)
                 {
                     member.Tier = newTier;
-                    member.UpdatedAt = DateTime.UtcNow;
+                    member.UpdatedAt = _timezoneService.Now; // ✅ FIXED: Use Indonesia time
                     await _context.SaveChangesAsync();
 
                     var bonusPoints = newTier switch
@@ -521,7 +541,6 @@ namespace Berca_Backend.Services
                             $"Tier upgrade to {newTier}", null, null, "System");
                 }
 
-
                 return true;
             }
             catch (Exception ex)
@@ -532,21 +551,24 @@ namespace Berca_Backend.Services
         }
 
         public async Task<MembershipTier> CalculateMemberTierAsync(decimal totalSpent)
-{
-    // langsung kembalikan enum, bukan string
-    return totalSpent switch
-    {
-        >= 10_000_000 => MembershipTier.Platinum,
-        >=  5_000_000 => MembershipTier.Gold,
-        >=  1_000_000 => MembershipTier.Silver,
-        _             => MembershipTier.Bronze
-    };
-}
+        {
+            // Add await to make it truly async (fixes warning)
+            await Task.CompletedTask; // ✅ FIXED: Add await to avoid warning
+
+            // langsung kembalikan enum, bukan string
+            return totalSpent switch
+            {
+                >= 10_000_000 => MembershipTier.Platinum,
+                >=  5_000_000 => MembershipTier.Gold,
+                >=  1_000_000 => MembershipTier.Silver,
+                _             => MembershipTier.Bronze
+            };
+        }
 
         // Private helper methods
         private async Task<string> GenerateMemberNumberAsync()
         {
-            var year = DateTime.UtcNow.Year;
+            var year = _timezoneService.Now.Year; // ✅ FIXED: Use Indonesia time
             var memberCount = await _context.Members
                 .Where(m => m.CreatedAt.Year == year)
                 .CountAsync();

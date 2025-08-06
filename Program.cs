@@ -4,38 +4,38 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.OpenApi.Models;
 using Berca_Backend.Data;
 using Berca_Backend.Services;
+using Berca_Backend.Services.Interfaces; // ✅ ADDED
 using System.Reflection;
 
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddScoped<IAuthService, AuthService>();
 
-// ✅ Add Entity Framework dengan connection string
+// ✅ Add Entity Framework
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
 
 // ✅ Add controllers
 builder.Services.AddControllers();
 
-// ✅ FIXED CORS - Remove invalid method
+// ✅ CORS Configuration (existing)
 builder.Services.AddCors(options =>
 {
     options.AddDefaultPolicy(policy =>
     {
         policy.WithOrigins(
-                "http://localhost:4200",     // Angular dev server
-                "http://localhost:5173",     // Vite dev server  
-                "https://localhost:4200",    // HTTPS variants
+                "http://localhost:4200",
+                "http://localhost:5173",
+                "https://localhost:4200",
                 "https://localhost:5173"
               )
               .AllowAnyMethod()
               .AllowAnyHeader()
-              .AllowCredentials();          // ✅ Enable credentials for cookies
-        // ✅ REMOVED: SetIsOriginAllowedToReturnTrue() - this method doesn't exist
+              .AllowCredentials();
     });
 });
 
-// ✅ IMPROVED Cookie Authentication Configuration
+// ✅ Authentication (existing)
 builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
     .AddCookie(options =>
     {
@@ -45,20 +45,17 @@ builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationSc
         options.ExpireTimeSpan = TimeSpan.FromHours(8);
         options.SlidingExpiration = true;
 
-        // ✅ DEVELOPMENT-FRIENDLY COOKIE SETTINGS
         options.Cookie.Name = "TokoEniwanAuth";
-        options.Cookie.HttpOnly = false;          // ✅ Allow JS access for debugging
-        options.Cookie.SecurePolicy = CookieSecurePolicy.SameAsRequest; // ✅ Allow HTTP in dev
-        options.Cookie.SameSite = SameSiteMode.Lax;     // ✅ Lax for cross-origin
-        options.Cookie.Domain = null;             // ✅ Don't set domain in dev
-        options.Cookie.Path = "/";                // ✅ Root path
+        options.Cookie.HttpOnly = false;
+        options.Cookie.SecurePolicy = CookieSecurePolicy.SameAsRequest;
+        options.Cookie.SameSite = SameSiteMode.Lax;
+        options.Cookie.Domain = null;
+        options.Cookie.Path = "/";
         options.Cookie.MaxAge = TimeSpan.FromHours(8);
-        options.Cookie.IsEssential = true;        // ✅ Essential for functionality
+        options.Cookie.IsEssential = true;
 
-        // ✅ API-FRIENDLY EVENT HANDLERS
         options.Events.OnRedirectToLogin = context =>
         {
-            // Don't redirect API calls to login page, return 401 instead
             if (context.Request.Path.StartsWithSegments("/api"))
             {
                 context.Response.StatusCode = 401;
@@ -70,7 +67,6 @@ builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationSc
 
         options.Events.OnRedirectToAccessDenied = context =>
         {
-            // Don't redirect API calls, return 403 instead
             if (context.Request.Path.StartsWithSegments("/api"))
             {
                 context.Response.StatusCode = 403;
@@ -81,7 +77,7 @@ builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationSc
         };
     });
 
-// ✅ Policy-Based Authorization (keep existing configuration)
+// ✅ Authorization (existing)
 builder.Services.AddAuthorization(options =>
 {
     // Dashboard Policies
@@ -147,15 +143,20 @@ builder.Services.AddAuthorization(options =>
         policy.RequireRole("Admin"));
 });
 
-// ✅ Register Sprint 2 Services
+// ✅ CRITICAL: Register services in correct dependency order
+builder.Services.AddScoped<ITimezoneService, TimezoneService>(); // ✅ FIRST: No dependencies
+
+// ✅ Services that depend only on basic services
 builder.Services.AddScoped<IProductService, ProductService>();
-builder.Services.AddScoped<IPOSService, POSService>();
-builder.Services.AddScoped<IMemberService, MemberService>();
-builder.Services.AddScoped<INotificationService, NotificationService>();
 builder.Services.AddScoped<IDashboardService, DashboardService>();
 builder.Services.AddScoped<ICategoryService, CategoryService>();
+builder.Services.AddScoped<INotificationService, NotificationService>();
+builder.Services.AddScoped<IMemberService, MemberService>();
 
-// ✅ Add Swagger for API documentation
+// ✅ Services that depend on multiple other services
+builder.Services.AddScoped<IPOSService, POSService>(); // Depends on IProductService, IMemberService, ITimezoneService
+
+// ✅ Add Swagger
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>
 {
@@ -213,7 +214,7 @@ builder.Services.Configure<CookiePolicyOptions>(options =>
 
 var app = builder.Build();
 
-// ✅ Enable static files untuk serving uploaded images
+// ✅ Enable static files
 app.UseStaticFiles();
 
 // ✅ Enable Swagger in development and staging
@@ -231,11 +232,11 @@ if (app.Environment.IsDevelopment() || app.Environment.IsStaging())
     });
 }
 
-// ✅ CRITICAL: Middleware pipeline order (VERY IMPORTANT!)
-app.UseCors();              // ✅ 1. CORS first
-app.UseCookiePolicy();      // ✅ 2. Cookie policy
-app.UseAuthentication();    // ✅ 3. Authentication
-app.UseAuthorization();     // ✅ 4. Authorization
+// ✅ Middleware pipeline order
+app.UseCors();
+app.UseCookiePolicy();
+app.UseAuthentication();
+app.UseAuthorization();
 
 // ✅ Map controllers
 app.MapControllers();

@@ -1,8 +1,10 @@
-﻿// Services/NotificationService.cs - Sprint 2 Notification Service Implementation
+﻿// Services/NotificationService.cs - Fixed: Expression tree lambda cannot contain null propagating operator
 using Berca_Backend.DTOs;
 using Berca_Backend.Models;
 using Berca_Backend.Data;
 using Microsoft.EntityFrameworkCore;
+using Berca_Backend.Extensions;
+using Berca_Backend.Services.Interfaces;
 
 namespace Berca_Backend.Services
 {
@@ -10,11 +12,13 @@ namespace Berca_Backend.Services
     {
         private readonly AppDbContext _context;
         private readonly ILogger<NotificationService> _logger;
+        private readonly ITimezoneService _timezoneService;
 
-        public NotificationService(AppDbContext context, ILogger<NotificationService> logger)
+        public NotificationService(AppDbContext context, ILogger<NotificationService> logger, ITimezoneService timezoneService)
         {
             _context = context;
             _logger = logger;
+            _timezoneService = timezoneService;
         }
 
         public async Task<List<NotificationDto>> GetUserNotificationsAsync(int userId, bool? isRead = null, int page = 1, int pageSize = 20)
@@ -22,7 +26,7 @@ namespace Berca_Backend.Services
             try
             {
                 var query = _context.Notifications
-                    .Where(n => n.UserId == userId || n.UserId == null); // Include broadcast notifications
+                    .Where(n => n.UserId == userId || n.UserId == null);
 
                 if (isRead.HasValue)
                 {
@@ -41,7 +45,7 @@ namespace Berca_Backend.Services
                         Message = n.Message,
                         ActionUrl = n.ActionUrl,
                         IsRead = n.IsRead,
-                        Priority = n.Priority.ToString(),
+                        Priority = n.Priority != null ? n.Priority.ToString() : "Normal", // ✅ FIXED: Use != null instead of ?.
                         CreatedAt = n.CreatedAt,
                         ReadAt = n.ReadAt
                     })
@@ -76,7 +80,7 @@ namespace Berca_Backend.Services
                         Message = n.Message,
                         ActionUrl = n.ActionUrl,
                         IsRead = n.IsRead,
-                        Priority = n.Priority.ToString(),
+                        Priority = n.Priority != null ? n.Priority.ToString() : "Normal", // ✅ FIXED: Use != null instead of ?.
                         CreatedAt = n.CreatedAt,
                         ReadAt = n.ReadAt
                     })
@@ -100,7 +104,6 @@ namespace Berca_Backend.Services
         {
             try
             {
-                // 1. Safely parse incoming string into enum, default to Normal
                 var priorityEnum = NotificationPriority.Normal;
                 if (!string.IsNullOrWhiteSpace(request.Priority) &&
                     Enum.TryParse<NotificationPriority>(request.Priority, true, out var parsedPriority))
@@ -117,7 +120,7 @@ namespace Berca_Backend.Services
                     ActionUrl = request.ActionUrl,
                     Priority = priorityEnum,
                     IsRead = false,
-                    CreatedAt = DateTime.UtcNow,
+                    CreatedAt = _timezoneService.Now,
                     CreatedBy = createdBy,
                     ExpiryDate = request.ExpiryDate
                 };
@@ -125,7 +128,9 @@ namespace Berca_Backend.Services
                 _context.Notifications.Add(notification);
                 await _context.SaveChangesAsync();
 
-                // 2. When mapping back to DTO, emit the enum as its string name
+                // ✅ FIXED: Handle nullable outside of expression tree
+                var priorityString = notification.Priority?.ToString() ?? "Normal";
+
                 return new NotificationDto
                 {
                     Id = notification.Id,
@@ -135,7 +140,7 @@ namespace Berca_Backend.Services
                     ActionUrl = notification.ActionUrl,
                     ActionText = notification.ActionText,
                     IsRead = notification.IsRead,
-                    Priority = notification.Priority.ToString(),
+                    Priority = priorityString, // ✅ Use pre-calculated string
                     CreatedAt = notification.CreatedAt,
                     ReadAt = notification.ReadAt,
                     TimeAgo = notification.TimeAgo,
@@ -149,8 +154,6 @@ namespace Berca_Backend.Services
             }
         }
 
-
-
         public async Task<bool> MarkAsReadAsync(int notificationId, int userId)
         {
             try
@@ -162,7 +165,7 @@ namespace Berca_Backend.Services
                 if (notification == null) return false;
 
                 notification.IsRead = true;
-                notification.ReadAt = DateTime.UtcNow;
+                notification.ReadAt = _timezoneService.Now;
 
                 await _context.SaveChangesAsync();
                 return true;
@@ -182,10 +185,12 @@ namespace Berca_Backend.Services
                     .Where(n => (n.UserId == userId || n.UserId == null) && !n.IsRead)
                     .ToListAsync();
 
+                var readTime = _timezoneService.Now;
+
                 foreach (var notification in notifications)
                 {
                     notification.IsRead = true;
-                    notification.ReadAt = DateTime.UtcNow;
+                    notification.ReadAt = readTime;
                 }
 
                 await _context.SaveChangesAsync();
@@ -229,25 +234,27 @@ namespace Berca_Backend.Services
 
                 if (product == null) return false;
 
-                // Check if similar notification already exists today
-                var today = DateTime.UtcNow.Date;
+                var today = _timezoneService.Today;
+                var todayStart = today;
+                var todayEnd = today.AddDays(1).AddTicks(-1);
+
                 var existingNotification = await _context.Notifications
                     .AnyAsync(n => n.Type == "low_stock" &&
                                  n.Message.Contains(product.Name) &&
-                                 n.CreatedAt.Date == today);
+                                 n.CreatedAt >= todayStart && n.CreatedAt <= todayEnd);
 
-                if (existingNotification) return false; // Avoid spam
+                if (existingNotification) return false;
 
                 var notification = new Notification
                 {
-                    UserId = null, // Broadcast to all users
+                    UserId = null,
                     Type = "low_stock",
                     Title = "Stok Produk Rendah",
                     Message = $"Stok {product.Name} tersisa {currentStock} unit. Segera lakukan restok.",
                     ActionUrl = $"/inventory/products/{productId}",
                     Priority = NotificationPriority.High,
                     IsRead = false,
-                    CreatedAt = DateTime.UtcNow,
+                    CreatedAt = _timezoneService.Now,
                     CreatedBy = "System"
                 };
 
@@ -271,14 +278,14 @@ namespace Berca_Backend.Services
 
                 var notification = new Notification
                 {
-                    UserId = null, // Broadcast to all users
+                    UserId = null,
                     Type = "monthly_revenue",
                     Title = "Laporan Pendapatan Bulanan",
                     Message = $"Pendapatan bulan {monthName}: {formattedRevenue}",
                     ActionUrl = $"/dashboard/reports?month={month:yyyy-MM}",
                     Priority = NotificationPriority.Normal,
                     IsRead = false,
-                    CreatedAt = DateTime.UtcNow,
+                    CreatedAt = _timezoneService.Now,
                     CreatedBy = "System"
                 };
 
@@ -299,14 +306,14 @@ namespace Berca_Backend.Services
             {
                 var notification = new Notification
                 {
-                    UserId = null, // Broadcast to all users
+                    UserId = null,
                     Type = "inventory_audit",
                     Title = "Audit Inventori Diperlukan",
                     Message = "Saatnya melakukan audit inventori bulanan. Silakan periksa dan sesuaikan stok fisik.",
                     ActionUrl = "/inventory/audit",
                     Priority = NotificationPriority.High,
                     IsRead = false,
-                    CreatedAt = DateTime.UtcNow,
+                    CreatedAt = _timezoneService.Now,
                     CreatedBy = "System"
                 };
 
@@ -329,14 +336,14 @@ namespace Berca_Backend.Services
 
                 var notification = new Notification
                 {
-                    UserId = null, // Broadcast to all users
+                    UserId = null,
                     Type = "system_maintenance",
                     Title = "Pemeliharaan Sistem Terjadwal",
                     Message = $"Pemeliharaan sistem akan dilakukan pada {formattedTime}. {message}",
                     ActionUrl = null,
                     Priority = NotificationPriority.High,
                     IsRead = false,
-                    CreatedAt = DateTime.UtcNow,
+                    CreatedAt = _timezoneService.Now,
                     CreatedBy = "System"
                 };
 
@@ -357,14 +364,14 @@ namespace Berca_Backend.Services
             {
                 var notification = new Notification
                 {
-                    UserId = null, // Broadcast
+                    UserId = null,
                     Type = type,
                     Title = title,
                     Message = message,
                     ActionUrl = actionUrl,
                     Priority = NotificationPriority.Normal,
                     IsRead = false,
-                    CreatedAt = DateTime.UtcNow,
+                    CreatedAt = _timezoneService.Now,
                     CreatedBy = "System"
                 };
 
@@ -388,6 +395,8 @@ namespace Berca_Backend.Services
                     .Select(u => u.Id)
                     .ToListAsync();
 
+                var createdAt = _timezoneService.Now;
+
                 var notifications = users.Select(userId => new Notification
                 {
                     UserId = userId,
@@ -397,7 +406,7 @@ namespace Berca_Backend.Services
                     ActionUrl = actionUrl,
                     Priority = NotificationPriority.Normal,
                     IsRead = false,
-                    CreatedAt = DateTime.UtcNow,
+                    CreatedAt = createdAt,
                     CreatedBy = "System"
                 }).ToList();
 
@@ -421,7 +430,6 @@ namespace Berca_Backend.Services
 
                 if (settings == null)
                 {
-                    // Return default settings
                     return new NotificationSettingsDto
                     {
                         EmailEnabled = true,
@@ -433,8 +441,8 @@ namespace Berca_Backend.Services
                         InAppSales = true,
                         InAppSystem = true,
                         LowStockThreshold = 10,
-                        QuietHoursStart = new TimeSpan(22, 0, 0), // 10 PM
-                        QuietHoursEnd = new TimeSpan(6, 0, 0)     // 6 AM
+                        QuietHoursStart = new TimeSpan(22, 0, 0),
+                        QuietHoursEnd = new TimeSpan(6, 0, 0)
                     };
                 }
 
@@ -467,12 +475,14 @@ namespace Berca_Backend.Services
                 var settings = await _context.UserNotificationSettings
                     .FirstOrDefaultAsync(s => s.UserId == userId);
 
+                var currentTime = _timezoneService.Now;
+
                 if (settings == null)
                 {
                     settings = new UserNotificationSettings
                     {
                         UserId = userId,
-                        CreatedAt = DateTime.UtcNow
+                        CreatedAt = currentTime
                     };
                     _context.UserNotificationSettings.Add(settings);
                 }
@@ -488,7 +498,7 @@ namespace Berca_Backend.Services
                 settings.LowStockThreshold = request.LowStockThreshold;
                 settings.QuietHoursStart = request.QuietHoursStart;
                 settings.QuietHoursEnd = request.QuietHoursEnd;
-                settings.UpdatedAt = DateTime.UtcNow;
+                settings.UpdatedAt = currentTime;
 
                 await _context.SaveChangesAsync();
                 return true;
@@ -504,7 +514,7 @@ namespace Berca_Backend.Services
         {
             try
             {
-                var expiredDate = DateTime.UtcNow.AddDays(-90); // 90 days old
+                var expiredDate = _timezoneService.Now.AddDays(-90);
 
                 var expiredNotifications = await _context.Notifications
                     .Where(n => n.CreatedAt < expiredDate && n.IsRead)
@@ -527,7 +537,8 @@ namespace Berca_Backend.Services
         {
             try
             {
-                var archiveDate = DateTime.UtcNow.AddDays(-daysOld);
+                var archiveDate = _timezoneService.Now.AddDays(-daysOld);
+                var archiveTime = _timezoneService.Now;
 
                 var oldNotifications = await _context.Notifications
                     .Where(n => n.CreatedAt < archiveDate && n.IsRead)
@@ -536,7 +547,7 @@ namespace Berca_Backend.Services
                 foreach (var notification in oldNotifications)
                 {
                     notification.IsArchived = true;
-                    notification.ArchivedAt = DateTime.UtcNow;
+                    notification.ArchivedAt = archiveTime;
                 }
 
                 await _context.SaveChangesAsync();
@@ -553,54 +564,77 @@ namespace Berca_Backend.Services
 
         public async Task<bool> CreateOutOfStockNotificationAsync(int productId)
         {
-            // Contoh implementasi sederhana
-            var product = await _context.Products.FindAsync(productId);
-            if (product == null) return false;
-
-            var notification = new Notification
+            try
             {
-                Type = "OUT_OF_STOCK",
-                Title = $"Stok Habis: {product.Name}",
-                Message = $"Stok produk {product.Name} telah habis.",
-                Priority = NotificationPriority.High, // <-- Perbaiki ini
-                CreatedAt = DateTime.UtcNow
-            };
-            _context.Notifications.Add(notification);
-            await _context.SaveChangesAsync();
-            return true;
+                var product = await _context.Products.FindAsync(productId);
+                if (product == null) return false;
+
+                var notification = new Notification
+                {
+                    Type = "OUT_OF_STOCK",
+                    Title = $"Stok Habis: {product.Name}",
+                    Message = $"Stok produk {product.Name} telah habis.",
+                    Priority = NotificationPriority.High,
+                    CreatedAt = _timezoneService.Now
+                };
+                _context.Notifications.Add(notification);
+                await _context.SaveChangesAsync();
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error creating out of stock notification for product: {ProductId}", productId);
+                throw;
+            }
         }
 
-        public async Task<bool> CreateSaleCompletedNotificationAsync(int saleId, string saleNumber, decimal Total)
+        public async Task<bool> CreateSaleCompletedNotificationAsync(int saleId, string saleNumber, decimal totalAmount)
         {
-            var notification = new Notification
+            try
             {
-                Type = "SALE_COMPLETED",
-                Title = $"Penjualan Selesai: {saleNumber}",
-                Message = $"Transaksi penjualan #{saleNumber} telah selesai. Total: Rp{Total:N0}",
-                Priority = NotificationPriority.Normal,
-                CreatedAt = DateTime.UtcNow
-            };
-            _context.Notifications.Add(notification);
-            await _context.SaveChangesAsync();
-            return true;
+                var notification = new Notification
+                {
+                    Type = "SALE_COMPLETED",
+                    Title = $"Penjualan Selesai: {saleNumber}",
+                    Message = $"Transaksi penjualan #{saleNumber} telah selesai. Total: Rp{totalAmount:N0}",
+                    Priority = NotificationPriority.Normal,
+                    CreatedAt = _timezoneService.Now
+                };
+                _context.Notifications.Add(notification);
+                await _context.SaveChangesAsync();
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error creating sale completed notification for sale: {SaleId}", saleId);
+                throw;
+            }
         }
 
         public async Task<bool> CreateStockAdjustmentNotificationAsync(int productId, int quantity, string notes)
         {
-            var product = await _context.Products.FindAsync(productId);
-            if (product == null) return false;
-
-            var notification = new Notification
+            try
             {
-                Type = "ADJUSTMENT",
-                Title = $"Penyesuaian Stok: {product.Name}",
-                Message = $"Stok produk {product.Name} disesuaikan sebanyak {quantity}. Catatan: {notes}",
-                Priority = NotificationPriority.Normal,
-                CreatedAt = DateTime.UtcNow
-            };
-            _context.Notifications.Add(notification);
-            await _context.SaveChangesAsync();
-            return true;
+                var product = await _context.Products.FindAsync(productId);
+                if (product == null) return false;
+
+                var notification = new Notification
+                {
+                    Type = "ADJUSTMENT",
+                    Title = $"Penyesuaian Stok: {product.Name}",
+                    Message = $"Stok produk {product.Name} disesuaikan sebanyak {quantity}. Catatan: {notes}",
+                    Priority = NotificationPriority.Normal,
+                    CreatedAt = _timezoneService.Now
+                };
+                _context.Notifications.Add(notification);
+                await _context.SaveChangesAsync();
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error creating stock adjustment notification for product: {ProductId}", productId);
+                throw;
+            }
         }
     }
 }

@@ -1,9 +1,11 @@
-﻿// Services/ProductService.cs - Sprint 2 Product Service Implementation
+﻿// Services/ProductService.cs - Fixed constructor and timezone usage
 using Berca_Backend.DTOs;
 using Berca_Backend.Models;
 using Berca_Backend.Data;
 using Microsoft.EntityFrameworkCore;
 using System.ComponentModel.DataAnnotations;
+using Berca_Backend.Extensions;
+using Berca_Backend.Services.Interfaces;
 
 namespace Berca_Backend.Services
 {
@@ -11,13 +13,19 @@ namespace Berca_Backend.Services
     {
         private readonly AppDbContext _context;
         private readonly ILogger<ProductService> _logger;
-        private readonly INotificationService? _notificationService; // <-- Tambahkan field ini
+        private readonly INotificationService? _notificationService;
+        private readonly ITimezoneService _timezoneService;
 
-        public ProductService(AppDbContext context, ILogger<ProductService> logger, INotificationService? notificationService = null)
+        public ProductService(
+            AppDbContext context, 
+            ILogger<ProductService> logger, 
+            INotificationService? notificationService = null,
+            ITimezoneService? timezoneService = null)
         {
             _context = context;
             _logger = logger;
-            _notificationService = notificationService; // <-- Injeksi melalui konstruktor
+            _notificationService = notificationService;
+            _timezoneService = timezoneService ?? throw new ArgumentNullException(nameof(timezoneService)); // ✅ FIXED
         }
 
         public async Task<ProductListResponse> GetProductsAsync(int page = 1, int pageSize = 20, string? search = null, int? categoryId = null, bool? isActive = null)
@@ -164,10 +172,10 @@ namespace Berca_Backend.Services
                     BuyPrice = request.BuyPrice,
                     SellPrice = request.SellPrice,
                     CategoryId = request.CategoryId,
-                    MinimumStock = request.MinimumStock, // <-- PASTIKAN INI ADA!
+                    MinimumStock = request.MinimumStock,
                     Unit = request.Unit,
                     IsActive = request.IsActive,
-                    CreatedAt = DateTime.UtcNow,
+                    CreatedAt = _timezoneService.Now, // ✅ FIXED: Use Indonesia time directly
                     CreatedBy = createdBy
                 };
 
@@ -177,7 +185,6 @@ namespace Berca_Backend.Services
                 // Create initial stock mutation if stock > 0
                 if (product.Stock > 0)
                 {
-                    // ✅ FIX: Use the correct method signature with all required parameters
                     await UpdateStockAsync(product.Id, product.Stock, MutationType.StockIn,
                         "Initial stock", null, request.BuyPrice, createdBy);
                 }
@@ -215,9 +222,9 @@ namespace Berca_Backend.Services
                 product.SellPrice = request.SellPrice;
                 product.CategoryId = request.CategoryId;
                 product.IsActive = request.IsActive;
-                product.UpdatedAt = DateTime.UtcNow;
+                product.UpdatedAt = _timezoneService.Now; // ✅ FIXED: Use Indonesia time directly
                 product.UpdatedBy = updatedBy;
-                product.MinimumStock = request.MinimumStock; // <-- PASTIKAN INI ADA!
+                product.MinimumStock = request.MinimumStock;
 
                 // Handle stock changes
                 if (request.Stock != oldStock)
@@ -236,7 +243,7 @@ namespace Berca_Backend.Services
                         StockBefore = oldStock,
                         StockAfter = request.Stock,
                         Notes = "Stock adjustment via product update",
-                        CreatedAt = DateTime.UtcNow,
+                        CreatedAt = _timezoneService.Now, // ✅ FIXED: Use Indonesia time directly
                         CreatedBy = updatedBy
                     };
 
@@ -272,6 +279,7 @@ namespace Berca_Backend.Services
                 }
 
                 return await GetProductByIdAsync(id) ??
+//# sourceMappingURL=Services/ProductService.cs.map
                     throw new Exception("Product updated but not found");
             }
             catch (Exception ex)
@@ -292,7 +300,7 @@ namespace Berca_Backend.Services
 
                 // Soft delete - mark as deleted
                 product.IsActive = false;
-                product.UpdatedAt = DateTime.UtcNow;
+                product.UpdatedAt = _timezoneService.Now; // ✅ FIXED: Use Indonesia time directly
 
                 await _context.SaveChangesAsync();
 
@@ -325,24 +333,45 @@ namespace Berca_Backend.Services
                 if (quantity == 0)
                     throw new InvalidOperationException("Quantity must not be zero");
 
-                if (quantity < 0)
+                // Stock calculation logic (existing)
+                switch (type)
                 {
-                    if (oldStock < Math.Abs(quantity))
-                        throw new InvalidOperationException($"Insufficient stock. Available: {oldStock}, Requested: {Math.Abs(quantity)}");
-                    newStock = oldStock + quantity;
-                    type = MutationType.StockOut;
-                }
-                else
-                {
-                    newStock = oldStock + quantity;
-                    type = MutationType.StockIn;
+                    case MutationType.StockIn:
+                    case MutationType.Return:
+                        newStock = oldStock + Math.Abs(quantity);
+                        break;
+                        
+                    case MutationType.StockOut:
+                    case MutationType.Sale:
+                        var absQuantity = Math.Abs(quantity);
+                        if (oldStock < absQuantity)
+                            throw new InvalidOperationException($"Insufficient stock. Available: {oldStock}, Requested: {absQuantity}");
+                        newStock = oldStock - absQuantity;
+                        break;
+                        
+                    case MutationType.Adjustment:
+                        if (quantity < 0 && oldStock < Math.Abs(quantity))
+                            throw new InvalidOperationException($"Insufficient stock. Available: {oldStock}, Requested: {Math.Abs(quantity)}");
+                        newStock = oldStock + quantity;
+                        break;
+                        
+                    case MutationType.Damaged:
+                    case MutationType.Expired:
+                        var damageQuantity = Math.Abs(quantity);
+                        if (oldStock < damageQuantity)
+                            throw new InvalidOperationException($"Insufficient stock. Available: {oldStock}, Requested: {damageQuantity}");
+                        newStock = oldStock - damageQuantity;
+                        break;
+                        
+                    default:
+                        throw new InvalidOperationException($"Unsupported mutation type: {type}");
                 }
 
                 if (newStock < 0)
                     throw new InvalidOperationException("Stock cannot be negative");
 
                 product.Stock = newStock;
-                product.UpdatedAt = DateTime.UtcNow;
+                product.UpdatedAt = _timezoneService.Now; // ✅ FIXED: Use Indonesia time directly
                 product.UpdatedBy = createdBy;
 
                 var mutation = new InventoryMutation
@@ -356,7 +385,7 @@ namespace Berca_Backend.Services
                     ReferenceNumber = referenceNumber,
                     UnitCost = unitCost,
                     TotalCost = unitCost.HasValue ? unitCost.Value * Math.Abs(quantity) : null,
-                    CreatedAt = DateTime.UtcNow,
+                    CreatedAt = _timezoneService.Now, // ✅ FIXED: Use Indonesia time directly
                     CreatedBy = createdBy
                 };
 
@@ -389,8 +418,8 @@ namespace Berca_Backend.Services
                     }
                 }
 
-                _logger.LogInformation("✅ Stock updated: Product {ProductId} from {OldStock} to {NewStock}",
-                    productId, oldStock, newStock);
+                _logger.LogInformation("✅ Stock updated: Product {ProductId} from {OldStock} to {NewStock} (Type: {Type})",
+                    productId, oldStock, newStock, type);
 
                 return true;
             }

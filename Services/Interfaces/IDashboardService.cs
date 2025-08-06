@@ -1,4 +1,4 @@
-// Services/IDashboardService.cs - Sprint 2 Dashboard Service Interface
+﻿// Services/IDashboardService.cs - Sprint 2 Dashboard Service Interface
 using Berca_Backend.DTOs;
 
 namespace Berca_Backend.Services
@@ -11,7 +11,7 @@ namespace Berca_Backend.Services
         Task<List<ChartDataDto>> GetRevenueChartDataAsync(string period = "monthly", DateTime? startDate = null, DateTime? endDate = null);
 
         // Product Analytics
-        Task<List<TopProductDto>> GetTopSellingProductsAsync(int count = 10, DateTime? startDate = null, DateTime? endDate = null);
+        Task<List<TopProductDto>> GetTopSellingProductsAsync(int count = 10, DateTime? startDate = null, DateTime? endDate = null, string sortBy = "quantity"); // ✅ ADDED sortBy parameter
         Task<List<WorstProductDto>> GetWorstPerformingProductsAsync(int count = 10, DateTime? startDate = null, DateTime? endDate = null);
         Task<List<ProductDto>> GetLowStockAlertsAsync();
         Task<List<CategorySalesDto>> GetCategorySalesAsync(DateTime? startDate = null, DateTime? endDate = null);
