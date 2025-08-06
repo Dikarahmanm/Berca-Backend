@@ -408,6 +408,274 @@ namespace Berca_Backend.Services
             }
         }
 
+        public async Task<List<WorstProductDto>> GetWorstPerformingProductsAsync(int count = 10, DateTime? startDate = null, DateTime? endDate = null)
+        {
+            try
+            {
+                var start = startDate ?? DateTime.UtcNow.AddDays(-30);
+                var end = endDate ?? DateTime.UtcNow;
+
+                // Get products with sales data
+                var productSales = await _context.SaleItems
+                    .Include(si => si.Sale)
+                    .Include(si => si.Product)
+                    .Where(si => si.Sale.SaleDate >= start && si.Sale.SaleDate <= end && si.Sale.Status == SaleStatus.Completed)
+                    .GroupBy(si => si.ProductId)
+                    .Select(g => new
+                    {
+                        ProductId = g.Key,
+                        ProductName = g.First().Product.Name,
+                        ProductBarcode = g.First().Product.Barcode,
+                        TotalQuantitySold = g.Sum(si => si.Quantity),
+                        TotalRevenue = g.Sum(si => si.Subtotal),
+                        TotalProfit = g.Sum(si => (si.UnitPrice - si.UnitCost) * si.Quantity - si.DiscountAmount),
+                        TransactionCount = g.Count(),
+                        CurrentStock = g.First().Product.Stock
+                    })
+                    .OrderBy(p => p.TotalQuantitySold) // Worst performers first
+                    .Take(count)
+                    .ToListAsync();
+
+                // Calculate days without sale
+                var results = new List<WorstProductDto>();
+                foreach (var product in productSales)
+                {
+                    var lastSale = await _context.SaleItems
+                        .Include(si => si.Sale)
+                        .Where(si => si.ProductId == product.ProductId && si.Sale.Status == SaleStatus.Completed)
+                        .OrderByDescending(si => si.Sale.SaleDate)
+                        .FirstOrDefaultAsync();
+
+                    var daysWithoutSale = lastSale != null 
+                        ? (DateTime.UtcNow.Date - lastSale.Sale.SaleDate.Date).Days 
+                        : 9999; // Very high number for products never sold
+
+                    results.Add(new WorstProductDto
+                    {
+                        ProductId = product.ProductId,
+                        ProductName = product.ProductName,
+                        ProductBarcode = product.ProductBarcode,
+                        TotalQuantitySold = product.TotalQuantitySold,
+                        TotalRevenue = product.TotalRevenue,
+                        TotalProfit = product.TotalProfit,
+                        TransactionCount = product.TransactionCount,
+                        DaysWithoutSale = daysWithoutSale,
+                        CurrentStock = product.CurrentStock
+                    });
+                }
+
+                return results.OrderBy(r => r.TotalQuantitySold).ToList();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting worst performing products");
+                throw;
+            }
+        }
+
+        public async Task<FinancialReportDto> GenerateFinancialReportAsync(DateTime startDate, DateTime endDate)
+        {
+            try
+            {
+                var sales = await _context.Sales
+                    .Include(s => s.SaleItems)
+                    .Where(s => s.SaleDate >= startDate && s.SaleDate <= endDate && s.Status == SaleStatus.Completed)
+                    .ToListAsync();
+
+                var totalRevenue = sales.Sum(s => s.Total);
+                // ✅ FIXED: Calculate from SaleItems directly to avoid database translation issues
+                var totalCost = sales.SelectMany(s => s.SaleItems).Sum(si => si.UnitCost * si.Quantity);
+                var grossProfit = totalRevenue - totalCost;
+                var grossProfitMargin = totalRevenue > 0 ? (grossProfit / totalRevenue) * 100 : 0;
+                var totalTax = sales.Sum(s => s.TaxAmount); // ✅ FIXED: Use TaxAmount instead of Tax
+                var netProfit = grossProfit - totalTax;
+
+                // Monthly breakdown
+                var monthlyBreakdown = sales
+                    .GroupBy(s => new { s.SaleDate.Year, s.SaleDate.Month })
+                    .Select(g => new MonthlyProfitDto
+                    {
+                        Year = g.Key.Year,
+                        Month = g.Key.Month,
+                        MonthName = new DateTime(g.Key.Year, g.Key.Month, 1).ToString("MMMM yyyy"),
+                        Revenue = g.Sum(s => s.Total),
+                        // ✅ FIXED: Calculate cost from SaleItems
+                        Cost = g.SelectMany(s => s.SaleItems).Sum(si => si.UnitCost * si.Quantity),
+                        Profit = g.Sum(s => s.Total) - g.SelectMany(s => s.SaleItems).Sum(si => si.UnitCost * si.Quantity)
+                    })
+                    .OrderBy(m => m.Year).ThenBy(m => m.Month)
+                    .ToList();
+
+                return new FinancialReportDto
+                {
+                    StartDate = startDate,
+                    EndDate = endDate,
+                    TotalRevenue = totalRevenue,
+                    TotalCost = totalCost,
+                    GrossProfit = grossProfit,
+                    GrossProfitMargin = grossProfitMargin,
+                    TotalTax = totalTax,
+                    NetProfit = netProfit,
+                    MonthlyBreakdown = monthlyBreakdown,
+                    GeneratedAt = DateTime.UtcNow
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error generating financial report");
+                throw;
+            }
+        }
+
+        public async Task<CustomerReportDto> GenerateCustomerReportAsync(DateTime startDate, DateTime endDate)
+        {
+            try
+            {
+                var salesInPeriod = await _context.Sales
+                    .Include(s => s.Member)
+                    .Where(s => s.SaleDate >= startDate && s.SaleDate <= endDate && s.Status == SaleStatus.Completed)
+                    .ToListAsync();
+
+                var totalActiveMembers = await _context.Members.CountAsync(m => m.IsActive);
+                var newMembers = await _context.Members
+                    .CountAsync(m => m.CreatedAt >= startDate && m.CreatedAt <= endDate);
+
+                var memberSales = salesInPeriod.Where(s => s.MemberId.HasValue);
+                var guestSales = salesInPeriod.Where(s => !s.MemberId.HasValue);
+
+                var averageOrderValue = salesInPeriod.Any() ? salesInPeriod.Average(s => s.Total) : 0;
+                var totalMemberRevenue = memberSales.Sum(s => s.Total);
+                var guestRevenue = guestSales.Sum(s => s.Total);
+
+                // Top customers
+                var topCustomers = salesInPeriod
+                    .GroupBy(s => new { s.MemberId, s.CustomerName })
+                    .Select(g => new TopCustomerDto
+                    {
+                        MemberId = g.Key.MemberId,
+                        CustomerName = g.Key.CustomerName ?? "Guest",
+                        MembershipType = g.Key.MemberId.HasValue ? "Member" : "Guest",
+                        TotalSpent = g.Sum(s => s.Total),
+                        TransactionCount = g.Count(),
+                        AverageOrderValue = g.Average(s => s.Total),
+                        LastPurchase = g.Max(s => s.SaleDate)
+                    })
+                    .OrderByDescending(c => c.TotalSpent)
+                    .Take(10)
+                    .ToList();
+
+                // Loyalty analysis (simplified)
+                var loyaltyAnalysis = new List<MemberLoyaltyDto>
+                {
+                    new MemberLoyaltyDto
+                    {
+                        LoyaltyTier = "High Value (>1M)",
+                        MemberCount = topCustomers.Count(c => c.TotalSpent > 1000000),
+                        TotalRevenue = topCustomers.Where(c => c.TotalSpent > 1000000).Sum(c => c.TotalSpent),
+                        AverageSpend = topCustomers.Where(c => c.TotalSpent > 1000000).DefaultIfEmpty().Average(c => c?.TotalSpent ?? 0),
+                        Percentage = totalMemberRevenue > 0 ? (topCustomers.Where(c => c.TotalSpent > 1000000).Sum(c => c.TotalSpent) / totalMemberRevenue) * 100 : 0
+                    },
+                    new MemberLoyaltyDto
+                    {
+                        LoyaltyTier = "Medium Value (100K-1M)",
+                        MemberCount = topCustomers.Count(c => c.TotalSpent >= 100000 && c.TotalSpent <= 1000000),
+                        TotalRevenue = topCustomers.Where(c => c.TotalSpent >= 100000 && c.TotalSpent <= 1000000).Sum(c => c.TotalSpent),
+                        AverageSpend = topCustomers.Where(c => c.TotalSpent >= 100000 && c.TotalSpent <= 1000000).DefaultIfEmpty().Average(c => c?.TotalSpent ?? 0),
+                        Percentage = totalMemberRevenue > 0 ? (topCustomers.Where(c => c.TotalSpent >= 100000 && c.TotalSpent <= 1000000).Sum(c => c.TotalSpent) / totalMemberRevenue) * 100 : 0
+                    },
+                    new MemberLoyaltyDto
+                    {
+                        LoyaltyTier = "Low Value (<100K)",
+                        MemberCount = topCustomers.Count(c => c.TotalSpent < 100000),
+                        TotalRevenue = topCustomers.Where(c => c.TotalSpent < 100000).Sum(c => c.TotalSpent),
+                        AverageSpend = topCustomers.Where(c => c.TotalSpent < 100000).DefaultIfEmpty().Average(c => c?.TotalSpent ?? 0),
+                        Percentage = totalMemberRevenue > 0 ? (topCustomers.Where(c => c.TotalSpent < 100000).Sum(c => c.TotalSpent) / totalMemberRevenue) * 100 : 0
+                    }
+                };
+
+                return new CustomerReportDto
+                {
+                    StartDate = startDate,
+                    EndDate = endDate,
+                    TotalActiveMembers = totalActiveMembers,
+                    NewMembersThisPeriod = newMembers,
+                    AverageOrderValue = averageOrderValue,
+                    TotalMemberRevenue = totalMemberRevenue,
+                    GuestRevenue = guestRevenue,
+                    TopCustomers = topCustomers,
+                    LoyaltyAnalysis = loyaltyAnalysis,
+                    GeneratedAt = DateTime.UtcNow
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error generating customer report");
+                throw;
+            }
+        }
+
+        // Export methods (for now return placeholder - actual PDF/Excel generation can be implemented later)
+        public async Task<ReportExportDto> ExportSalesReportAsync(DateTime startDate, DateTime endDate, string format)
+        {
+            // For now, return a placeholder. You can implement actual PDF/Excel generation later
+            await Task.Delay(1); // Simulate async work
+            
+            return new ReportExportDto
+            {
+                ReportType = "Sales",
+                Format = format,
+                StartDate = startDate,
+                EndDate = endDate,
+                FilePath = $"/exports/sales-report-{startDate:yyyy-MM-dd}-{endDate:yyyy-MM-dd}.{format.ToLower()}",
+                GeneratedAt = DateTime.UtcNow
+            };
+        }
+
+        public async Task<ReportExportDto> ExportInventoryReportAsync(string format)
+        {
+            await Task.Delay(1);
+            
+            return new ReportExportDto
+            {
+                ReportType = "Inventory",
+                Format = format,
+                StartDate = DateTime.UtcNow.Date,
+                EndDate = DateTime.UtcNow.Date,
+                FilePath = $"/exports/inventory-report-{DateTime.UtcNow:yyyy-MM-dd}.{format.ToLower()}",
+                GeneratedAt = DateTime.UtcNow
+            };
+        }
+
+        public async Task<ReportExportDto> ExportFinancialReportAsync(DateTime startDate, DateTime endDate, string format)
+        {
+            await Task.Delay(1);
+            
+            return new ReportExportDto
+            {
+                ReportType = "Financial",
+                Format = format,
+                StartDate = startDate,
+                EndDate = endDate,
+                FilePath = $"/exports/financial-report-{startDate:yyyy-MM-dd}-{endDate:yyyy-MM-dd}.{format.ToLower()}",
+                GeneratedAt = DateTime.UtcNow
+            };
+        }
+
+        public async Task<ReportExportDto> ExportCustomerReportAsync(DateTime startDate, DateTime endDate, string format)
+        {
+            await Task.Delay(1);
+            
+            return new ReportExportDto
+            {
+                ReportType = "Customer",
+                Format = format,
+                StartDate = startDate,
+                EndDate = endDate,
+                FilePath = $"/exports/customer-report-{startDate:yyyy-MM-dd}-{endDate:yyyy-MM-dd}.{format.ToLower()}",
+                GeneratedAt = DateTime.UtcNow
+            };
+        }
+
         // Helper method
         private static int GetWeekOfYear(DateTime date)
         {

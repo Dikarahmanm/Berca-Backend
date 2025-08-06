@@ -13,7 +13,7 @@ namespace Berca_Backend.Models
         public string SaleNumber { get; set; } = string.Empty;
 
         [Required]
-        public DateTime SaleDate { get; set; } = DateTime.UtcNow; // ✅ Fixed: was Date
+        public DateTime SaleDate { get; set; } = DateTime.UtcNow;
 
         [Required]
         [Column(TypeName = "decimal(18,2)")]
@@ -27,11 +27,11 @@ namespace Berca_Backend.Models
 
         [Required]
         [Column(TypeName = "decimal(18,2)")]
-        public decimal Total { get; set; } // ✅ Fixed: was Total
+        public decimal Total { get; set; }
 
         [Required]
         [Column(TypeName = "decimal(18,2)")]
-        public decimal AmountPaid { get; set; } // ✅ Fixed: was PaidAmount
+        public decimal AmountPaid { get; set; }
 
         [Required]
         [Column(TypeName = "decimal(18,2)")]
@@ -63,7 +63,7 @@ namespace Berca_Backend.Models
         public string? Notes { get; set; }
 
         // Receipt Info
-        public bool ReceiptPrinted { get; set; } = false; // ✅ Fixed: was IsReceiptPrinted
+        public bool ReceiptPrinted { get; set; } = false;
         public DateTime? ReceiptPrintedAt { get; set; }
 
         // Additional fields for services
@@ -80,14 +80,27 @@ namespace Berca_Backend.Models
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
         public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 
-        // Computed Properties
+        public decimal DiscountPercentage { get; set; } = 0;
+
+        // ✅ ADDED: Computed Properties for Financial Reports
         [NotMapped]
         public int TotalItems => SaleItems?.Sum(si => si.Quantity) ?? 0;
 
         [NotMapped]
         public decimal TotalProfit => SaleItems?.Sum(si => si.TotalProfit) ?? 0;
 
-        public decimal DiscountPercentage { get; set; } = 0;
+        [NotMapped]
+        public decimal TotalCost => SaleItems?.Sum(si => si.UnitCost * si.Quantity) ?? 0;
+
+        [NotMapped]
+        public decimal Tax => TaxAmount; // Use existing TaxAmount property
+
+        // ✅ ADDED: Additional computed properties for completeness
+        [NotMapped]
+        public decimal GrossProfit => Total - TotalCost;
+
+        [NotMapped]
+        public decimal NetProfit => GrossProfit - Tax;
     }
 
     public enum SaleStatus

@@ -12,6 +12,7 @@ namespace Berca_Backend.Services
 
         // Product Analytics
         Task<List<TopProductDto>> GetTopSellingProductsAsync(int count = 10, DateTime? startDate = null, DateTime? endDate = null);
+        Task<List<WorstProductDto>> GetWorstPerformingProductsAsync(int count = 10, DateTime? startDate = null, DateTime? endDate = null);
         Task<List<ProductDto>> GetLowStockAlertsAsync();
         Task<List<CategorySalesDto>> GetCategorySalesAsync(DateTime? startDate = null, DateTime? endDate = null);
 
@@ -22,5 +23,13 @@ namespace Berca_Backend.Services
         // Reports
         Task<SalesReportDto> GenerateSalesReportAsync(DateTime startDate, DateTime endDate);
         Task<InventoryReportDto> GenerateInventoryReportAsync();
+        Task<FinancialReportDto> GenerateFinancialReportAsync(DateTime startDate, DateTime endDate);
+        Task<CustomerReportDto> GenerateCustomerReportAsync(DateTime startDate, DateTime endDate);
+
+        // Export Features
+        Task<ReportExportDto> ExportSalesReportAsync(DateTime startDate, DateTime endDate, string format);
+        Task<ReportExportDto> ExportInventoryReportAsync(string format);
+        Task<ReportExportDto> ExportFinancialReportAsync(DateTime startDate, DateTime endDate, string format);
+        Task<ReportExportDto> ExportCustomerReportAsync(DateTime startDate, DateTime endDate, string format);
     }
 }
