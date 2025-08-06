@@ -21,7 +21,11 @@ namespace Berca_Backend.Models
         public bool IsActive { get; set; } = true;
         public bool IsDeleted { get; set; } = false;
 
-        // ✅ ADD Navigation property to UserProfile
+        // Add missing audit properties
+        public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+        public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
+
+        // ✅ Navigation properties
         public virtual UserProfile? UserProfile { get; set; }
         public virtual UserNotificationSettings? UserNotificationSettings { get; set; }
     }

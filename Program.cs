@@ -237,9 +237,6 @@ app.UseCookiePolicy();      // ✅ 2. Cookie policy
 app.UseAuthentication();    // ✅ 3. Authentication
 app.UseAuthorization();     // ✅ 4. Authorization
 
-// Keep existing auto-setup code...
-// (Database migration, directories, etc.)
-
 // ✅ Map controllers
 app.MapControllers();
 
@@ -279,6 +276,28 @@ startupLogger.LogInformation("   🍪 Cookie Name: TokoEniwanAuth");
 startupLogger.LogInformation("   🕐 Expiry: 8 hours");
 startupLogger.LogInformation("   🔒 HttpOnly: false (dev mode)");
 startupLogger.LogInformation("   🌐 SameSite: Lax");
+
+// ✅ Auto-setup database and sample data
+using (var scope = app.Services.CreateScope())
+{
+    var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+    var logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
+    
+    try
+    {
+        // Ensure database is created
+        await context.Database.EnsureCreatedAsync();
+        logger.LogInformation("📊 Database ensured/created successfully");
+        
+        // Seed sample data for dashboard demo
+        await SampleDataSeeder.SeedSampleDataAsync(context);
+        logger.LogInformation("🌱 Sample data seeded successfully");
+    }
+    catch (Exception ex)
+    {
+        logger.LogError(ex, "❌ Error during database setup or seeding");
+    }
+}
 
 // ✅ Run the application
 await app.RunAsync();
