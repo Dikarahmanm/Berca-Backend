@@ -1,4 +1,4 @@
-// Services/DashboardService.cs - Fixed: Remove Duplicate DTOs
+﻿// Services/DashboardService.cs - Fixed: EF Core compatibility
 using Berca_Backend.DTOs;
 using Berca_Backend.Models;
 using Berca_Backend.Data;
@@ -143,24 +143,38 @@ namespace Berca_Backend.Services
                 var start = startDate ?? DateTime.UtcNow.AddDays(-30);
                 var end = endDate ?? DateTime.UtcNow;
 
-                return await _context.SaleItems
+                // ✅ FIXED: Split into two queries to avoid computed property in SQL
+                var saleItemsData = await _context.SaleItems
                     .Include(si => si.Sale)
                     .Include(si => si.Product)
                     .Where(si => si.Sale.SaleDate >= start && si.Sale.SaleDate <= end && si.Sale.Status == SaleStatus.Completed)
                     .GroupBy(si => si.ProductId)
-                    .Select(g => new TopProductDto
+                    .Select(g => new
                     {
                         ProductId = g.Key,
                         ProductName = g.First().Product.Name,
                         ProductBarcode = g.First().Product.Barcode,
                         TotalQuantitySold = g.Sum(si => si.Quantity),
                         TotalRevenue = g.Sum(si => si.Subtotal),
-                        TotalProfit = g.Sum(si => si.TotalProfit),
+                        // ✅ Calculate profit manually using database fields
+                        TotalProfit = g.Sum(si => (si.UnitPrice - si.UnitCost) * si.Quantity - si.DiscountAmount),
                         TransactionCount = g.Count()
                     })
                     .OrderByDescending(p => p.TotalQuantitySold)
                     .Take(count)
                     .ToListAsync();
+
+                // Convert to DTOs
+                return saleItemsData.Select(item => new TopProductDto
+                {
+                    ProductId = item.ProductId,
+                    ProductName = item.ProductName,
+                    ProductBarcode = item.ProductBarcode,
+                    TotalQuantitySold = item.TotalQuantitySold,
+                    TotalRevenue = item.TotalRevenue,
+                    TotalProfit = item.TotalProfit,
+                    TransactionCount = item.TransactionCount
+                }).ToList();
             }
             catch (Exception ex)
             {
