@@ -1,8 +1,10 @@
-﻿// Services/POSService.cs - Sprint 2 POS Service Implementation
+﻿// Services/POSService.cs - Fixed: Indonesia timezone support
 using Berca_Backend.DTOs;
 using Berca_Backend.Models;
 using Berca_Backend.Data;
 using Microsoft.EntityFrameworkCore;
+using Berca_Backend.Extensions;
+using Berca_Backend.Services.Interfaces;
 
 namespace Berca_Backend.Services
 {
@@ -12,14 +14,17 @@ namespace Berca_Backend.Services
         private readonly ILogger<POSService> _logger;
         private readonly IProductService _productService;
         private readonly IMemberService _memberService;
+        private readonly ITimezoneService _timezoneService; // ✅ ADDED
 
         public POSService(AppDbContext context, ILogger<POSService> logger,
-            IProductService productService, IMemberService memberService)
+            IProductService productService, IMemberService memberService,
+            ITimezoneService timezoneService) // ✅ ADDED
         {
             _context = context;
             _logger = logger;
             _productService = productService;
             _memberService = memberService;
+            _timezoneService = timezoneService; // ✅ ADDED
         }
 
         // ✅ BACKEND FIX: Services/POSService.cs - CreateSaleAsync Method
@@ -39,7 +44,7 @@ namespace Berca_Backend.Services
                 var sale = new Sale
                 {
                     SaleNumber = saleNumber,
-                    SaleDate = DateTime.UtcNow,
+                    SaleDate = _timezoneService.Now, // ✅ FIXED: Use Indonesia time directly
                     Subtotal = request.SubTotal,
                     DiscountAmount = request.DiscountAmount,
                     DiscountPercentage = request.DiscountPercentage,
@@ -53,6 +58,8 @@ namespace Berca_Backend.Services
                     Notes = request.Notes,
                     Status = SaleStatus.Completed,
                     ReceiptPrinted = false,
+                    CreatedAt = _timezoneService.Now, // ✅ FIXED: Use Indonesia time directly
+                    UpdatedAt = _timezoneService.Now  // ✅ FIXED: Use Indonesia time directly
                 };
 
                 _context.Sales.Add(sale);
@@ -97,7 +104,7 @@ namespace Berca_Backend.Services
                         Subtotal = finalSubtotal,          // ✅ Final amount
                         Unit = "pcs",                      // ✅ Default unit
                         Notes = null,
-                        CreatedAt = DateTime.UtcNow
+                        CreatedAt = _timezoneService.Now   // ✅ FIXED: Use Indonesia time directly
                     };
 
                     _context.SaleItems.Add(saleItem);
@@ -326,7 +333,7 @@ namespace Berca_Backend.Services
                 if (sale == null) return false;
 
                 sale.ReceiptPrinted = true;
-                sale.ReceiptPrintedAt = DateTime.UtcNow;
+                sale.ReceiptPrintedAt = _timezoneService.Now; // ✅ FIXED: Use Indonesia time
 
                 await _context.SaveChangesAsync();
                 return true;
@@ -406,7 +413,7 @@ namespace Berca_Backend.Services
                 }
 
                 sale.Status = SaleStatus.Cancelled;
-                sale.CancelledAt = DateTime.UtcNow;
+                sale.CancelledAt = _timezoneService.Now; // ✅ FIXED: Use Indonesia time
                 sale.CancellationReason = reason;
 
                 await _context.SaveChangesAsync();
@@ -441,7 +448,7 @@ namespace Berca_Backend.Services
                 var refundSale = new Sale
                 {
                     SaleNumber = refundSaleNumber,
-                    SaleDate = DateTime.UtcNow,
+                    SaleDate = _timezoneService.Now, // ✅ FIXED: Use Indonesia time
                     Subtotal = -originalSale.Subtotal,
                     DiscountAmount = -originalSale.DiscountAmount,
                     TaxAmount = -originalSale.TaxAmount,
@@ -504,7 +511,7 @@ namespace Berca_Backend.Services
 
                 // Mark original sale as refunded
                 originalSale.Status = SaleStatus.Refunded;
-                originalSale.RefundedAt = DateTime.UtcNow;
+                originalSale.RefundedAt = _timezoneService.Now; // ✅ FIXED: Use Indonesia time
                 originalSale.RefundReason = reason;
 
                 await _context.SaveChangesAsync();
@@ -649,12 +656,12 @@ namespace Berca_Backend.Services
         // Private helper methods
         private async Task<string> GenerateSaleNumberAsync()
         {
-            var today = DateTime.UtcNow.Date;
+            var today = _timezoneService.Today; // ✅ FIXED: Use Indonesia time consistently
             var dailyCount = await _context.Sales
                 .Where(s => s.SaleDate.Date == today)
                 .CountAsync();
 
-            return $"TRX-{DateTime.UtcNow:yyyyMMdd}-{(dailyCount + 1):D4}";
+            return $"TRX-{_timezoneService.Now:yyyyMMdd}-{(dailyCount + 1):D4}"; // ✅ FIXED: Both use Indonesia time
         }
 
         private async Task<string> GenerateRefundSaleNumberAsync(string originalSaleNumber)

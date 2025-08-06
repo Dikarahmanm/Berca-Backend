@@ -1,4 +1,4 @@
-// Controllers/DashboardController.cs - Sprint 2 Dashboard API Controller (FIXED)
+﻿// Controllers/DashboardController.cs - Sprint 2 Dashboard API Controller (FIXED)
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
 using Berca_Backend.DTOs;
@@ -151,11 +151,12 @@ namespace Berca_Backend.Controllers
         public async Task<ActionResult<ApiResponse<List<TopProductDto>>>> GetTopSellingProducts(
             [FromQuery] int count = 10,
             [FromQuery] DateTime? startDate = null,
-            [FromQuery] DateTime? endDate = null)
+            [FromQuery] DateTime? endDate = null,
+            [FromQuery] string sortBy = "quantity") // ✅ ADDED sortBy parameter
         {
             try
             {
-                var topProducts = await _dashboardService.GetTopSellingProductsAsync(count, startDate, endDate);
+                var topProducts = await _dashboardService.GetTopSellingProductsAsync(count, startDate, endDate, sortBy);
                 return Ok(new ApiResponse<List<TopProductDto>>
                 {
                     Success = true,
@@ -234,8 +235,8 @@ namespace Berca_Backend.Controllers
         /// Get recent transactions
         /// </summary>
         [HttpGet("transactions/recent")]
-        public async Task<ActionResult<ApiResponse<List<RecentTransactionDto>>>> GetRecentTransactions(
-            [FromQuery] int count = 10)
+        public async Task<ActionResult<ApiResponse<List<RecentTransactionDto>>>>
+            GetRecentTransactions([FromQuery] int count = 10)
         {
             try
             {
@@ -599,5 +600,116 @@ namespace Berca_Backend.Controllers
                 });
             }
         }
+
+        /// <summary>
+        /// Get dashboard KPIs with period filter
+        /// </summary>
+        [HttpGet("kpis/period")]
+        public async Task<ActionResult<ApiResponse<DashboardKPIDto>>> GetDashboardKPIsByPeriod(
+            [FromQuery] string period = "today",
+            [FromQuery] DateTime? customStart = null,
+            [FromQuery] DateTime? customEnd = null)
+        {
+            try
+            {
+                if (!IsValidPeriod(period))
+                {
+                    return BadRequest(new ApiResponse<DashboardKPIDto>
+                    {
+                        Success = false,
+                        Message = "Invalid period. Use: today, yesterday, week, month, year, or custom"
+                    });
+                }
+
+                var dashboardService = _dashboardService as DashboardService;
+                var dateRange = dashboardService?.ResolveDateRange(period, customStart, customEnd);
+                
+                var kpis = await _dashboardService.GetDashboardKPIsAsync(dateRange?.StartDate, dateRange?.EndDate);
+                
+                return Ok(new ApiResponse<DashboardKPIDto>
+                {
+                    Success = true,
+                    Message = $"Dashboard KPIs for {period} retrieved successfully",
+                    Data = kpis
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting dashboard KPIs for period: {Period}", period);
+                return StatusCode(500, new ApiResponse<DashboardKPIDto>
+                {
+                    Success = false,
+                    Message = "Failed to retrieve dashboard KPIs"
+                });
+            }
+        }
+
+        /// <summary>
+        /// Get top selling products with enhanced sorting options
+        /// </summary>
+        [HttpGet("products/top-selling/enhanced")]
+        public async Task<ActionResult<ApiResponse<List<TopProductDto>>>> GetTopSellingProductsEnhanced(
+            [FromQuery] int count = 10,
+            [FromQuery] string period = "week",
+            [FromQuery] string sortBy = "normalized")
+        {
+            try
+            {
+                var dashboardService = _dashboardService as DashboardService;
+                var dateRange = dashboardService?.ResolveDateRange(period);
+                
+                var topProducts = await _dashboardService.GetTopSellingProductsAsync(count, dateRange?.StartDate, dateRange?.EndDate, sortBy);
+                
+                return Ok(new ApiResponse<List<TopProductDto>>
+                {
+                    Success = true,
+                    Message = $"Top selling products for {period} (sorted by {sortBy}) retrieved successfully",
+                    Data = topProducts
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting enhanced top selling products");
+                return StatusCode(500, new ApiResponse<List<TopProductDto>>
+                {
+                    Success = false,
+                    Message = "Failed to retrieve top selling products"
+                });
+            }
+        }
+
+        private static bool IsValidPeriod(string period)
+        {
+            var validPeriods = new[] { "today", "yesterday", "week", "month", "year", "custom" };
+            return validPeriods.Contains(period.ToLower());
+        }
+
+        // ✅ FIXED: More realistic normalizers based on actual data
+        private decimal GetRevenueNormalizer(string period) => period.ToLower() switch
+        {
+            "today" => 50000m,     // 50K for daily (lebih realistis)
+            "week" => 300000m,     // 300K for weekly  
+            "month" => 2000000m,   // 2M for monthly (turun dari 10M)
+            "year" => 20000000m,   // 20M for yearly (turun dari 100M)
+            _ => 500000m           // 500K default
+        };
+
+        private decimal GetProfitNormalizer(string period) => period.ToLower() switch
+        {
+            "today" => 10000m,     // 10K for daily
+            "week" => 60000m,      // 60K for weekly
+            "month" => 400000m,    // 400K for monthly (turun dari 2M)  
+            "year" => 4000000m,    // 4M for yearly (turun dari 20M)
+            _ => 100000m           // 100K default
+        };
+
+        private decimal GetMaxPossibleScore(string period) => period.ToLower() switch
+        {
+            "today" => 50m,        
+            "week" => 100m,        
+            "month" => 150m,       // ✅ TURUN: dari 200m ke 150m
+            "year" => 300m,        // ✅ TURUN: dari 500m ke 300m
+            _ => 100m
+        };
     }
 }
