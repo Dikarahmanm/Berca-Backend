@@ -1,4 +1,4 @@
-﻿// Services/POSService.cs - Fixed: Indonesia timezone support
+﻿// Services/POSService.cs - FIXED: Remove all tax calculations
 using Berca_Backend.DTOs;
 using Berca_Backend.Models;
 using Berca_Backend.Data;
@@ -14,17 +14,19 @@ namespace Berca_Backend.Services
         private readonly ILogger<POSService> _logger;
         private readonly IProductService _productService;
         private readonly IMemberService _memberService;
-        private readonly ITimezoneService _timezoneService; // ✅ ADDED
+        private readonly ITimezoneService _timezoneService;
+        private readonly INotificationService _notificationService; // ✅ ADDED
 
         public POSService(AppDbContext context, ILogger<POSService> logger,
             IProductService productService, IMemberService memberService,
-            ITimezoneService timezoneService) // ✅ ADDED
+            ITimezoneService timezoneService, INotificationService notificationService) // ✅ ADDED
         {
             _context = context;
             _logger = logger;
             _productService = productService;
             _memberService = memberService;
-            _timezoneService = timezoneService; // ✅ ADDED
+            _timezoneService = timezoneService;
+            _notificationService = notificationService; // ✅ ADDED
         }
 
         // ✅ BACKEND FIX: Services/POSService.cs - CreateSaleAsync Method
@@ -48,7 +50,7 @@ namespace Berca_Backend.Services
                     Subtotal = request.SubTotal,
                     DiscountAmount = request.DiscountAmount,
                     DiscountPercentage = request.DiscountPercentage,
-                    TaxAmount = request.TaxAmount,
+                    TaxAmount = 0, // ✅ DISABLED: Always set to 0
                     Total = request.Total,
                     PaymentMethod = request.PaymentMethod,
                     AmountPaid = request.AmountPaid,
@@ -152,6 +154,23 @@ namespace Berca_Backend.Services
 
                 await _context.SaveChangesAsync();
                 await transaction.CommitAsync();
+
+                // ✅ CREATE SALE COMPLETED NOTIFICATION - MISSING LOGIC!
+                try
+                {
+                    await _notificationService.CreateSaleCompletedNotificationAsync(
+                        sale.Id, 
+                        sale.SaleNumber, 
+                        sale.Total
+                    );
+                    
+                    _logger.LogInformation("✅ Sale notification created for sale: {SaleNumber}", sale.SaleNumber);
+                }
+                catch (Exception notificationEx)
+                {
+                    // Don't fail the sale if notification fails
+                    _logger.LogWarning(notificationEx, "⚠️ Failed to create sale notification for sale: {SaleNumber}", sale.SaleNumber);
+                }
 
                 // Return complete sale data
                 return await GetSaleByIdAsync(sale.Id) ?? throw new Exception("Sale created but not found");
@@ -336,6 +355,22 @@ namespace Berca_Backend.Services
                 sale.ReceiptPrintedAt = _timezoneService.Now; // ✅ FIXED: Use Indonesia time
 
                 await _context.SaveChangesAsync();
+                
+                // ✅ OPTIONAL: Create receipt printed notification
+                try
+                {
+                    await _notificationService.BroadcastToAllUsersAsync(
+                        "receipt_printed",
+                        "Struk Dicetak",
+                        $"Struk untuk transaksi {sale.SaleNumber} telah dicetak",
+                        $"/sales/{sale.Id}"
+                    );
+                }
+                catch (Exception notificationEx)
+                {
+                    _logger.LogWarning(notificationEx, "Failed to create receipt printed notification");
+                }
+
                 return true;
             }
             catch (Exception ex)
@@ -413,11 +448,28 @@ namespace Berca_Backend.Services
                 }
 
                 sale.Status = SaleStatus.Cancelled;
-                sale.CancelledAt = _timezoneService.Now; // ✅ FIXED: Use Indonesia time
+                sale.CancelledAt = _timezoneService.Now;
                 sale.CancellationReason = reason;
 
                 await _context.SaveChangesAsync();
                 await transaction.CommitAsync();
+
+                // ✅ CREATE SALE CANCELLED NOTIFICATION
+                try
+                {
+                    await _notificationService.CreateSaleCancelledNotificationAsync(
+                        sale.Id, 
+                        sale.SaleNumber, 
+                        sale.Total, 
+                        reason
+                    );
+                    
+                    _logger.LogInformation("✅ Sale cancellation notification created for sale: {SaleNumber}", sale.SaleNumber);
+                }
+                catch (Exception notificationEx)
+                {
+                    _logger.LogWarning(notificationEx, "⚠️ Failed to create sale cancellation notification for sale: {SaleNumber}", sale.SaleNumber);
+                }
 
                 return true;
             }
@@ -448,10 +500,10 @@ namespace Berca_Backend.Services
                 var refundSale = new Sale
                 {
                     SaleNumber = refundSaleNumber,
-                    SaleDate = _timezoneService.Now, // ✅ FIXED: Use Indonesia time
+                    SaleDate = _timezoneService.Now,
                     Subtotal = -originalSale.Subtotal,
                     DiscountAmount = -originalSale.DiscountAmount,
-                    TaxAmount = -originalSale.TaxAmount,
+                    TaxAmount = 0, // ✅ DISABLED: Always set to 0 for refunds too
                     Total = -originalSale.Total,
                     PaymentMethod = originalSale.PaymentMethod,
                     AmountPaid = -originalSale.AmountPaid,
@@ -511,11 +563,28 @@ namespace Berca_Backend.Services
 
                 // Mark original sale as refunded
                 originalSale.Status = SaleStatus.Refunded;
-                originalSale.RefundedAt = _timezoneService.Now; // ✅ FIXED: Use Indonesia time
+                originalSale.RefundedAt = _timezoneService.Now;
                 originalSale.RefundReason = reason;
 
                 await _context.SaveChangesAsync();
                 await transaction.CommitAsync();
+
+                // ✅ CREATE SALE REFUNDED NOTIFICATION
+                try
+                {
+                    await _notificationService.CreateSaleRefundedNotificationAsync(
+                        originalSale.Id, 
+                        originalSale.SaleNumber, 
+                        originalSale.Total, 
+                        reason
+                    );
+                    
+                    _logger.LogInformation("✅ Sale refund notification created for sale: {SaleNumber}", originalSale.SaleNumber);
+                }
+                catch (Exception notificationEx)
+                {
+                    _logger.LogWarning(notificationEx, "⚠️ Failed to create sale refund notification for sale: {SaleNumber}", originalSale.SaleNumber);
+                }
 
                 return await GetSaleByIdAsync(refundSale.Id) ?? throw new Exception("Refund created but not found");
             }
@@ -541,7 +610,7 @@ namespace Berca_Backend.Services
                     TransactionCount = sales.Count,
                     AverageTransaction = sales.Any() ? sales.Average(s => s.Total) : 0,
                     TotalDiscount = sales.Sum(s => s.DiscountAmount),
-                    TotalTax = sales.Sum(s => s.TaxAmount),
+                    TotalTax = 0, // ✅ DISABLED: Always return 0
                     StartDate = startDate,
                     EndDate = endDate
                 };
@@ -644,7 +713,8 @@ namespace Berca_Backend.Services
                     }
                 }
 
-                return subtotal - discountAmount + taxAmount;
+                // ✅ DISABLED: Ignore taxAmount parameter, always return subtotal - discount
+                return subtotal - discountAmount; // Remove + taxAmount
             }
             catch (Exception ex)
             {

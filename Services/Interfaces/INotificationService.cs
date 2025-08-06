@@ -1,4 +1,4 @@
-// Services/INotificationService.cs - Sprint 2 Notification Service Interface
+﻿// Services/INotificationService.cs - Sprint 2 Notification Service Interface
 using Berca_Backend.DTOs;
 
 namespace Berca_Backend.Services
@@ -31,9 +31,16 @@ namespace Berca_Backend.Services
         Task<int> CleanupExpiredNotificationsAsync();
         Task<int> ArchiveOldNotificationsAsync(int daysOld = 30);
 
+        // ✅ EXISTING: Product & Stock Notifications
         Task<bool> CreateOutOfStockNotificationAsync(int productId);
-        Task<bool> CreateSaleCompletedNotificationAsync(int saleId, string saleNumber, decimal totalAmount);
         Task<bool> CreateStockAdjustmentNotificationAsync(int productId, int quantity, string notes);
+
+        // ✅ EXISTING: Sale Notifications
+        Task<bool> CreateSaleCompletedNotificationAsync(int saleId, string saleNumber, decimal totalAmount);
+
+        // ✅ ADDED: Missing Sale Notification Methods
+        Task<bool> CreateSaleCancelledNotificationAsync(int saleId, string saleNumber, decimal totalAmount, string reason);
+        Task<bool> CreateSaleRefundedNotificationAsync(int saleId, string saleNumber, decimal totalAmount, string reason);
     }
 
     public class NotificationSettingsDto
