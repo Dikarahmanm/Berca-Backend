@@ -139,7 +139,7 @@ namespace Berca_Backend.Data
 
                     // Calculate totals
                     var discountAmount = subtotal > 50000 ? subtotal * 0.05m : 0; // 5% discount if > 50k
-                    var taxAmount = subtotal * 0.10m; // 10% tax
+                    var taxAmount = 0; // 10% tax
                     var total = subtotal - discountAmount + taxAmount;
                     var amountPaid = total + (random.Next(0, 10) * 1000); // Round up payment
                     var changeAmount = amountPaid - total;

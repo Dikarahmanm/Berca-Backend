@@ -1,4 +1,4 @@
-// Controllers/POSController.cs - Sprint 2 POS Controller Implementation
+﻿// Controllers/POSController.cs - Sprint 2 POS Controller Implementation
 using Berca_Backend.DTOs;
 using Berca_Backend.Services;
 using Microsoft.AspNetCore.Authorization;
@@ -489,7 +489,8 @@ namespace Berca_Backend.Controllers
         {
             try
             {
-                var total = await _posService.CalculateTotalAsync(request.Items, request.DiscountAmount, request.TaxAmount);
+                // ✅ DISABLED: Ignore tax in calculation, always pass 0
+                var total = await _posService.CalculateTotalAsync(request.Items, request.DiscountAmount, 0);
 
                 return Ok(new ApiResponse<decimal>
                 {
@@ -525,6 +526,5 @@ namespace Berca_Backend.Controllers
     {
         public List<CreateSaleItemRequest> Items { get; set; } = new();
         public decimal DiscountAmount { get; set; }
-        public decimal TaxAmount { get; set; }
     }
 }

@@ -11,7 +11,7 @@ namespace Berca_Backend.DTOs
         public DateTime SaleDate { get; set; } // ✅ Fixed: was Date
         public decimal Subtotal { get; set; }
         public decimal DiscountAmount { get; set; }
-        public decimal TaxAmount { get; set; }
+        public decimal TaxAmount { get; set; } = 0;
         public decimal Total { get; set; } // ✅ Fixed: was Total
         public decimal AmountPaid { get; set; } // ✅ Fixed: was PaidAmount  
         public decimal ChangeAmount { get; set; }
@@ -137,7 +137,7 @@ namespace Berca_Backend.DTOs
         public decimal AverageTransaction { get; set; }
         public decimal TotalProfit { get; set; }
         public decimal TotalDiscount { get; set; } // ✅ Added
-        public decimal TotalTax { get; set; } // ✅ Added
+        public decimal TotalTax { get; set; } = 0;// ✅ Added
         public DateTime StartDate { get; set; } // ✅ Added
         public DateTime EndDate { get; set; } // ✅ Added
     }

@@ -144,17 +144,16 @@ builder.Services.AddAuthorization(options =>
 });
 
 // ✅ CRITICAL: Register services in correct dependency order
-builder.Services.AddScoped<ITimezoneService, TimezoneService>(); // ✅ FIRST: No dependencies
+builder.Services.AddScoped<ITimezoneService, TimezoneService>(); // ✅ FIRST
 
-// ✅ Services that depend only on basic services
 builder.Services.AddScoped<IProductService, ProductService>();
 builder.Services.AddScoped<IDashboardService, DashboardService>();
 builder.Services.AddScoped<ICategoryService, CategoryService>();
-builder.Services.AddScoped<INotificationService, NotificationService>();
+builder.Services.AddScoped<INotificationService, NotificationService>(); // ✅ BEFORE POSService
 builder.Services.AddScoped<IMemberService, MemberService>();
 
-// ✅ Services that depend on multiple other services
-builder.Services.AddScoped<IPOSService, POSService>(); // Depends on IProductService, IMemberService, ITimezoneService
+// ✅ POSService now depends on INotificationService too
+builder.Services.AddScoped<IPOSService, POSService>(); // Depends on IProductService, IMemberService, ITimezoneService, INotificationService
 
 // ✅ Add Swagger
 builder.Services.AddEndpointsApiExplorer();

@@ -636,5 +636,63 @@ namespace Berca_Backend.Services
                 throw;
             }
         }
+
+        // ✅ ADDED: Sale Cancelled Notification
+        public async Task<bool> CreateSaleCancelledNotificationAsync(int saleId, string saleNumber, decimal totalAmount, string reason)
+        {
+            try
+            {
+                var notification = new Notification
+                {
+                    Type = "SALE_CANCELLED",
+                    Title = $"Penjualan Dibatalkan: {saleNumber}",
+                    Message = $"Transaksi penjualan #{saleNumber} senilai Rp{totalAmount:N0} telah dibatalkan. Alasan: {reason}",
+                    Priority = NotificationPriority.High,
+                    IsRead = false,
+                    CreatedAt = _timezoneService.Now,
+                    CreatedBy = "System",
+                    UserId = null, // Broadcast to all users
+                    ActionUrl = $"/sales/{saleId}"
+                };
+                
+                _context.Notifications.Add(notification);
+                await _context.SaveChangesAsync();
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error creating sale cancelled notification for sale: {SaleId}", saleId);
+                throw;
+            }
+        }
+
+        // ✅ ADDED: Sale Refunded Notification
+        public async Task<bool> CreateSaleRefundedNotificationAsync(int saleId, string saleNumber, decimal totalAmount, string reason)
+        {
+            try
+            {
+                var notification = new Notification
+                {
+                    Type = "SALE_REFUNDED",
+                    Title = $"Penjualan Di-refund: {saleNumber}",
+                    Message = $"Transaksi penjualan #{saleNumber} senilai Rp{totalAmount:N0} telah di-refund. Alasan: {reason}",
+                    Priority = NotificationPriority.High,
+                    IsRead = false,
+                    CreatedAt = _timezoneService.Now,
+                    CreatedBy = "System",
+                    UserId = null, // Broadcast to all users
+                    ActionUrl = $"/sales/{saleId}"
+                };
+                
+                _context.Notifications.Add(notification);
+                await _context.SaveChangesAsync();
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error creating sale refunded notification for sale: {SaleId}", saleId);
+                throw;
+            }
+        }
     }
 }
