@@ -107,4 +107,89 @@ namespace Berca_Backend.DTOs
         public int TransactionCount { get; set; }
         public decimal Percentage { get; set; }
     }
+
+    // Financial Reports
+    public class FinancialReportDto
+    {
+        public DateTime StartDate { get; set; }
+        public DateTime EndDate { get; set; }
+        public decimal TotalRevenue { get; set; }
+        public decimal TotalCost { get; set; }
+        public decimal GrossProfit { get; set; }
+        public decimal GrossProfitMargin { get; set; }
+        public decimal TotalTax { get; set; }
+        public decimal NetProfit { get; set; }
+        public List<MonthlyProfitDto> MonthlyBreakdown { get; set; } = new();
+        public DateTime GeneratedAt { get; set; }
+    }
+
+    public class MonthlyProfitDto
+    {
+        public int Year { get; set; }
+        public int Month { get; set; }
+        public string MonthName { get; set; } = string.Empty;
+        public decimal Revenue { get; set; }
+        public decimal Cost { get; set; }
+        public decimal Profit { get; set; }
+    }
+
+    // Customer Reports
+    public class CustomerReportDto
+    {
+        public DateTime StartDate { get; set; }
+        public DateTime EndDate { get; set; }
+        public int TotalActiveMembers { get; set; }
+        public int NewMembersThisPeriod { get; set; }
+        public decimal AverageOrderValue { get; set; }
+        public decimal TotalMemberRevenue { get; set; }
+        public decimal GuestRevenue { get; set; }
+        public List<TopCustomerDto> TopCustomers { get; set; } = new();
+        public List<MemberLoyaltyDto> LoyaltyAnalysis { get; set; } = new();
+        public DateTime GeneratedAt { get; set; }
+    }
+
+    public class TopCustomerDto
+    {
+        public int? MemberId { get; set; }
+        public string CustomerName { get; set; } = string.Empty;
+        public string MembershipType { get; set; } = "Guest";
+        public decimal TotalSpent { get; set; }
+        public int TransactionCount { get; set; }
+        public decimal AverageOrderValue { get; set; }
+        public DateTime LastPurchase { get; set; }
+    }
+
+    public class MemberLoyaltyDto
+    {
+        public string LoyaltyTier { get; set; } = string.Empty;
+        public int MemberCount { get; set; }
+        public decimal TotalRevenue { get; set; }
+        public decimal AverageSpend { get; set; }
+        public decimal Percentage { get; set; }
+    }
+
+    // Export Options
+    public class ReportExportDto
+    {
+        public string ReportType { get; set; } = string.Empty;
+        public string Format { get; set; } = string.Empty; // "PDF" or "Excel"
+        public DateTime StartDate { get; set; }
+        public DateTime EndDate { get; set; }
+        public string FilePath { get; set; } = string.Empty;
+        public DateTime GeneratedAt { get; set; }
+    }
+
+    // Worst Performing Products
+    public class WorstProductDto
+    {
+        public int ProductId { get; set; }
+        public string ProductName { get; set; } = string.Empty;
+        public string ProductBarcode { get; set; } = string.Empty;
+        public int TotalQuantitySold { get; set; }
+        public decimal TotalRevenue { get; set; }
+        public decimal TotalProfit { get; set; }
+        public int TransactionCount { get; set; }
+        public int DaysWithoutSale { get; set; }
+        public int CurrentStock { get; set; }
+    }
 }

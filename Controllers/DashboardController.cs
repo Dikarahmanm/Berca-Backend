@@ -333,5 +333,271 @@ namespace Berca_Backend.Controllers
                 });
             }
         }
+
+        /// <summary>
+        /// Get worst performing products
+        /// </summary>
+        [HttpGet("products/worst-performing")]
+        public async Task<ActionResult<ApiResponse<List<WorstProductDto>>>> GetWorstPerformingProducts(
+            [FromQuery] int count = 10,
+            [FromQuery] DateTime? startDate = null,
+            [FromQuery] DateTime? endDate = null)
+        {
+            try
+            {
+                var worstProducts = await _dashboardService.GetWorstPerformingProductsAsync(count, startDate, endDate);
+                return Ok(new ApiResponse<List<WorstProductDto>>
+                {
+                    Success = true,
+                    Message = "Worst performing products retrieved successfully",
+                    Data = worstProducts
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting worst performing products");
+                return StatusCode(500, new ApiResponse<List<WorstProductDto>>
+                {
+                    Success = false,
+                    Message = "Failed to retrieve worst performing products"
+                });
+            }
+        }
+
+        /// <summary>
+        /// Generate financial report
+        /// </summary>
+        [HttpGet("reports/financial")]
+        [Authorize(Policy = "Reports.Read")]
+        public async Task<ActionResult<ApiResponse<FinancialReportDto>>> GenerateFinancialReport(
+            [FromQuery] DateTime startDate,
+            [FromQuery] DateTime endDate)
+        {
+            try
+            {
+                if (startDate == default || endDate == default)
+                {
+                    return BadRequest(new ApiResponse<FinancialReportDto>
+                    {
+                        Success = false,
+                        Message = "Start date and end date are required"
+                    });
+                }
+
+                var financialReport = await _dashboardService.GenerateFinancialReportAsync(startDate, endDate);
+                return Ok(new ApiResponse<FinancialReportDto>
+                {
+                    Success = true,
+                    Message = "Financial report generated successfully",
+                    Data = financialReport
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error generating financial report");
+                return StatusCode(500, new ApiResponse<FinancialReportDto>
+                {
+                    Success = false,
+                    Message = "Failed to generate financial report"
+                });
+            }
+        }
+
+        /// <summary>
+        /// Generate customer report
+        /// </summary>
+        [HttpGet("reports/customer")]
+        [Authorize(Policy = "Reports.Read")]
+        public async Task<ActionResult<ApiResponse<CustomerReportDto>>> GenerateCustomerReport(
+            [FromQuery] DateTime startDate,
+            [FromQuery] DateTime endDate)
+        {
+            try
+            {
+                if (startDate == default || endDate == default)
+                {
+                    return BadRequest(new ApiResponse<CustomerReportDto>
+                    {
+                        Success = false,
+                        Message = "Start date and end date are required"
+                    });
+                }
+
+                var customerReport = await _dashboardService.GenerateCustomerReportAsync(startDate, endDate);
+                return Ok(new ApiResponse<CustomerReportDto>
+                {
+                    Success = true,
+                    Message = "Customer report generated successfully",
+                    Data = customerReport
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error generating customer report");
+                return StatusCode(500, new ApiResponse<CustomerReportDto>
+                {
+                    Success = false,
+                    Message = "Failed to generate customer report"
+                });
+            }
+        }
+
+        /// <summary>
+        /// Export sales report
+        /// </summary>
+        [HttpPost("reports/sales/export")]
+        [Authorize(Policy = "Reports.Read")]
+        public async Task<ActionResult<ApiResponse<ReportExportDto>>> ExportSalesReport(
+            [FromQuery] DateTime startDate,
+            [FromQuery] DateTime endDate,
+            [FromQuery] string format = "PDF")
+        {
+            try
+            {
+                if (!new[] { "PDF", "Excel" }.Contains(format.ToUpper()))
+                {
+                    return BadRequest(new ApiResponse<ReportExportDto>
+                    {
+                        Success = false,
+                        Message = "Format must be either 'PDF' or 'Excel'"
+                    });
+                }
+
+                var exportResult = await _dashboardService.ExportSalesReportAsync(startDate, endDate, format);
+                return Ok(new ApiResponse<ReportExportDto>
+                {
+                    Success = true,
+                    Message = $"Sales report exported to {format} successfully",
+                    Data = exportResult
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error exporting sales report");
+                return StatusCode(500, new ApiResponse<ReportExportDto>
+                {
+                    Success = false,
+                    Message = "Failed to export sales report"
+                });
+            }
+        }
+
+        /// <summary>
+        /// Export inventory report
+        /// </summary>
+        [HttpPost("reports/inventory/export")]
+        [Authorize(Policy = "Reports.Read")]
+        public async Task<ActionResult<ApiResponse<ReportExportDto>>> ExportInventoryReport(
+            [FromQuery] string format = "PDF")
+        {
+            try
+            {
+                if (!new[] { "PDF", "Excel" }.Contains(format.ToUpper()))
+                {
+                    return BadRequest(new ApiResponse<ReportExportDto>
+                    {
+                        Success = false,
+                        Message = "Format must be either 'PDF' or 'Excel'"
+                    });
+                }
+
+                var exportResult = await _dashboardService.ExportInventoryReportAsync(format);
+                return Ok(new ApiResponse<ReportExportDto>
+                {
+                    Success = true,
+                    Message = $"Inventory report exported to {format} successfully",
+                    Data = exportResult
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error exporting inventory report");
+                return StatusCode(500, new ApiResponse<ReportExportDto>
+                {
+                    Success = false,
+                    Message = "Failed to export inventory report"
+                });
+            }
+        }
+
+        /// <summary>
+        /// Export financial report
+        /// </summary>
+        [HttpPost("reports/financial/export")]
+        [Authorize(Policy = "Reports.Read")]
+        public async Task<ActionResult<ApiResponse<ReportExportDto>>> ExportFinancialReport(
+            [FromQuery] DateTime startDate,
+            [FromQuery] DateTime endDate,
+            [FromQuery] string format = "PDF")
+        {
+            try
+            {
+                if (!new[] { "PDF", "Excel" }.Contains(format.ToUpper()))
+                {
+                    return BadRequest(new ApiResponse<ReportExportDto>
+                    {
+                        Success = false,
+                        Message = "Format must be either 'PDF' or 'Excel'"
+                    });
+                }
+
+                var exportResult = await _dashboardService.ExportFinancialReportAsync(startDate, endDate, format);
+                return Ok(new ApiResponse<ReportExportDto>
+                {
+                    Success = true,
+                    Message = $"Financial report exported to {format} successfully",
+                    Data = exportResult
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error exporting financial report");
+                return StatusCode(500, new ApiResponse<ReportExportDto>
+                {
+                    Success = false,
+                    Message = "Failed to export financial report"
+                });
+            }
+        }
+
+        /// <summary>
+        /// Export customer report
+        /// </summary>
+        [HttpPost("reports/customer/export")]
+        [Authorize(Policy = "Reports.Read")]
+        public async Task<ActionResult<ApiResponse<ReportExportDto>>> ExportCustomerReport(
+            [FromQuery] DateTime startDate,
+            [FromQuery] DateTime endDate,
+            [FromQuery] string format = "PDF")
+        {
+            try
+            {
+                if (!new[] { "PDF", "Excel" }.Contains(format.ToUpper()))
+                {
+                    return BadRequest(new ApiResponse<ReportExportDto>
+                    {
+                        Success = false,
+                        Message = "Format must be either 'PDF' or 'Excel'"
+                    });
+                }
+
+                var exportResult = await _dashboardService.ExportCustomerReportAsync(startDate, endDate, format);
+                return Ok(new ApiResponse<ReportExportDto>
+                {
+                    Success = true,
+                    Message = $"Customer report exported to {format} successfully",
+                    Data = exportResult
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error exporting customer report");
+                return StatusCode(500, new ApiResponse<ReportExportDto>
+                {
+                    Success = false,
+                    Message = "Failed to export customer report"
+                });
+            }
+        }
     }
 }
