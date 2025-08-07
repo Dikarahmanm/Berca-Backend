@@ -4,8 +4,10 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.OpenApi.Models;
 using Berca_Backend.Data;
 using Berca_Backend.Services;
-using Berca_Backend.Services.Interfaces; // ✅ ADDED
+using Berca_Backend.Services.Interfaces;
 using System.Reflection;
+using Microsoft.Extensions.FileProviders;
+using System.IO;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -18,7 +20,7 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 // ✅ Add controllers
 builder.Services.AddControllers();
 
-// ✅ CORS Configuration (existing)
+// ✅ CORS Configuration
 builder.Services.AddCors(options =>
 {
     options.AddDefaultPolicy(policy =>
@@ -35,7 +37,7 @@ builder.Services.AddCors(options =>
     });
 });
 
-// ✅ Authentication (existing)
+// ✅ Authentication
 builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
     .AddCookie(options =>
     {
@@ -77,7 +79,7 @@ builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationSc
         };
     });
 
-// ✅ Authorization (existing)
+// ✅ Authorization
 builder.Services.AddAuthorization(options =>
 {
     // Dashboard Policies
@@ -143,17 +145,14 @@ builder.Services.AddAuthorization(options =>
         policy.RequireRole("Admin"));
 });
 
-// ✅ CRITICAL: Register services in correct dependency order
-builder.Services.AddScoped<ITimezoneService, TimezoneService>(); // ✅ FIRST
-
+// ✅ Register services in correct dependency order
+builder.Services.AddScoped<ITimezoneService, TimezoneService>();
 builder.Services.AddScoped<IProductService, ProductService>();
 builder.Services.AddScoped<IDashboardService, DashboardService>();
 builder.Services.AddScoped<ICategoryService, CategoryService>();
-builder.Services.AddScoped<INotificationService, NotificationService>(); // ✅ BEFORE POSService
+builder.Services.AddScoped<INotificationService, NotificationService>();
 builder.Services.AddScoped<IMemberService, MemberService>();
-
-// ✅ POSService now depends on INotificationService too
-builder.Services.AddScoped<IPOSService, POSService>(); // Depends on IProductService, IMemberService, ITimezoneService, INotificationService
+builder.Services.AddScoped<IPOSService, POSService>();
 
 // ✅ Add Swagger
 builder.Services.AddEndpointsApiExplorer();
@@ -166,7 +165,6 @@ builder.Services.AddSwaggerGen(c =>
         Description = "Sprint 2 - POS, Inventory, Membership, Notifications & Dashboard APIs"
     });
 
-    // Include XML comments for better documentation
     var xmlFile = $"{Assembly.GetExecutingAssembly().GetName().Name}.xml";
     var xmlPath = Path.Combine(AppContext.BaseDirectory, xmlFile);
     if (File.Exists(xmlPath))
@@ -174,7 +172,6 @@ builder.Services.AddSwaggerGen(c =>
         c.IncludeXmlComments(xmlPath);
     }
 
-    // Add security definition for cookie authentication
     c.AddSecurityDefinition("Cookie", new OpenApiSecurityScheme
     {
         Type = SecuritySchemeType.ApiKey,
@@ -207,14 +204,46 @@ builder.Logging.AddDebug();
 // ✅ Add cookie policy
 builder.Services.Configure<CookiePolicyOptions>(options =>
 {
-    options.CheckConsentNeeded = context => false; // Disable consent for API
+    options.CheckConsentNeeded = context => false;
     options.MinimumSameSitePolicy = SameSiteMode.Lax;
 });
 
 var app = builder.Build();
 
-// ✅ Enable static files
+// ✅ FIXED: Create directories BEFORE configuring static files
+var wwwrootPath = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot");
+var uploadsPath = Path.Combine(wwwrootPath, "uploads");
+var avatarsPath = Path.Combine(uploadsPath, "avatars");
+var exportsPath = Path.Combine(wwwrootPath, "exports");
+
+// Ensure all directories exist
+Directory.CreateDirectory(wwwrootPath);
+Directory.CreateDirectory(uploadsPath);
+Directory.CreateDirectory(avatarsPath);
+Directory.CreateDirectory(exportsPath);
+
+// Create export subdirectories
+Directory.CreateDirectory(Path.Combine(exportsPath, "sales"));
+Directory.CreateDirectory(Path.Combine(exportsPath, "inventory"));
+Directory.CreateDirectory(Path.Combine(exportsPath, "financial"));
+Directory.CreateDirectory(Path.Combine(exportsPath, "customer"));
+
+// ✅ Enable default static files
 app.UseStaticFiles();
+
+// ✅ Static files for avatar uploads
+app.UseStaticFiles(new StaticFileOptions
+{
+    FileProvider = new PhysicalFileProvider(uploadsPath),
+    RequestPath = "/uploads"
+});
+
+// ✅ Static files for exports
+app.UseStaticFiles(new StaticFileOptions
+{
+    FileProvider = new PhysicalFileProvider(exportsPath),
+    RequestPath = "/exports"
+});
 
 // ✅ Enable Swagger in development and staging
 if (app.Environment.IsDevelopment() || app.Environment.IsStaging())
@@ -271,11 +300,8 @@ if (app.Environment.IsDevelopment() || app.Environment.IsStaging())
     startupLogger.LogInformation("📖 Swagger UI: http://localhost:5171/swagger");
 }
 
-startupLogger.LogInformation("🔐 Cookie Authentication Configured:");
-startupLogger.LogInformation("   🍪 Cookie Name: TokoEniwanAuth");
-startupLogger.LogInformation("   🕐 Expiry: 8 hours");
-startupLogger.LogInformation("   🔒 HttpOnly: false (dev mode)");
-startupLogger.LogInformation("   🌐 SameSite: Lax");
+startupLogger.LogInformation("🔐 Cookie Authentication Configured");
+startupLogger.LogInformation("📁 Directories Created: wwwroot, uploads, exports");
 
 // ✅ Auto-setup database and sample data
 using (var scope = app.Services.CreateScope())
@@ -285,11 +311,9 @@ using (var scope = app.Services.CreateScope())
     
     try
     {
-        // Ensure database is created
         await context.Database.EnsureCreatedAsync();
         logger.LogInformation("📊 Database ensured/created successfully");
         
-        // Seed sample data for dashboard demo
         await SampleDataSeeder.SeedSampleDataAsync(context);
         logger.LogInformation("🌱 Sample data seeded successfully");
     }

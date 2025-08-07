@@ -465,10 +465,14 @@ namespace Berca_Backend.Controllers
                 }
 
                 var exportResult = await _dashboardService.ExportSalesReportAsync(startDate, endDate, format);
+                
+                // ✅ Add download URL
+                var downloadUrl = $"{Request.Scheme}://{Request.Host}{exportResult.FilePath}";
+                
                 return Ok(new ApiResponse<ReportExportDto>
                 {
                     Success = true,
-                    Message = $"Sales report exported to {format} successfully",
+                    Message = $"Sales report exported to {format} successfully. Download URL: {downloadUrl}",
                     Data = exportResult
                 });
             }
@@ -503,10 +507,14 @@ namespace Berca_Backend.Controllers
                 }
 
                 var exportResult = await _dashboardService.ExportInventoryReportAsync(format);
+                
+                // ✅ Add download URL
+                var downloadUrl = $"{Request.Scheme}://{Request.Host}{exportResult.FilePath}";
+                
                 return Ok(new ApiResponse<ReportExportDto>
                 {
                     Success = true,
-                    Message = $"Inventory report exported to {format} successfully",
+                    Message = $"Inventory report exported to {format} successfully. Download URL: {downloadUrl}",
                     Data = exportResult
                 });
             }
@@ -543,10 +551,14 @@ namespace Berca_Backend.Controllers
                 }
 
                 var exportResult = await _dashboardService.ExportFinancialReportAsync(startDate, endDate, format);
+                
+                // ✅ Add download URL
+                var downloadUrl = $"{Request.Scheme}://{Request.Host}{exportResult.FilePath}";
+                
                 return Ok(new ApiResponse<ReportExportDto>
                 {
                     Success = true,
-                    Message = $"Financial report exported to {format} successfully",
+                    Message = $"Financial report exported to {format} successfully. Download URL: {downloadUrl}",
                     Data = exportResult
                 });
             }
@@ -583,10 +595,14 @@ namespace Berca_Backend.Controllers
                 }
 
                 var exportResult = await _dashboardService.ExportCustomerReportAsync(startDate, endDate, format);
+                
+                // ✅ Add download URL
+                var downloadUrl = $"{Request.Scheme}://{Request.Host}{exportResult.FilePath}";
+                
                 return Ok(new ApiResponse<ReportExportDto>
                 {
                     Success = true,
-                    Message = $"Customer report exported to {format} successfully",
+                    Message = $"Customer report exported to {format} successfully. Download URL: {downloadUrl}",
                     Data = exportResult
                 });
             }

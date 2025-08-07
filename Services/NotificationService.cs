@@ -598,6 +598,10 @@ namespace Berca_Backend.Services
                     Title = $"Penjualan Selesai: {saleNumber}",
                     Message = $"Transaksi penjualan #{saleNumber} telah selesai. Total: Rp{totalAmount:N0}",
                     Priority = NotificationPriority.Normal,
+                    ActionUrl = $"/sales/{saleId}", // ✅ ADDED: Link ke detail transaksi
+                    ActionText = "Lihat Detail", // ✅ ADDED: Text untuk button
+                    RelatedEntity = "Sale", // ✅ ADDED: Entity type
+                    RelatedEntityId = saleId, // ✅ ADDED: Entity ID
                     CreatedAt = _timezoneService.Now
                 };
                 _context.Notifications.Add(notification);

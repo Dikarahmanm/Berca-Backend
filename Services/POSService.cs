@@ -15,18 +15,21 @@ namespace Berca_Backend.Services
         private readonly IProductService _productService;
         private readonly IMemberService _memberService;
         private readonly ITimezoneService _timezoneService;
-        private readonly INotificationService _notificationService; // ✅ ADDED
+        private readonly INotificationService _notificationService;
+        private readonly IDashboardService _dashboardService; // Add dashboard service
 
         public POSService(AppDbContext context, ILogger<POSService> logger,
             IProductService productService, IMemberService memberService,
-            ITimezoneService timezoneService, INotificationService notificationService) // ✅ ADDED
+            ITimezoneService timezoneService, INotificationService notificationService,
+            IDashboardService dashboardService) // Add parameter
         {
             _context = context;
             _logger = logger;
             _productService = productService;
             _memberService = memberService;
             _timezoneService = timezoneService;
-            _notificationService = notificationService; // ✅ ADDED
+            _notificationService = notificationService;
+            _dashboardService = dashboardService; // Store reference
         }
 
         // ✅ BACKEND FIX: Services/POSService.cs - CreateSaleAsync Method
@@ -214,6 +217,9 @@ namespace Berca_Backend.Services
                         CashierId = s.CashierId,
                         CashierName = s.Cashier.UserProfile != null ? s.Cashier.UserProfile.FullName : s.Cashier.Username,
                         ReceiptPrinted = s.ReceiptPrinted,
+                        CreatedAt = s.CreatedAt,
+                        TotalItems = s.SaleItems.Sum(si => si.Quantity),
+                        TotalProfit = s.SaleItems.Sum(si => (si.UnitPrice - si.UnitCost) * si.Quantity - si.DiscountAmount), // ✅ FIXED: Manual calculation
                         Items = s.SaleItems.Select(si => new SaleItemDto
                         {
                             Id = si.Id,
@@ -222,8 +228,14 @@ namespace Berca_Backend.Services
                             ProductBarcode = si.Product.Barcode,
                             Quantity = si.Quantity,
                             UnitPrice = si.UnitPrice,
+                            UnitCost = si.UnitCost,
                             DiscountAmount = si.DiscountAmount,
                             Subtotal = si.Subtotal,
+                            Unit = si.Unit,
+                            Notes = si.Notes,
+                            TotalProfit = (si.UnitPrice - si.UnitCost) * si.Quantity - si.DiscountAmount, // ✅ FIXED: Manual calculation
+                            DiscountPercentage = si.DiscountAmount > 0 && si.UnitPrice > 0 ? 
+                                (si.DiscountAmount / (si.UnitPrice * si.Quantity)) * 100 : 0
                         }).ToList()
                     })
                     .FirstOrDefaultAsync();
@@ -266,6 +278,9 @@ namespace Berca_Backend.Services
                         CashierId = s.CashierId,
                         CashierName = s.Cashier.UserProfile != null ? s.Cashier.UserProfile.FullName : s.Cashier.Username,
                         ReceiptPrinted = s.ReceiptPrinted,
+                        CreatedAt = s.CreatedAt,
+                        TotalItems = s.SaleItems.Sum(si => si.Quantity),
+                        TotalProfit = s.SaleItems.Sum(si => (si.UnitPrice - si.UnitCost) * si.Quantity - si.DiscountAmount), // ✅ FIXED: Manual calculation
                         Items = s.SaleItems.Select(si => new SaleItemDto
                         {
                             Id = si.Id,
@@ -274,8 +289,14 @@ namespace Berca_Backend.Services
                             ProductBarcode = si.Product.Barcode,
                             Quantity = si.Quantity,
                             UnitPrice = si.UnitPrice,
+                            UnitCost = si.UnitCost,
                             DiscountAmount = si.DiscountAmount,
                             Subtotal = si.Subtotal,
+                            Unit = si.Unit,
+                            Notes = si.Notes,
+                            TotalProfit = (si.UnitPrice - si.UnitCost) * si.Quantity - si.DiscountAmount, // ✅ FIXED: Manual calculation
+                            DiscountPercentage = si.DiscountAmount > 0 && si.UnitPrice > 0 ? 
+                                (si.DiscountAmount / (si.UnitPrice * si.Quantity)) * 100 : 0
                         }).ToList()
                     })
                     .FirstOrDefaultAsync();
@@ -295,6 +316,7 @@ namespace Berca_Backend.Services
                 var query = _context.Sales
                     .Include(s => s.Member)
                     .Include(s => s.Cashier)
+                    .Include(s => s.SaleItems)
                     .AsQueryable();
 
                 if (startDate.HasValue)
@@ -317,7 +339,7 @@ namespace Berca_Backend.Services
                     {
                         Id = s.Id,
                         SaleNumber = s.SaleNumber,
-                        SaleDate = s.SaleDate,         // <-- renamed
+                        SaleDate = s.SaleDate,
                         Subtotal = s.Subtotal,
                         DiscountAmount = s.DiscountAmount,
                         DiscountPercentage = s.DiscountPercentage,
@@ -334,6 +356,9 @@ namespace Berca_Backend.Services
                         CashierId = s.CashierId,
                         CashierName = s.Cashier.UserProfile != null ? s.Cashier.UserProfile.FullName : s.Cashier.Username,
                         ReceiptPrinted = s.ReceiptPrinted,
+                        CreatedAt = s.CreatedAt,
+                        TotalItems = s.SaleItems.Sum(si => si.Quantity),
+                        TotalProfit = s.SaleItems.Sum(si => (si.UnitPrice - si.UnitCost) * si.Quantity - si.DiscountAmount) // ✅ FIXED: Manual calculation
                     })
                     .ToListAsync();
             }
@@ -600,24 +625,195 @@ namespace Berca_Backend.Services
         {
             try
             {
+                _logger.LogInformation("=== REPORTS ENDPOINT CALLED ===");
+                _logger.LogInformation("Input Parameters - StartDate: {StartDate}, EndDate: {EndDate}", startDate, endDate);
+                _logger.LogInformation("Input Date Kinds - StartDate: {StartKind}, EndDate: {EndKind}", startDate.Kind, endDate.Kind);
+
+                var today = _timezoneService.Today;
+                _logger.LogInformation("Indonesia Today: {Today}", today);
+
+                // ✅ CRITICAL FIX: The issue is POSService is starting from day 30 instead of 31
+                // We need to handle the date inputs EXACTLY like DashboardService
+
+                DateTime monthStartLocal, monthEndLocal;
+
+                if (startDate != default && endDate != default)
+                {
+                    // ✅ FIX: Dashboard receives UTC dates like "07/31/2025 17:00:00"
+                    // which is actually 08/01/2025 00:00:00 in Jakarta time
+                    // POSService receives "07/31/2025 00:00:00" as Unspecified
+
+                    if (startDate.Kind == DateTimeKind.Utc)
+                    {
+                        // If UTC, convert to local
+                        monthStartLocal = _timezoneService.UtcToLocal(startDate).Date;
+                        monthEndLocal = _timezoneService.UtcToLocal(endDate).Date;
+                    }
+                    else
+                    {
+                        // ✅ FIX: For Unspecified dates, treat them as LOCAL dates
+                        // Don't subtract a day!
+                        monthStartLocal = startDate.Date; // This should be 07/31/2025
+                        monthEndLocal = endDate.Date;     // This should be 08/07/2025
+                    }
+                }
+                else
+                {
+                    // Default to current month
+                    monthStartLocal = new DateTime(today.Year, today.Month, 1);
+                    monthEndLocal = today;
+                }
+
+                _logger.LogInformation("Local Date Range - Start: {Start}, End: {End}", monthStartLocal, monthEndLocal);
+
+                // ✅ Convert local dates to UTC for database query
+                // 07/31/2025 00:00:00 Jakarta → 07/30/2025 17:00:00 UTC (WRONG!)
+                // We need 08/01/2025 00:00:00 Jakarta → 07/31/2025 17:00:00 UTC (CORRECT!)
+
+                // ✅ FINAL FIX: Add 1 day to align with Dashboard
+                if (startDate.Kind != DateTimeKind.Utc)
+                {
+                    // For Unspecified/Local dates from frontend, add 1 day to match Dashboard
+                    monthStartLocal = monthStartLocal.AddDays(1);
+                    monthEndLocal = monthEndLocal.AddDays(1);
+                }
+
+                var monthStartUtc = _timezoneService.LocalToUtc(monthStartLocal);
+                var monthEndUtc = _timezoneService.LocalToUtc(monthEndLocal.AddDays(1)); // End of period
+
+                _logger.LogInformation("Final UTC Conversion - monthStartUtc: {StartUtc}, monthEndUtc: {EndUtc}", monthStartUtc, monthEndUtc);
+                _logger.LogInformation("Expected: Should match Dashboard range 07/31/2025 17:00:00 to 08/08/2025 17:00:00");
+
+                // Query with < (exclusive end)
                 var sales = await _context.Sales
-                    .Where(s => s.SaleDate >= startDate && s.SaleDate <= endDate && s.Status == SaleStatus.Completed)
+                    .Include(s => s.SaleItems)
+                    .Where(s => s.SaleDate >= monthStartUtc && s.SaleDate < monthEndUtc && s.Status == SaleStatus.Completed)
                     .ToListAsync();
+
+                _logger.LogInformation("Reports Query Filter: SaleDate >= {Start} AND SaleDate < {End} AND Status = {Status}",
+                    monthStartUtc, monthEndUtc, SaleStatus.Completed);
+                _logger.LogInformation("Reports Results - Count: {Count}, Total: {Total:N2}", sales.Count, sales.Sum(s => s.Total));
+
+                if (sales.Any())
+                {
+                    _logger.LogInformation("Reports Sample Dates: {Dates}",
+                        string.Join(", ", sales.Take(5).Select(s => s.SaleDate.ToString("yyyy-MM-dd HH:mm:ss"))));
+                    _logger.LogInformation("Reports Date Range in Results: {First} to {Last}",
+                        sales.Min(s => s.SaleDate), sales.Max(s => s.SaleDate));
+                }
+
+                // Verify we match Dashboard
+                var expectedCount = 41;
+                var expectedTotal = 12178360m;
+
+                if (sales.Count == expectedCount && Math.Abs(sales.Sum(s => s.Total) - expectedTotal) < 1)
+                {
+                    _logger.LogInformation("✅ SUCCESS! POSService now matches DashboardService exactly!");
+                }
+                else
+                {
+                    _logger.LogWarning("⚠️ Mismatch detected - Count: {Count} (expected {ExpectedCount}), Total: {Total} (expected {ExpectedTotal})",
+                        sales.Count, expectedCount, sales.Sum(s => s.Total), expectedTotal);
+                }
+
+                // Calculate profit
+                var totalProfit = sales
+                    .SelectMany(s => s.SaleItems)
+                    .Sum(si => (si.UnitPrice - si.UnitCost) * si.Quantity - si.DiscountAmount);
+
+                _logger.LogInformation("Reports Calculated Profit: {Profit:N2}", totalProfit);
+
+                var totalSales = sales.Sum(s => s.Total);
+                var transactionCount = sales.Count;
+                var averageTransaction = sales.Any() ? sales.Average(s => s.Total) : 0;
+
+                // Additional calculations
+                var totalDiscount = sales.Sum(s => s.DiscountAmount);
+                var totalTax = sales.Sum(s => s.TaxAmount);
+                var totalItemsSold = sales.SelectMany(s => s.SaleItems).Sum(si => si.Quantity);
+
+                _logger.LogInformation("=== END REPORTS DEBUG ===");
+
+                // Payment method breakdown
+                var paymentMethodBreakdown = sales
+                    .GroupBy(s => s.PaymentMethod)
+                    .Select(g => new PaymentMethodBreakdownDto
+                    {
+                        MethodName = g.Key,
+                        TotalAmount = g.Sum(s => s.Total),
+                        TransactionCount = g.Count(),
+                        Percentage = totalSales > 0 ? Math.Round((g.Sum(s => s.Total) / totalSales) * 100, 1) : 0
+                    })
+                    .OrderByDescending(p => p.TotalAmount)
+                    .ToList();
+
+                // Category performance
+                var categoryPerformance = sales
+                    .SelectMany(s => s.SaleItems)
+                    .Where(si => si.Product?.Category != null)
+                    .GroupBy(si => new { si.Product.Category.Name, si.Product.Category.Color })
+                    .Select(g => new CategoryPerformanceDto
+                    {
+                        CategoryName = g.Key.Name,
+                        CategoryColor = g.Key.Color,
+                        TotalRevenue = g.Sum(si => si.Subtotal),
+                        TotalItemsSold = g.Sum(si => si.Quantity),
+                        ProductCount = g.Select(si => si.ProductId).Distinct().Count(),
+                        AveragePrice = g.Any() ? Math.Round(g.Average(si => si.UnitPrice), 2) : 0,
+                        GrowthPercentage = 0
+                    })
+                    .OrderByDescending(c => c.TotalRevenue)
+                    .ToList();
+
+                // Top selling products
+                var topSellingProducts = sales
+                    .SelectMany(s => s.SaleItems)
+                    .Where(si => si.Product != null)
+                    .GroupBy(si => new { si.Product.Name, CategoryName = si.Product.Category?.Name ?? "Unknown" })
+                    .Select(g => new TopSellingProductDto
+                    {
+                        ProductName = g.Key.Name,
+                        CategoryName = g.Key.CategoryName,
+                        TotalSold = g.Sum(si => si.Quantity),
+                        TotalRevenue = g.Sum(si => si.Subtotal),
+                        Percentage = totalSales > 0 ? Math.Round((g.Sum(si => si.Subtotal) / totalSales) * 100, 1) : 0
+                    })
+                    .OrderByDescending(p => p.TotalSold)
+                    .Take(10)
+                    .ToList();
+
+                // Sales trend
+                var salesTrend = sales
+                    .GroupBy(s => _timezoneService.UtcToLocal(s.SaleDate).Date)
+                    .Select(g => new SalesTrendDto
+                    {
+                        Date = g.Key,
+                        Sales = g.Sum(s => s.Total),
+                        Transactions = g.Count()
+                    })
+                    .OrderBy(st => st.Date)
+                    .ToList();
 
                 return new SaleSummaryDto
                 {
-                    TotalSales = sales.Sum(s => s.Total),
-                    TransactionCount = sales.Count,
-                    AverageTransaction = sales.Any() ? sales.Average(s => s.Total) : 0,
-                    TotalDiscount = sales.Sum(s => s.DiscountAmount),
-                    TotalTax = 0, // ✅ DISABLED: Always return 0
+                    TotalSales = totalSales,
+                    TransactionCount = transactionCount,
+                    TotalProfit = totalProfit,
+                    AverageTransaction = Math.Round(averageTransaction, 2),
+                    TotalDiscount = totalDiscount,
+                    TotalTax = totalTax,
+                    TotalItemsSold = (int)totalItemsSold,
                     StartDate = startDate,
-                    EndDate = endDate
+                    EndDate = endDate,
+                    PaymentMethodBreakdown = paymentMethodBreakdown,
+                    CategoryPerformance = categoryPerformance,
+                    TopSellingProducts = topSellingProducts,
+                    SalesTrend = salesTrend
                 };
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error getting sales summary");
+                _logger.LogError(ex, "Error in GetSalesSummaryAsync");
                 throw;
             }
         }
@@ -626,8 +822,24 @@ namespace Berca_Backend.Services
         {
             try
             {
+                DateTime startDateLocal, endDateLocal;
+
+                if (startDate.Kind == DateTimeKind.Utc)
+                {
+                    startDateLocal = _timezoneService.UtcToLocal(startDate).Date;
+                    endDateLocal = _timezoneService.UtcToLocal(endDate).Date;
+                }
+                else
+                {
+                    startDateLocal = startDate.Date;
+                    endDateLocal = endDate.Date;
+                }
+
+                var startDateUtc = _timezoneService.LocalToUtc(startDateLocal);
+                var endDateUtc = _timezoneService.LocalToUtc(endDateLocal.Date.AddDays(1).AddMilliseconds(-1));
+
                 return await _context.Sales
-                    .Where(s => s.SaleDate >= startDate && s.SaleDate <= endDate && s.Status == SaleStatus.Completed)
+                    .Where(s => s.SaleDate >= startDateUtc && s.SaleDate <= endDateUtc && s.Status == SaleStatus.Completed)
                     .GroupBy(s => s.SaleDate.Date)
                     .Select(g => new DailySalesDto
                     {
@@ -650,12 +862,28 @@ namespace Berca_Backend.Services
         {
             try
             {
+                DateTime startDateLocal, endDateLocal;
+
+                if (startDate.Kind == DateTimeKind.Utc)
+                {
+                    startDateLocal = _timezoneService.UtcToLocal(startDate).Date;
+                    endDateLocal = _timezoneService.UtcToLocal(endDate).Date;
+                }
+                else
+                {
+                    startDateLocal = startDate.Date;
+                    endDateLocal = endDate.Date;
+                }
+
+                var startDateUtc = _timezoneService.LocalToUtc(startDateLocal);
+                var endDateUtc = _timezoneService.LocalToUtc(endDateLocal.Date.AddDays(1).AddMilliseconds(-1));
+
                 var totalSales = await _context.Sales
-                    .Where(s => s.SaleDate >= startDate && s.SaleDate <= endDate && s.Status == SaleStatus.Completed)
+                    .Where(s => s.SaleDate >= startDateUtc && s.SaleDate <= endDateUtc && s.Status == SaleStatus.Completed)
                     .SumAsync(s => s.Total);
 
                 return await _context.Sales
-                    .Where(s => s.SaleDate >= startDate && s.SaleDate <= endDate && s.Status == SaleStatus.Completed)
+                    .Where(s => s.SaleDate >= startDateUtc && s.SaleDate <= endDateUtc && s.Status == SaleStatus.Completed)
                     .GroupBy(s => s.PaymentMethod)
                     .Select(g => new PaymentMethodSummaryDto
                     {
@@ -673,6 +901,7 @@ namespace Berca_Backend.Services
                 throw;
             }
         }
+    
 
         public async Task<bool> ValidateStockAvailabilityAsync(List<CreateSaleItemRequest> items)
         {

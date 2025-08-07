@@ -31,5 +31,8 @@ namespace Berca_Backend.Services
         Task<ReportExportDto> ExportInventoryReportAsync(string format);
         Task<ReportExportDto> ExportFinancialReportAsync(DateTime startDate, DateTime endDate, string format);
         Task<ReportExportDto> ExportCustomerReportAsync(DateTime startDate, DateTime endDate, string format);
+
+        // ✅ ADD: Date Range Resolution Method
+        DateRangeFilter ResolveDateRange(string period, DateTime? customStart = null, DateTime? customEnd = null);
     }
 }

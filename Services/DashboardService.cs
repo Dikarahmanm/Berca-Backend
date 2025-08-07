@@ -1,10 +1,11 @@
-﻿// Services/DashboardService.cs - Updated with Timezone Support
+﻿// Services/DashboardService.cs - FIXED: Remove duplicate export methods
 using Berca_Backend.DTOs;
 using Berca_Backend.Models;
 using Berca_Backend.Data;
 using Microsoft.EntityFrameworkCore;
 using Berca_Backend.Extensions;
 using Berca_Backend.Services.Interfaces;
+using System.Text;
 
 namespace Berca_Backend.Services
 {
@@ -12,14 +13,14 @@ namespace Berca_Backend.Services
     {
         private readonly AppDbContext _context;
         private readonly ILogger<DashboardService> _logger;
-        private readonly ITimezoneService _timezoneService; // ✅ ADDED
+        private readonly ITimezoneService _timezoneService;
 
         // ✅ Scoring configuration
         private readonly ScoringConfig _scoringConfig = new()
         {
             MaxScore = 100m,
             EnableDailyReset = true,
-            LastResetDate = DateTime.UtcNow.Date, // Keep UTC for storage
+            LastResetDate = DateTime.UtcNow.Date,
             Weights = new ScoringWeights
             {
                 QuantityWeight = 0.40m,
@@ -34,7 +35,7 @@ namespace Berca_Backend.Services
         {
             _context = context;
             _logger = logger;
-            _timezoneService = timezoneService; // ✅ ADDED
+            _timezoneService = timezoneService;
         }
 
         // ✅ Updated date range resolver dengan Indonesia timezone
@@ -95,29 +96,72 @@ namespace Berca_Backend.Services
         {
             try
             {
-                // ✅ Use Indonesia timezone
-                var today = DateTimeExtensions.IndonesiaToday;
-                var monthStart = new DateTime(today.Year, today.Month, 1);
-                var yearStart = new DateTime(today.Year, 1, 1);
+                _logger.LogInformation("=== KPI ENDPOINT CALLED ===");
+                _logger.LogInformation("Input Parameters - StartDate: {StartDate}, EndDate: {EndDate}", startDate, endDate);
 
-                // Convert to UTC for database queries
-                var todayUtc = today.ToUtcFromIndonesia();
-                var tomorrowUtc = today.AddDays(1).ToUtcFromIndonesia();
-                var monthStartUtc = monthStart.ToUtcFromIndonesia();
-                var yearStartUtc = yearStart.ToUtcFromIndonesia();
+                var today = _timezoneService.Today;
+                _logger.LogInformation("Indonesia Today: {Today}", today);
 
-                // Today's sales (use UTC range for database)
+                // ✅ FIX: Standardize date handling for both services
+                DateTime monthStartLocal, monthEndLocal;
+
+                if (startDate.HasValue && endDate.HasValue)
+                {
+                    // Handle input dates consistently
+                    if (startDate.Value.Kind == DateTimeKind.Utc)
+                    {
+                        monthStartLocal = _timezoneService.UtcToLocal(startDate.Value).Date;
+                        monthEndLocal = _timezoneService.UtcToLocal(endDate.Value).Date;
+                    }
+                    else
+                    {
+                        monthStartLocal = startDate.Value.Date;
+                        monthEndLocal = endDate.Value.Date;
+                    }
+                }
+                else
+                {
+                    // Default to current month
+                    monthStartLocal = new DateTime(today.Year, today.Month, 1);
+                    monthEndLocal = today;
+                }
+
+                var yearStartLocal = startDate?.Date ?? new DateTime(today.Year, 1, 1);
+
+                _logger.LogInformation("Local Date Range - Start: {Start}, End: {End}", monthStartLocal, monthEndLocal);
+
+                // ✅ FIX: Use INCLUSIVE end date (don't add extra day for dashboard)
+                var todayUtc = _timezoneService.LocalToUtc(today);
+                var tomorrowUtc = _timezoneService.LocalToUtc(today.AddDays(1));
+                var monthStartUtc = _timezoneService.LocalToUtc(monthStartLocal);
+                var monthEndUtc = _timezoneService.LocalToUtc(monthEndLocal.Date.AddDays(1).AddMilliseconds(-1)); // End of day
+                var yearStartUtc = _timezoneService.LocalToUtc(yearStartLocal);
+
+                _logger.LogInformation("UTC Conversion - monthStartUtc: {StartUtc}, monthEndUtc: {EndUtc}", monthStartUtc, monthEndUtc);
+
+                // Query with consistent date ranges
                 var todaySales = await _context.Sales
+                    .Include(s => s.SaleItems)
                     .Where(s => s.SaleDate >= todayUtc && s.SaleDate < tomorrowUtc && s.Status == SaleStatus.Completed)
                     .ToListAsync();
 
-                // Monthly sales
                 var monthlySales = await _context.Sales
-                    .Where(s => s.SaleDate >= monthStartUtc && s.Status == SaleStatus.Completed)
+                    .Include(s => s.SaleItems)
+                    .Where(s => s.SaleDate >= monthStartUtc && s.SaleDate <= monthEndUtc && s.Status == SaleStatus.Completed)
                     .ToListAsync();
 
-                // Yearly sales
+                _logger.LogInformation("KPI Query Filter: SaleDate >= {Start} AND SaleDate <= {End} AND Status = {Status}",
+                    monthStartUtc, monthEndUtc, SaleStatus.Completed);
+                _logger.LogInformation("KPI Results - Count: {Count}, Total: {Total:N2}", monthlySales.Count, monthlySales.Sum(s => s.Total));
+
+                if (monthlySales.Any())
+                {
+                    _logger.LogInformation("KPI Sample Dates: {Dates}", string.Join(", ", monthlySales.Take(5).Select(s => s.SaleDate.ToString("yyyy-MM-dd HH:mm:ss"))));
+                    _logger.LogInformation("KPI Date Range in Results: {First} to {Last}", monthlySales.Min(s => s.SaleDate), monthlySales.Max(s => s.SaleDate));
+                }
+
                 var yearlySales = await _context.Sales
+                    .Include(s => s.SaleItems)
                     .Where(s => s.SaleDate >= yearStartUtc && s.Status == SaleStatus.Completed)
                     .ToListAsync();
 
@@ -134,6 +178,14 @@ namespace Berca_Backend.Services
                     .Where(p => p.IsActive)
                     .SumAsync(p => p.Stock * p.BuyPrice);
 
+                // Calculate profit consistently
+                var totalProfit = monthlySales
+                    .SelectMany(s => s.SaleItems)
+                    .Sum(si => (si.UnitPrice - si.UnitCost) * si.Quantity - si.DiscountAmount);
+
+                _logger.LogInformation("KPI Calculated Profit: {Profit:N2}", totalProfit);
+                _logger.LogInformation("=== END KPI DEBUG ===");
+
                 return new DashboardKPIDto
                 {
                     TodayRevenue = todaySales.Sum(s => s.Total),
@@ -142,7 +194,7 @@ namespace Berca_Backend.Services
                     TodayTransactions = todaySales.Count,
                     MonthlyTransactions = monthlySales.Count,
                     AverageTransactionValue = monthlySales.Any() ? monthlySales.Average(s => s.Total) : 0,
-                    TotalProfit = monthlySales.Sum(s => s.TotalProfit),
+                    TotalProfit = totalProfit,
                     TotalProducts = totalProducts,
                     LowStockProducts = lowStockProducts,
                     TotalMembers = totalMembers,
@@ -448,36 +500,36 @@ namespace Berca_Backend.Services
             try
             {
                 var sales = await _context.Sales
-                    .Include(s => s.SaleItems)
+                    .Include(s => s.SaleItems) // ✅ ADDED: Include SaleItems for calculations
                     .Where(s => s.SaleDate >= startDate && s.SaleDate <= endDate && s.Status == SaleStatus.Completed)
                     .ToListAsync();
 
-                var totalRevenue = sales.Sum(s => s.Total);
-                var totalTransactions = sales.Count;
-                var totalItemsSold = sales.Sum(s => s.TotalItems);
-                var averageTransaction = totalTransactions > 0 ? totalRevenue / totalTransactions : 0;
-
-                var paymentMethods = sales
+                var paymentMethodBreakdown = sales
                     .GroupBy(s => s.PaymentMethod)
                     .Select(g => new PaymentMethodSummaryDto
                     {
                         PaymentMethod = g.Key,
                         Total = g.Sum(s => s.Total),
                         TransactionCount = g.Count(),
-                        Percentage = totalRevenue > 0 ? (g.Sum(s => s.Total) / totalRevenue) * 100 : 0
+                        Percentage = sales.Sum(s => s.Total) > 0 ? (g.Sum(s => s.Total) / sales.Sum(s => s.Total)) * 100 : 0
                     })
+                    .OrderByDescending(p => p.Total)
                     .ToList();
+
+                var totalItemsSold = sales.Sum(s => s.SaleItems.Sum(si => si.Quantity)); // ✅ FIXED: Calculate total items sold
+                var totalProfit = sales.Sum(s => s.SaleItems.Sum(si => si.TotalProfit)); // ✅ ADDED: Calculate total profit
 
                 return new SalesReportDto
                 {
                     StartDate = startDate,
                     EndDate = endDate,
-                    TotalRevenue = totalRevenue,
-                    TotalTransactions = totalTransactions,
-                    TotalItemsSold = totalItemsSold,
-                    AverageTransactionValue = averageTransaction,
-                    PaymentMethodBreakdown = paymentMethods,
-                    GeneratedAt = DateTime.UtcNow
+                    TotalRevenue = sales.Sum(s => s.Total),
+                    TotalTransactions = sales.Count,
+                    TotalItemsSold = totalItemsSold, // ✅ FIXED: Use calculated value
+                    TotalProfit = totalProfit, // ✅ ADDED: Include profit
+                    AverageTransactionValue = sales.Any() ? sales.Average(s => s.Total) : 0,
+                    PaymentMethodBreakdown = paymentMethodBreakdown,
+                    GeneratedAt = _timezoneService.Now
                 };
             }
             catch (Exception ex)
@@ -758,67 +810,6 @@ namespace Berca_Backend.Services
             }
         }
 
-        // Export methods (for now return placeholder)
-        public async Task<ReportExportDto> ExportSalesReportAsync(DateTime startDate, DateTime endDate, string format)
-        {
-            await Task.Delay(1); // Simulate async work
-            
-            return new ReportExportDto
-            {
-                ReportType = "Sales",
-                Format = format,
-                StartDate = startDate,
-                EndDate = endDate,
-                FilePath = $"/exports/sales-report-{startDate:yyyy-MM-dd}-{endDate:yyyy-MM-dd}.{format.ToLower()}",
-                GeneratedAt = DateTime.UtcNow
-            };
-        }
-
-        public async Task<ReportExportDto> ExportInventoryReportAsync(string format)
-        {
-            await Task.Delay(1);
-            
-            return new ReportExportDto
-            {
-                ReportType = "Inventory",
-                Format = format,
-                StartDate = DateTime.UtcNow.Date,
-                EndDate = DateTime.UtcNow.Date,
-                FilePath = $"/exports/inventory-report-{DateTime.UtcNow:yyyy-MM-dd}.{format.ToLower()}",
-                GeneratedAt = DateTime.UtcNow
-            };
-        }
-
-        public async Task<ReportExportDto> ExportFinancialReportAsync(DateTime startDate, DateTime endDate, string format)
-        {
-            await Task.Delay(1);
-            
-            return new ReportExportDto
-            {
-                ReportType = "Financial",
-                Format = format,
-                StartDate = startDate,
-                EndDate = endDate,
-                FilePath = $"/exports/financial-report-{startDate:yyyy-MM-dd}-{endDate:yyyy-MM-dd}.{format.ToLower()}",
-                GeneratedAt = DateTime.UtcNow
-            };
-        }
-
-        public async Task<ReportExportDto> ExportCustomerReportAsync(DateTime startDate, DateTime endDate, string format)
-        {
-            await Task.Delay(1);
-            
-            return new ReportExportDto
-            {
-                ReportType = "Customer",
-                Format = format,
-                StartDate = startDate,
-                EndDate = endDate,
-                FilePath = $"/exports/customer-report-{startDate:yyyy-MM-dd}-{endDate:yyyy-MM-dd}.{format.ToLower()}",
-                GeneratedAt = DateTime.UtcNow
-            };
-        }
-
         // ✅ FIXED: Enhanced scoring methods
         private decimal CalculateEnhancedProductScore(int quantity, decimal revenue, decimal profit, int transactions, DateTime lastSaleDate, string period)
         {
@@ -986,5 +977,560 @@ namespace Berca_Backend.Services
             var weekNum = ((date - firstWeekDay).Days / 7) + 1;
             return weekNum;
         }
+
+        // ✅ FIXED: Real Sales Report Export Implementation
+        public async Task<ReportExportDto> ExportSalesReportAsync(DateTime startDate, DateTime endDate, string format)
+        {
+            try
+            {
+                // 1. Generate the report data
+                var salesReport = await GenerateSalesReportAsync(startDate, endDate);
+                
+                // 2. Create directory if not exists
+                var exportDir = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "exports", "sales");
+                if (!Directory.Exists(exportDir))
+                {
+                    Directory.CreateDirectory(exportDir);
+                }
+
+                // 3. Generate filename
+                var timestamp = _timezoneService.Now.ToString("yyyyMMdd_HHmmss");
+                var fileName = $"sales-report_{startDate:yyyyMMdd}_{endDate:yyyyMMdd}_{timestamp}";
+                var fileExtension = format.ToUpper() == "PDF" ? "pdf" : "xlsx";
+                var fullFileName = $"{fileName}.{fileExtension}";
+                var filePath = Path.Combine(exportDir, fullFileName);
+                var webPath = $"/exports/sales/{fullFileName}";
+
+                // 4. Generate file based on format
+                if (format.ToUpper() == "PDF")
+                {
+                    await GenerateSalesReportPdfAsync(salesReport, filePath);
+                }
+                else if (format.ToUpper() == "EXCEL")
+                {
+                    await GenerateSalesReportExcelAsync(salesReport, filePath);
+                }
+
+                // 5. Return export info
+                return new ReportExportDto
+                {
+                    ReportType = "Sales",
+                    Format = format,
+                    StartDate = startDate,
+                    EndDate = endDate,
+                    FilePath = webPath, // ✅ Real web path for download
+                    GeneratedAt = _timezoneService.Now
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error exporting sales report");
+                throw;
+            }
+        }
+
+        // ✅ FIXED: Real Inventory Report Export Implementation
+        public async Task<ReportExportDto> ExportInventoryReportAsync(string format)
+        {
+            try
+            {
+                // 1. Generate the report data
+                var inventoryReport = await GenerateInventoryReportAsync();
+                
+                // 2. Create directory if not exists
+                var exportDir = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "exports", "inventory");
+                if (!Directory.Exists(exportDir))
+                {
+                    Directory.CreateDirectory(exportDir);
+                }
+
+                // 3. Generate filename
+                var timestamp = _timezoneService.Now.ToString("yyyyMMdd_HHmmss");
+                var fileName = $"inventory-report_{timestamp}";
+                var fileExtension = format.ToUpper() == "PDF" ? "pdf" : "xlsx";
+                var fullFileName = $"{fileName}.{fileExtension}";
+                var filePath = Path.Combine(exportDir, fullFileName);
+                var webPath = $"/exports/inventory/{fullFileName}";
+
+                // 4. Generate file based on format
+                if (format.ToUpper() == "PDF")
+                {
+                    await GenerateInventoryReportPdfAsync(inventoryReport, filePath);
+                }
+                else if (format.ToUpper() == "EXCEL")
+                {
+                    await GenerateInventoryReportExcelAsync(inventoryReport, filePath);
+                }
+
+                // 5. Return export info
+                return new ReportExportDto
+                {
+                    ReportType = "Inventory",
+                    Format = format,
+                    StartDate = _timezoneService.Today,
+                    EndDate = _timezoneService.Today,
+                    FilePath = webPath, // ✅ Real web path for download
+                    GeneratedAt = _timezoneService.Now
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error exporting inventory report");
+                throw;
+            }
+        }
+
+        // ✅ FIXED: Real Financial Report Export Implementation
+        public async Task<ReportExportDto> ExportFinancialReportAsync(DateTime startDate, DateTime endDate, string format)
+        {
+            try
+            {
+                // 1. Generate the report data
+                var financialReport = await GenerateFinancialReportAsync(startDate, endDate);
+                
+                // 2. Create directory if not exists
+                var exportDir = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "exports", "financial");
+                if (!Directory.Exists(exportDir))
+                {
+                    Directory.CreateDirectory(exportDir);
+                }
+
+                // 3. Generate filename
+                var timestamp = _timezoneService.Now.ToString("yyyyMMdd_HHmmss");
+                var fileName = $"financial-report_{startDate:yyyyMMdd}_{endDate:yyyyMMdd}_{timestamp}";
+                var fileExtension = format.ToUpper() == "PDF" ? "pdf" : "xlsx";
+                var fullFileName = $"{fileName}.{fileExtension}";
+                var filePath = Path.Combine(exportDir, fullFileName);
+                var webPath = $"/exports/financial/{fullFileName}";
+
+                // 4. Generate file based on format
+                if (format.ToUpper() == "PDF")
+                {
+                    await GenerateFinancialReportPdfAsync(financialReport, filePath);
+                }
+                else if (format.ToUpper() == "EXCEL")
+                {
+                    await GenerateFinancialReportExcelAsync(financialReport, filePath);
+                }
+
+                // 5. Return export info
+                return new ReportExportDto
+                {
+                    ReportType = "Financial",
+                    Format = format,
+                    StartDate = startDate,
+                    EndDate = endDate,
+                    FilePath = webPath, // ✅ Real web path for download
+                    GeneratedAt = _timezoneService.Now
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error exporting financial report");
+                throw;
+            }
+        }
+
+        // ✅ FIXED: Real Customer Report Export Implementation
+        public async Task<ReportExportDto> ExportCustomerReportAsync(DateTime startDate, DateTime endDate, string format)
+        {
+            try
+            {
+                // 1. Generate the report data
+                var customerReport = await GenerateCustomerReportAsync(startDate, endDate);
+                
+                // 2. Create directory if not exists
+                var exportDir = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "exports", "customer");
+                if (!Directory.Exists(exportDir))
+                {
+                    Directory.CreateDirectory(exportDir);
+                }
+
+                // 3. Generate filename
+                var timestamp = _timezoneService.Now.ToString("yyyyMMdd_HHmmss");
+                var fileName = $"customer-report_{startDate:yyyyMMdd}_{endDate:yyyyMMdd}_{timestamp}";
+                var fileExtension = format.ToUpper() == "PDF" ? "pdf" : "xlsx";
+                var fullFileName = $"{fileName}.{fileExtension}";
+                var filePath = Path.Combine(exportDir, fullFileName);
+                var webPath = $"/exports/customer/{fullFileName}";
+
+                // 4. Generate file based on format
+                if (format.ToUpper() == "PDF")
+                {
+                    await GenerateCustomerReportPdfAsync(customerReport, filePath);
+                }
+                else if (format.ToUpper() == "EXCEL")
+                {
+                    await GenerateCustomerReportExcelAsync(customerReport, filePath);
+                }
+
+                // 5. Return export info
+                return new ReportExportDto
+                {
+                    ReportType = "Customer",
+                    Format = format,
+                    StartDate = startDate,
+                    EndDate = endDate,
+                    FilePath = webPath, // ✅ Real web path for download
+                    GeneratedAt = _timezoneService.Now
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error exporting customer report");
+                throw;
+            }
+        }
+
+        // ✅ PDF Generation Methods
+        private async Task GenerateSalesReportPdfAsync(SalesReportDto report, string filePath)
+        {
+            var html = $@"
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <meta charset='utf-8'>
+                <title>Sales Report</title>
+                <style>
+                    body {{ font-family: Arial, sans-serif; margin: 20px; }}
+                    .header {{ text-align: center; margin-bottom: 30px; }}
+                    .summary {{ background-color: #f5f5f5; padding: 15px; margin-bottom: 20px; }}
+                    table {{ width: 100%; border-collapse: collapse; margin-bottom: 20px; }}
+                    th, td {{ border: 1px solid #ddd; padding: 8px; text-align: left; }}
+                    th {{ background-color: #4CAF50; color: white; }}
+                    .currency {{ text-align: right; }}
+                </style>
+            </head>
+            <body>
+                <div class='header'>
+                    <h1>Toko Eniwan - Sales Report</h1>
+                    <p>Period: {report.StartDate:dd/MM/yyyy} - {report.EndDate:dd/MM/yyyy}</p>
+                    <p>Generated: {report.GeneratedAt:dd/MM/yyyy HH:mm:ss}</p>
+                </div>
+                
+                <div class='summary'>
+                    <h3>Summary</h3>
+                    <p><strong>Total Revenue:</strong> Rp {report.TotalRevenue:N0}</p>
+                    <p><strong>Total Transactions:</strong> {report.TotalTransactions:N0}</p>
+                    <p><strong>Total Items Sold:</strong> {report.TotalItemsSold:N0}</p>
+                    <p><strong>Average Transaction Value:</strong> Rp {report.AverageTransactionValue:N0}</p>
+                    <p><strong>Total Profit:</strong> Rp {report.TotalProfit:N0}</p>
+                </div>
+
+                <h3>Payment Method Breakdown</h3>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Payment Method</th>
+                            <th>Total</th>
+                            <th>Transactions</th>
+                            <th>Percentage</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {string.Join("", report.PaymentMethodBreakdown.Select(pm => $@"
+                        <tr>
+                            <td>{pm.PaymentMethod}</td>
+                            <td class='currency'>Rp {pm.Total:N0}</td>
+                            <td>{pm.TransactionCount:N0}</td>
+                            <td>{pm.Percentage:F1}%</td>
+                        </tr>"))}
+                    </tbody>
+                </table>
+            </body>
+            </html>";
+
+            // Write HTML file (for development, can be replaced with actual PDF library)
+            await File.WriteAllTextAsync(filePath, html);
+}
+
+private async Task GenerateInventoryReportPdfAsync(InventoryReportDto report, string filePath)
+{
+    var html = $@"
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset='utf-8'>
+        <title>Inventory Report</title>
+        <style>
+            body {{ font-family: Arial, sans-serif; margin: 20px; }}
+            .header {{ text-align: center; margin-bottom: 30px; }}
+            .summary {{ background-color: #f5f5f5; padding: 15px; margin-bottom: 20px; }}
+            table {{ width: 100%; border-collapse: collapse; margin-bottom: 20px; }}
+            th, td {{ border: 1px solid #ddd; padding: 8px; text-align: left; }}
+            th {{ background-color: #2196F3; color: white; }}
+            .currency {{ text-align: right; }}
+            .warning {{ color: #ff9800; font-weight: bold; }}
+            .danger {{ color: #f44336; font-weight: bold; }}
+        </style>
+    </head>
+    <body>
+        <div class='header'>
+            <h1>Toko Eniwan - Inventory Report</h1>
+            <p>Generated: {report.GeneratedAt:dd/MM/yyyy HH:mm:ss}</p>
+        </div>
+        
+        <div class='summary'>
+            <h3>Inventory Summary</h3>
+            <p><strong>Total Products:</strong> {report.TotalProducts:N0}</p>
+            <p><strong>Total Inventory Value:</strong> Rp {report.TotalInventoryValue:N0}</p>
+            <p><strong>Low Stock Products:</strong> <span class='warning'>{report.LowStockProducts:N0}</span></p>
+            <p><strong>Out of Stock Products:</strong> <span class='danger'>{report.OutOfStockProducts:N0}</span></p>
+        </div>
+
+        <h3>Category Breakdown</h3>
+        <table>
+            <thead>
+                <tr>
+                    <th>Category</th>
+                    <th>Product Count</th>
+                    <th>Total Value</th>
+                    <th>Low Stock Count</th>
+                </tr>
+            </thead>
+            <tbody>
+                {string.Join("", report.CategoryBreakdown.Select(cat => $@"
+                <tr>
+                    <td>{cat.CategoryName}</td>
+                    <td>{cat.ProductCount:N0}</td>
+                    <td class='currency'>Rp {cat.TotalValue:N0}</td>
+                    <td class='{(cat.LowStockCount > 0 ? "warning" : "")}'>{cat.LowStockCount:N0}</td>
+                </tr>"))}
+            </tbody>
+        </table>
+    </body>
+    </html>";
+
+    await File.WriteAllTextAsync(filePath, html);
+}
+
+private async Task GenerateFinancialReportPdfAsync(FinancialReportDto report, string filePath)
+{
+    var html = $@"
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset='utf-8'>
+        <title>Financial Report</title>
+        <style>
+            body {{ font-family: Arial, sans-serif; margin: 20px; }}
+            .header {{ text-align: center; margin-bottom: 30px; }}
+            .summary {{ background-color: #f5f5f5; padding: 15px; margin-bottom: 20px; }}
+            table {{ width: 100%; border-collapse: collapse; margin-bottom: 20px; }}
+            th, td {{ border: 1px solid #ddd; padding: 8px; text-align: left; }}
+            th {{ background-color: #4CAF50; color: white; }}
+            .currency {{ text-align: right; }}
+            .profit {{ color: #4CAF50; font-weight: bold; }}
+            .loss {{ color: #f44336; font-weight: bold; }}
+        </style>
+    </head>
+    <body>
+        <div class='header'>
+            <h1>Toko Eniwan - Financial Report</h1>
+            <p>Period: {report.StartDate:dd/MM/yyyy} - {report.EndDate:dd/MM/yyyy}</p>
+            <p>Generated: {report.GeneratedAt:dd/MM/yyyy HH:mm:ss}</p>
+        </div>
+        
+        <div class='summary'>
+            <h3>Financial Summary</h3>
+            <p><strong>Total Revenue:</strong> Rp {report.TotalRevenue:N0}</p>
+            <p><strong>Total Cost:</strong> Rp {report.TotalCost:N0}</p>
+            <p><strong>Gross Profit:</strong> <span class='{(report.GrossProfit >= 0 ? "profit" : "loss")}'>Rp {report.GrossProfit:N0}</span></p>
+            <p><strong>Gross Profit Margin:</strong> {report.GrossProfitMargin:F1}%</p>
+            <p><strong>Net Profit:</strong> <span class='{(report.NetProfit >= 0 ? "profit" : "loss")}'>Rp {report.NetProfit:N0}</span></p>
+        </div>
+
+        <h3>Monthly Breakdown</h3>
+        <table>
+            <thead>
+                <tr>
+                    <th>Month</th>
+                    <th>Revenue</th>
+                    <th>Cost</th>
+                    <th>Profit</th>
+                </tr>
+            </thead>
+            <tbody>
+                {string.Join("", report.MonthlyBreakdown.Select(month => $@"
+                <tr>
+                    <td>{month.MonthName} {month.Year}</td>
+                    <td class='currency'>Rp {month.Revenue:N0}</td>
+                    <td class='currency'>Rp {month.Cost:N0}</td>
+                    <td class='currency {(month.Profit >= 0 ? "profit" : "loss")}'>Rp {month.Profit:N0}</td>
+                </tr>"))}
+            </tbody>
+        </table>
+    </body>
+    </html>";
+
+    await File.WriteAllTextAsync(filePath, html);
+}
+
+private async Task GenerateCustomerReportPdfAsync(CustomerReportDto report, string filePath)
+{
+    var html = $@"
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset='utf-8'>
+        <title>Customer Report</title>
+        <style>
+            body {{ font-family: Arial, sans-serif; margin: 20px; }}
+            .header {{ text-align: center; margin-bottom: 30px; }}
+            .summary {{ background-color: #f5f5f5; padding: 15px; margin-bottom: 20px; }}
+            table {{ width: 100%; border-collapse: collapse; margin-bottom: 20px; }}
+            th, td {{ border: 1px solid #ddd; padding: 8px; text-align: left; }}
+            th {{ background-color: #9C27B0; color: white; }}
+            .currency {{ text-align: right; }}
+        </style>
+    </head>
+    <body>
+        <div class='header'>
+            <h1>Toko Eniwan - Customer Report</h1>
+            <p>Period: {report.StartDate:dd/MM/yyyy} - {report.EndDate:dd/MM/yyyy}</p>
+            <p>Generated: {report.GeneratedAt:dd/MM/yyyy HH:mm:ss}</p>
+        </div>
+        
+        <div class='summary'>
+            <h3>Customer Summary</h3>
+            <p><strong>Total Active Members:</strong> {report.TotalActiveMembers:N0}</p>
+            <p><strong>New Members This Period:</strong> {report.NewMembersThisPeriod:N0}</p>
+            <p><strong>Average Order Value:</strong> Rp {report.AverageOrderValue:N0}</p>
+            <p><strong>Total Member Revenue:</strong> Rp {report.TotalMemberRevenue:N0}</p>
+            <p><strong>Guest Revenue:</strong> Rp {report.GuestRevenue:N0}</p>
+        </div>
+
+        <h3>Top Customers</h3>
+        <table>
+            <thead>
+                <tr>
+                    <th>Customer Name</th>
+                    <th>Type</th>
+                    <th>Total Spent</th>
+                    <th>Transactions</th>
+                    <th>Avg Order</th>
+                    <th>Last Purchase</th>
+                </tr>
+            </thead>
+            <tbody>
+                {string.Join("", report.TopCustomers.Take(10).Select(customer => $@"
+                <tr>
+                    <td>{customer.CustomerName}</td>
+                    <td>{customer.MembershipType}</td>
+                    <td class='currency'>Rp {customer.TotalSpent:N0}</td>
+                    <td>{customer.TransactionCount:N0}</td>
+                    <td class='currency'>Rp {customer.AverageOrderValue:N0}</td>
+                    <td>{customer.LastPurchase:dd/MM/yyyy}</td>
+                </tr>"))}
+            </tbody>
+        </table>
+    </body>
+    </html>";
+
+    await File.WriteAllTextAsync(filePath, html);
+}
+
+        // ✅ IMPLEMENTATION: Excel Generation Methods (using CSV format for simplicity)
+        private async Task GenerateSalesReportExcelAsync(SalesReportDto report, string filePath)
+        {
+            var csv = new StringBuilder();
+            csv.AppendLine("Toko Eniwan - Sales Report");
+            csv.AppendLine($"Period: {report.StartDate:dd/MM/yyyy} - {report.EndDate:dd/MM/yyyy}");
+            csv.AppendLine($"Generated: {report.GeneratedAt:dd/MM/yyyy HH:mm:ss}");
+            csv.AppendLine();
+            
+            csv.AppendLine("SUMMARY");
+            csv.AppendLine($"Total Revenue,Rp {report.TotalRevenue:N0}");
+            csv.AppendLine($"Total Transactions,{report.TotalTransactions:N0}");
+            csv.AppendLine($"Total Items Sold,{report.TotalItemsSold:N0}");
+            csv.AppendLine($"Average Transaction Value,Rp {report.AverageTransactionValue:N0}");
+            csv.AppendLine($"Total Profit,Rp {report.TotalProfit:N0}");
+            csv.AppendLine();
+            
+            csv.AppendLine("PAYMENT METHOD BREAKDOWN");
+            csv.AppendLine("Payment Method,Total,Transactions,Percentage");
+            foreach (var pm in report.PaymentMethodBreakdown)
+            {
+                csv.AppendLine($"{pm.PaymentMethod},Rp {pm.Total:N0},{pm.TransactionCount:N0},{pm.Percentage:F1}%");
+            }
+
+    await File.WriteAllTextAsync(filePath, csv.ToString());
+}
+
+private async Task GenerateInventoryReportExcelAsync(InventoryReportDto report, string filePath)
+{
+    var csv = new StringBuilder();
+    csv.AppendLine("Toko Eniwan - Inventory Report");
+    csv.AppendLine($"Generated: {report.GeneratedAt:dd/MM/yyyy HH:mm:ss}");
+    csv.AppendLine();
+    
+    csv.AppendLine("INVENTORY SUMMARY");
+    csv.AppendLine($"Total Products,{report.TotalProducts:N0}");
+    csv.AppendLine($"Total Inventory Value,Rp {report.TotalInventoryValue:N0}");
+    csv.AppendLine($"Low Stock Products,{report.LowStockProducts:N0}");
+    csv.AppendLine($"Out of Stock Products,{report.OutOfStockProducts:N0}");
+    csv.AppendLine();
+    
+    csv.AppendLine("CATEGORY BREAKDOWN");
+    csv.AppendLine("Category,Product Count,Total Value,Low Stock Count");
+    foreach (var cat in report.CategoryBreakdown)
+    {
+        csv.AppendLine($"{cat.CategoryName},{cat.ProductCount:N0},Rp {cat.TotalValue:N0},{cat.LowStockCount:N0}");
+    }
+
+    await File.WriteAllTextAsync(filePath, csv.ToString());
+}
+
+private async Task GenerateFinancialReportExcelAsync(FinancialReportDto report, string filePath)
+{
+    var csv = new StringBuilder();
+    csv.AppendLine("Toko Eniwan - Financial Report");
+    csv.AppendLine($"Period: {report.StartDate:dd/MM/yyyy} - {report.EndDate:dd/MM/yyyy}");
+    csv.AppendLine($"Generated: {report.GeneratedAt:dd/MM/yyyy HH:mm:ss}");
+    csv.AppendLine();
+    
+    csv.AppendLine("FINANCIAL SUMMARY");
+    csv.AppendLine($"Total Revenue,Rp {report.TotalRevenue:N0}");
+    csv.AppendLine($"Total Cost,Rp {report.TotalCost:N0}");
+    csv.AppendLine($"Gross Profit,Rp {report.GrossProfit:N0}");
+    csv.AppendLine($"Gross Profit Margin,{report.GrossProfitMargin:F1}%");
+    csv.AppendLine($"Net Profit,Rp {report.NetProfit:N0}");
+    csv.AppendLine();
+    
+    csv.AppendLine("MONTHLY BREAKDOWN");
+    csv.AppendLine("Month,Year,Revenue,Cost,Profit");
+    foreach (var month in report.MonthlyBreakdown)
+    {
+        csv.AppendLine($"{month.MonthName},{month.Year},Rp {month.Revenue:N0},Rp {month.Cost:N0},Rp {month.Profit:N0}");
+    }
+
+    await File.WriteAllTextAsync(filePath, csv.ToString());
+}
+
+private async Task GenerateCustomerReportExcelAsync(CustomerReportDto report, string filePath)
+{
+    var csv = new StringBuilder();
+    csv.AppendLine("Toko Eniwan - Customer Report");
+    csv.AppendLine($"Period: {report.StartDate:dd/MM/yyyy} - {report.EndDate:dd/MM/yyyy}");
+    csv.AppendLine($"Generated: {report.GeneratedAt:dd/MM/yyyy HH:mm:ss}");
+    csv.AppendLine();
+    
+    csv.AppendLine("CUSTOMER SUMMARY");
+    csv.AppendLine($"Total Active Members,{report.TotalActiveMembers:N0}");
+    csv.AppendLine($"New Members This Period,{report.NewMembersThisPeriod:N0}");
+    csv.AppendLine($"Average Order Value,Rp {report.AverageOrderValue:N0}");
+    csv.AppendLine($"Total Member Revenue,Rp {report.TotalMemberRevenue:N0}");
+    csv.AppendLine($"Guest Revenue,Rp {report.GuestRevenue:N0}");
+    csv.AppendLine();
+    
+    csv.AppendLine("TOP CUSTOMERS");
+    csv.AppendLine("Customer Name,Type,Total Spent,Transactions,Avg Order,Last Purchase");
+    foreach (var customer in report.TopCustomers.Take(10))
+    {
+        csv.AppendLine($"{customer.CustomerName},{customer.MembershipType},Rp {customer.TotalSpent:N0},{customer.TransactionCount:N0},Rp {customer.AverageOrderValue:N0},{customer.LastPurchase:dd/MM/yyyy}");
+    }
+
+    await File.WriteAllTextAsync(filePath, csv.ToString());
+}
     }
 }

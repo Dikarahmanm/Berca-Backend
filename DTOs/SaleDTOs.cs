@@ -1,5 +1,5 @@
-﻿// DTOs/SaleDTOs.cs - Sprint 2 Sale DTOs (FIXED)
-using System.ComponentModel.DataAnnotations; // ✅ ADDED
+﻿// DTOs/SaleDTOs.cs - COMPLETE Sales DTOs with all missing classes
+using System.ComponentModel.DataAnnotations;
 
 namespace Berca_Backend.DTOs
 {
@@ -8,12 +8,12 @@ namespace Berca_Backend.DTOs
     {
         public int Id { get; set; }
         public string SaleNumber { get; set; } = string.Empty;
-        public DateTime SaleDate { get; set; } // ✅ Fixed: was Date
+        public DateTime SaleDate { get; set; }
         public decimal Subtotal { get; set; }
         public decimal DiscountAmount { get; set; }
         public decimal TaxAmount { get; set; } = 0;
-        public decimal Total { get; set; } // ✅ Fixed: was Total
-        public decimal AmountPaid { get; set; } // ✅ Fixed: was PaidAmount  
+        public decimal Total { get; set; }
+        public decimal AmountPaid { get; set; }
         public decimal ChangeAmount { get; set; }
         public string PaymentMethod { get; set; } = string.Empty;
         public string? PaymentReference { get; set; }
@@ -25,22 +25,22 @@ namespace Berca_Backend.DTOs
         public string CashierName { get; set; } = string.Empty;
         public string Status { get; set; } = string.Empty;
         public string? Notes { get; set; }
-        public bool ReceiptPrinted { get; set; } // ✅ Fixed: was IsReceiptPrinted
+        public bool ReceiptPrinted { get; set; }
         public DateTime? ReceiptPrintedAt { get; set; }
-        public List<SaleItemDto> Items { get; set; } = new(); // ✅ Fixed: was SaleItems
+        public List<SaleItemDto> Items { get; set; } = new();
         public DateTime CreatedAt { get; set; }
         public int TotalItems { get; set; }
         public decimal TotalProfit { get; set; }
         public decimal DiscountPercentage { get; set; } = 0;
-        public int RedeemedPoints { get; set; } = 0; // ✅ Added: for loyalty points
-        public string? ReceiptFooterMessage { get; set; } // ✅ Added: for custom footer message
-        public string? ReceiptStoreName { get; set; } = "Toko Eniwan"; // ✅ Added: default store name
-        public string? ReceiptStoreAddress { get; set; } = string.Empty; // ✅ Added: default store address
-        public string? ReceiptStorePhone { get; set; } = string.Empty; // ✅ Added: default store phone
-        public string? ReceiptStoreEmail { get; set; } = null; // ✅ Added: default store email
-        public string? ReceiptStoreLogoUrl { get; set; } = null; // ✅ Added: for store logo in receipt
-        public string? ReceiptStoreWebsite { get; set; } = null; // ✅ Added: for store website in receipt
-        public string? ReceiptStoreTitle { get; set; } = "Toko Eniwan"; // ✅ Added: for store title in receipt
+        public int RedeemedPoints { get; set; } = 0;
+        public string? ReceiptFooterMessage { get; set; }
+        public string? ReceiptStoreName { get; set; } = "Toko Eniwan";
+        public string? ReceiptStoreAddress { get; set; } = string.Empty;
+        public string? ReceiptStorePhone { get; set; } = string.Empty;
+        public string? ReceiptStoreEmail { get; set; } = null;
+        public string? ReceiptStoreLogoUrl { get; set; } = null;
+        public string? ReceiptStoreWebsite { get; set; } = null;
+        public string? ReceiptStoreTitle { get; set; } = "Toko Eniwan";
     }
 
     // Sale Item DTO
@@ -54,7 +54,7 @@ namespace Berca_Backend.DTOs
         public decimal UnitPrice { get; set; }
         public decimal UnitCost { get; set; }
         public decimal DiscountAmount { get; set; }
-        public decimal Subtotal { get; set; } // ✅ Fixed: was TotalPrice
+        public decimal Subtotal { get; set; }
         public string Unit { get; set; } = string.Empty;
         public string? Notes { get; set; }
         public decimal TotalProfit { get; set; }
@@ -92,7 +92,6 @@ namespace Berca_Backend.DTOs
         [Range(0, double.MaxValue)]
         public decimal TaxAmount { get; set; } = 0;
 
-        //// ✅ Added missing properties that services expect
         public decimal SubTotal { get; set; }
         public decimal DiscountPercentage { get; set; } = 0;
         public decimal Total { get; set; }
@@ -111,34 +110,101 @@ namespace Berca_Backend.DTOs
         [Range(1, int.MaxValue)]
         public int Quantity { get; set; }
 
-        // ✅ Support frontend percentage format
         [Range(0, 100)]
-        public decimal Discount { get; set; } = 0; // Percentage 0-100
+        public decimal Discount { get; set; } = 0;
 
-        public decimal SellPrice { get; set; } = 0; // Price from frontend
+        public decimal SellPrice { get; set; } = 0;
 
-        // ✅ Support backend amount format  
         [Range(0, double.MaxValue)]
-        public decimal DiscountAmount { get; set; } = 0; // Amount in rupiah
+        public decimal DiscountAmount { get; set; } = 0;
 
         [StringLength(500)]
         public string? Notes { get; set; }
 
-        // ✅ Backend service fields
         public decimal UnitPrice { get; set; } = 0;
         public decimal TotalPrice { get; set; } = 0;
     }
 
-    // Sale Summary DTO
+    // ✅ ENHANCED: Sale Summary DTO with comprehensive reporting data
     public class SaleSummaryDto
     {
+        // Basic metrics
         public decimal TotalSales { get; set; }
-        public int TransactionCount { get; set; } // ✅ Added
+        public int TransactionCount { get; set; }
         public decimal AverageTransaction { get; set; }
         public decimal TotalProfit { get; set; }
-        public decimal TotalDiscount { get; set; } // ✅ Added
-        public decimal TotalTax { get; set; } = 0;// ✅ Added
-        public DateTime StartDate { get; set; } // ✅ Added
-        public DateTime EndDate { get; set; } // ✅ Added
+        public decimal TotalDiscount { get; set; }
+        public decimal TotalTax { get; set; } = 0;
+        public int TotalItemsSold { get; set; }
+        public DateTime StartDate { get; set; }
+        public DateTime EndDate { get; set; }
+        
+        // Enhanced reporting data (optional)
+        public List<PaymentMethodBreakdownDto>? PaymentMethodBreakdown { get; set; }
+        public List<CategoryPerformanceDto>? CategoryPerformance { get; set; }
+        public List<TopSellingProductDto>? TopSellingProducts { get; set; }
+        public List<SalesTrendDto>? SalesTrend { get; set; }
+    }
+
+    // ✅ NEW: Payment Method Breakdown DTO
+    public class PaymentMethodBreakdownDto
+    {
+        public string MethodName { get; set; } = string.Empty;
+        public decimal TotalAmount { get; set; }
+        public int TransactionCount { get; set; }
+        public decimal Percentage { get; set; }
+    }
+
+    // ✅ NEW: Category Performance DTO
+    public class CategoryPerformanceDto
+    {
+        public string CategoryName { get; set; } = string.Empty;
+        public string CategoryColor { get; set; } = string.Empty;
+        public decimal TotalRevenue { get; set; }
+        public int TotalItemsSold { get; set; }
+        public int ProductCount { get; set; }
+        public decimal AveragePrice { get; set; }
+        public decimal GrowthPercentage { get; set; }
+    }
+
+    // ✅ NEW: Top Selling Product DTO  
+    public class TopSellingProductDto
+    {
+        public string ProductName { get; set; } = string.Empty;
+        public string CategoryName { get; set; } = string.Empty;
+        public int TotalSold { get; set; }
+        public decimal TotalRevenue { get; set; }
+        public decimal Percentage { get; set; }
+    }
+
+    // ✅ NEW: Sales Trend DTO
+    public class SalesTrendDto
+    {
+        public DateTime Date { get; set; }
+        public decimal Sales { get; set; }
+        public int Transactions { get; set; }
+    }
+
+    // ✅ MISSING: Daily Sales DTO
+    public class DailySalesDto
+    {
+        public DateTime Date { get; set; }
+        public decimal TotalSales { get; set; }
+        public int TransactionCount { get; set; }
+        public decimal AverageTransaction { get; set; }
+    }
+
+    // ✅ MISSING: Payment Method Summary DTO
+
+
+    // ✅ MISSING: Receipt Data DTO
+    public class ReceiptDataDto
+    {
+        public SaleDto Sale { get; set; } = new();
+        public string StoreName { get; set; } = string.Empty;
+        public string StoreAddress { get; set; } = string.Empty;
+        public string StorePhone { get; set; } = string.Empty;
+        public string StoreEmail { get; set; } = string.Empty;
+        public string FooterMessage { get; set; } = string.Empty;
     }
 }
