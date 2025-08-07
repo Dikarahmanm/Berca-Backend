@@ -83,8 +83,9 @@ namespace Berca_Backend.DTOs
         public DateTime EndDate { get; set; }
         public decimal TotalRevenue { get; set; }
         public int TotalTransactions { get; set; }
-        public int TotalItemsSold { get; set; }
+        public int TotalItemsSold { get; set; } // ✅ RENAMED: From TotalItemsSold for clarity
         public decimal AverageTransactionValue { get; set; }
+        public decimal TotalProfit { get; set; } // ✅ ADDED: Include total profit
         public List<PaymentMethodSummaryDto> PaymentMethodBreakdown { get; set; } = new();
         public DateTime GeneratedAt { get; set; }
     }

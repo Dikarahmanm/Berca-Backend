@@ -1,4 +1,4 @@
-// Controllers/UserProfileController.cs
+﻿// Controllers/UserProfileController.cs
 
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -204,8 +204,11 @@ namespace Berca_Backend.Controllers
         {
             try
             {
+                _logger.LogInformation("📸 Photo upload attempt by user: {Username}", User.Identity?.Name);
+                
                 if (uploadDto.Photo == null || uploadDto.Photo.Length == 0)
                 {
+                    _logger.LogWarning("❌ No photo provided in upload request");
                     return BadRequest(new ApiResponse<string>
                     {
                         Success = false,
@@ -217,10 +220,11 @@ namespace Berca_Backend.Controllers
                 const long maxSize = 500 * 1024; // 500KB
                 if (uploadDto.Photo.Length > maxSize)
                 {
+                    _logger.LogWarning("❌ Photo too large: {Size} bytes (max: {MaxSize})", uploadDto.Photo.Length, maxSize);
                     return BadRequest(new ApiResponse<string>
                     {
                         Success = false,
-                        Message = "Photo size must be less than 500KB"
+                        Message = $"Photo size must be less than 500KB. Current size: {uploadDto.Photo.Length / 1024}KB"
                     });
                 }
 
@@ -228,20 +232,24 @@ namespace Berca_Backend.Controllers
                 var allowedTypes = new[] { "image/jpeg", "image/jpg", "image/png", "image/gif" };
                 if (!allowedTypes.Contains(uploadDto.Photo.ContentType.ToLower()))
                 {
+                    _logger.LogWarning("❌ Invalid file type: {ContentType}", uploadDto.Photo.ContentType);
                     return BadRequest(new ApiResponse<string>
                     {
                         Success = false,
-                        Message = "Only JPEG, PNG, and GIF files are allowed"
+                        Message = $"Only JPEG, PNG, and GIF files are allowed. Received: {uploadDto.Photo.ContentType}"
                     });
                 }
 
                 var username = User.FindFirst(ClaimTypes.Name)?.Value;
+                _logger.LogInformation("📤 Processing photo upload for user: {Username}", username);
+                
                 var user = await _context.Users
                     .Include(u => u.UserProfile)
                     .FirstOrDefaultAsync(u => u.Username == username);
 
                 if (user?.UserProfile == null)
                 {
+                    _logger.LogError("❌ User or UserProfile not found for username: {Username}", username);
                     return NotFound(new ApiResponse<string>
                     {
                         Success = false,
@@ -249,24 +257,40 @@ namespace Berca_Backend.Controllers
                     });
                 }
 
-                // Create uploads directory if it doesn't exist
-                var uploadsDir = Path.Combine(_environment.WebRootPath ?? _environment.ContentRootPath, "uploads", "avatars");
-                Directory.CreateDirectory(uploadsDir);
+                // ✅ FIXED: Use proper path construction
+                var webRootPath = _environment.WebRootPath ?? _environment.ContentRootPath;
+                var uploadsDir = Path.Combine(webRootPath, "uploads", "avatars");
+                
+                // ✅ Ensure directory exists
+                if (!Directory.Exists(uploadsDir))
+                {
+                    Directory.CreateDirectory(uploadsDir);
+                    _logger.LogInformation("📁 Created avatars directory: {Path}", uploadsDir);
+                }
 
                 // Generate unique filename
                 var fileExtension = Path.GetExtension(uploadDto.Photo.FileName);
                 var fileName = $"{username}_{DateTime.UtcNow:yyyyMMdd_HHmmss}{fileExtension}";
                 var filePath = Path.Combine(uploadsDir, fileName);
 
+                _logger.LogInformation("💾 Saving photo to: {FilePath}", filePath);
+
                 // Delete old photo if exists
                 if (!string.IsNullOrEmpty(user.UserProfile.PhotoUrl))
                 {
-                    var oldFileName = Path.GetFileName(user.UserProfile.PhotoUrl);
-                    var oldFilePath = Path.Combine(uploadsDir, oldFileName);
-                    if (System.IO.File.Exists(oldFilePath))
+                    try
                     {
-                        System.IO.File.Delete(oldFilePath);
-                        _logger.LogInformation($"Deleted old photo: {oldFileName}");
+                        var oldFileName = Path.GetFileName(user.UserProfile.PhotoUrl);
+                        var oldFilePath = Path.Combine(uploadsDir, oldFileName);
+                        if (System.IO.File.Exists(oldFilePath))
+                        {
+                            System.IO.File.Delete(oldFilePath);
+                            _logger.LogInformation("🗑️ Deleted old photo: {FileName}", oldFileName);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "⚠️ Failed to delete old photo, continuing with upload");
                     }
                 }
 
@@ -274,15 +298,27 @@ namespace Berca_Backend.Controllers
                 using (var stream = new FileStream(filePath, FileMode.Create))
                 {
                     await uploadDto.Photo.CopyToAsync(stream);
+                    _logger.LogInformation("✅ Photo saved successfully: {FileName}", fileName);
+                }
+
+                // ✅ FIXED: Verify file was actually saved
+                if (!System.IO.File.Exists(filePath))
+                {
+                    _logger.LogError("❌ Photo file was not saved properly: {FilePath}", filePath);
+                    return StatusCode(500, new ApiResponse<string>
+                    {
+                        Success = false,
+                        Message = "Failed to save photo file"
+                    });
                 }
 
                 // Update database
                 var photoUrl = $"/uploads/avatars/{fileName}";
                 user.UserProfile.PhotoUrl = photoUrl;
                 user.UserProfile.UpdatedAt = DateTime.UtcNow;
+                
                 await _context.SaveChangesAsync();
-
-                _logger.LogInformation($"Photo uploaded for user {username}: {fileName}");
+                _logger.LogInformation("💾 Database updated with new photo URL: {PhotoUrl}", photoUrl);
 
                 return Ok(new ApiResponse<string>
                 {
@@ -293,11 +329,11 @@ namespace Berca_Backend.Controllers
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error uploading photo");
+                _logger.LogError(ex, "❌ Error uploading photo for user: {Username}", User.Identity?.Name);
                 return StatusCode(500, new ApiResponse<string>
                 {
                     Success = false,
-                    Message = "Failed to upload photo"
+                    Message = $"Failed to upload photo: {ex.Message}"
                 });
             }
         }
@@ -358,6 +394,44 @@ namespace Berca_Backend.Controllers
                 {
                     Success = false,
                     Message = "Failed to delete photo"
+                });
+            }
+        }
+
+        /// <summary>
+        /// Debug endpoint to check upload directory status
+        /// </summary>
+        [HttpGet("debug/upload-info")]
+        public IActionResult GetUploadDebugInfo()
+        {
+            try
+            {
+                var webRootPath = _environment.WebRootPath ?? _environment.ContentRootPath;
+                var uploadsDir = Path.Combine(webRootPath, "uploads", "avatars");
+                
+                var info = new
+                {
+                    webRootPath = webRootPath,
+                    uploadsDirectory = uploadsDir,
+                    directoryExists = Directory.Exists(uploadsDir),
+                    files = Directory.Exists(uploadsDir) ? Directory.GetFiles(uploadsDir).Select(f => Path.GetFileName(f)).ToArray() : new string[0],
+                    username = User.Identity?.Name,
+                    isAuthenticated = User.Identity?.IsAuthenticated ?? false
+                };
+
+                return Ok(new ApiResponse<object>
+                {
+                    Success = true,
+                    Message = "Upload debug info",
+                    Data = info
+                });
+            }
+            catch (Exception ex)
+            {
+                return Ok(new ApiResponse<object>
+                {
+                    Success = false,
+                    Message = ex.Message
                 });
             }
         }

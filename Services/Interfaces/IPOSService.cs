@@ -1,4 +1,4 @@
-// Services/IPOSService.cs - Sprint 2 Point of Sale Service Interface
+﻿// Services/IPOSService.cs - Sprint 2 Point of Sale Service Interface (FIXED: Remove duplicate DTOs)
 using Berca_Backend.DTOs;
 
 namespace Berca_Backend.Services
@@ -29,29 +29,5 @@ namespace Berca_Backend.Services
         Task<decimal> CalculateTotalAsync(List<CreateSaleItemRequest> items, decimal discountAmount = 0, decimal taxAmount = 0);
     }
 
-    public class ReceiptDataDto
-    {
-        public SaleDto Sale { get; set; } = null!;
-        public string StoreName { get; set; } = "Toko Eniwan";
-        public string StoreAddress { get; set; } = string.Empty;
-        public string StorePhone { get; set; } = string.Empty;
-        public string? StoreEmail { get; set; }
-        public string? FooterMessage { get; set; }
-    }
-
-    public class DailySalesDto
-    {
-        public DateTime Date { get; set; }
-        public decimal TotalSales { get; set; }
-        public int TransactionCount { get; set; }
-        public decimal AverageTransaction { get; set; }
-    }
-
-    //public class PaymentMethodSummaryDto
-    //{
-    //    public string PaymentMethod { get; set; } = string.Empty;
-    //    public decimal Total { get; set; }
-    //    public int TransactionCount { get; set; }
-    //    public decimal Percentage { get; set; }
-    //}
+    // Note: All DTOs have been moved to Berca_Backend.DTOs namespace to avoid duplicates
 }
