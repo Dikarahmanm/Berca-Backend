@@ -101,6 +101,8 @@ namespace Berca_Backend.Models
 
         [NotMapped]
         public decimal NetProfit => GrossProfit - Tax;
+        // ✅ BUG FIX: Add RedeemedPoints to track points used in the sale
+        public int RedeemedPoints { get; set; } = 0;
     }
 
     public enum SaleStatus

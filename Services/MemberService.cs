@@ -65,11 +65,12 @@ namespace Berca_Backend.Services
                         IsActive = m.IsActive,
                         JoinDate = m.JoinDate,
                         LastTransactionDate = m.LastTransactionDate,
+                        // ✅ FIXED: Use database columns that are now properly maintained
                         TotalPoints = m.TotalPoints,
                         UsedPoints = m.UsedPoints,
-                        AvailablePoints = m.AvailablePoints,
+                        AvailablePoints = m.TotalPoints - m.UsedPoints, // ✅ Computed property
                         TotalTransactions = m.TotalTransactions,
-                        AverageTransactionValue = m.AverageTransactionValue,
+                        AverageTransactionValue = m.TotalTransactions > 0 ? m.TotalSpent / m.TotalTransactions : 0,
                         CreatedAt = m.CreatedAt,
                         UpdatedAt = m.UpdatedAt
                     })
@@ -112,11 +113,12 @@ namespace Berca_Backend.Services
                         IsActive = m.IsActive,
                         JoinDate = m.JoinDate,
                         LastTransactionDate = m.LastTransactionDate,
+                        // ✅ FIXED: Use database columns that are now properly maintained
                         TotalPoints = m.TotalPoints,
                         UsedPoints = m.UsedPoints,
-                        AvailablePoints = m.AvailablePoints,
+                        AvailablePoints = m.TotalPoints - m.UsedPoints, // ✅ Computed property
                         TotalTransactions = m.TotalTransactions,
-                        AverageTransactionValue = m.AverageTransactionValue,
+                        AverageTransactionValue = m.TotalTransactions > 0 ? m.TotalSpent / m.TotalTransactions : 0,
                         CreatedAt = m.CreatedAt,
                         UpdatedAt = m.UpdatedAt
                     })
@@ -150,11 +152,12 @@ namespace Berca_Backend.Services
                         IsActive = m.IsActive,
                         JoinDate = m.JoinDate,
                         LastTransactionDate = m.LastTransactionDate,
+                        // ✅ FIXED: Use database columns that are now properly maintained
                         TotalPoints = m.TotalPoints,
                         UsedPoints = m.UsedPoints,
-                        AvailablePoints = m.AvailablePoints,
+                        AvailablePoints = m.TotalPoints - m.UsedPoints, // ✅ Computed property
                         TotalTransactions = m.TotalTransactions,
-                        AverageTransactionValue = m.AverageTransactionValue,
+                        AverageTransactionValue = m.TotalTransactions > 0 ? m.TotalSpent / m.TotalTransactions : 0,
                         CreatedAt = m.CreatedAt,
                         UpdatedAt = m.UpdatedAt
                     })
@@ -188,11 +191,12 @@ namespace Berca_Backend.Services
                         IsActive = m.IsActive,
                         JoinDate = m.JoinDate,
                         LastTransactionDate = m.LastTransactionDate,
+                        // ✅ FIXED: Use database columns that are now properly maintained
                         TotalPoints = m.TotalPoints,
                         UsedPoints = m.UsedPoints,
-                        AvailablePoints = m.AvailablePoints,
+                        AvailablePoints = m.TotalPoints - m.UsedPoints, // ✅ Computed property
                         TotalTransactions = m.TotalTransactions,
-                        AverageTransactionValue = m.AverageTransactionValue,
+                        AverageTransactionValue = m.TotalTransactions > 0 ? m.TotalSpent / m.TotalTransactions : 0,
                         CreatedAt = m.CreatedAt,
                         UpdatedAt = m.UpdatedAt
                     })
@@ -312,73 +316,7 @@ namespace Berca_Backend.Services
             }
         }
 
-        public async Task<bool> AddPointsAsync(int memberId, int points, string description, int? saleId = null, string? referenceNumber = null, string? createdBy = null)
-        {
-            try
-            {
-                var member = await _context.Members.FindAsync(memberId);
-                if (member == null) return false;
-
-                var memberPoint = new MemberPoint
-                {
-                    MemberId = memberId,
-                    Points = points,
-                    Type = PointTransactionType.Earn,
-                    Description = description,
-                    SaleId = saleId,
-                    ReferenceNumber = referenceNumber,
-                    CreatedAt = _timezoneService.Now, // ✅ FIXED: Use Indonesia time
-                    CreatedBy = createdBy
-                };
-
-                _context.MemberPoints.Add(memberPoint);
-
-                // Update member's last transaction date if this is from a sale
-                if (saleId.HasValue)
-                {
-                    member.LastTransactionDate = _timezoneService.Now; // ✅ FIXED: Use Indonesia time
-                }
-
-                await _context.SaveChangesAsync();
-                return true;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error adding points for member: {MemberId}", memberId);
-                throw;
-            }
-        }
-
-        public async Task<bool> RedeemPointsAsync(int memberId, int points, string description, string? referenceNumber = null, string? createdBy = null)
-        {
-            try
-            {
-                var availablePoints = await GetAvailablePointsAsync(memberId);
-                if (availablePoints < points)
-                    throw new InvalidOperationException("Insufficient points");
-
-                var memberPoint = new MemberPoint
-                {
-                    MemberId = memberId,
-                    Points = -points,
-                    Type = PointTransactionType.Redeem,
-                    Description = description,
-                    ReferenceNumber = referenceNumber,
-                    CreatedAt = _timezoneService.Now, // ✅ FIXED: Use Indonesia time
-                    CreatedBy = createdBy
-                };
-
-                _context.MemberPoints.Add(memberPoint);
-                await _context.SaveChangesAsync();
-
-                return true;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error redeeming points for member: {MemberId}", memberId);
-                throw;
-            }
-        }
+        
 
         public async Task<List<MemberPointDto>> GetPointHistoryAsync(int memberId, int page = 1, int pageSize = 20)
         {
@@ -574,6 +512,132 @@ namespace Berca_Backend.Services
                 .CountAsync();
 
             return $"MBR{year}{(memberCount + 1):D6}";
+        }
+
+        
+        public async Task<bool> AddPointsAsync(int memberId, int points, string description, int? saleId = null, string? referenceNumber = null, string? createdBy = null)
+        {
+            try
+            {
+                var member = await _context.Members.FindAsync(memberId);
+                if (member == null) return false;
+
+                // ✅ FIXED: Validate SaleId exists if provided
+                if (saleId.HasValue)
+                {
+                    var saleExists = await _context.Sales.AnyAsync(s => s.Id == saleId.Value);
+                    if (!saleExists)
+                    {
+                        _logger.LogWarning("Sale {SaleId} not found when adding points, setting SaleId to null", saleId);
+                        saleId = null;
+                    }
+                }
+
+                // Create MemberPoint transaction record
+                var memberPoint = new MemberPoint
+                {
+                    MemberId = memberId,
+                    Points = points,
+                    Type = PointTransactionType.Earn,
+                    Description = description,
+                    SaleId = saleId,
+                    ReferenceNumber = referenceNumber,
+                    CreatedAt = _timezoneService.Now,
+                    CreatedBy = createdBy
+                };
+
+                _context.MemberPoints.Add(memberPoint);
+
+                // ✅ CRITICAL FIX: Update Member table's point columns
+                if (points > 0)
+                {
+                    // Adding points - update TotalPoints
+                    member.TotalPoints += points;
+                }
+                else
+                {
+                    // Negative points (shouldn't happen in AddPoints, but defensive)
+                    member.UsedPoints += Math.Abs(points);
+                }
+
+                // Update member's last transaction date if this is from a sale
+                if (saleId.HasValue)
+                {
+                    member.LastTransactionDate = _timezoneService.Now;
+                }
+
+                member.UpdatedAt = _timezoneService.Now;
+
+                await _context.SaveChangesAsync();
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error adding points for member: {MemberId}", memberId);
+                throw;
+            }
+        }
+
+        public async Task<bool> RedeemPointsAsync(int memberId, int points, string description, string? referenceNumber = null, string? createdBy = null)
+        {
+            try
+            {
+                var availablePoints = await GetAvailablePointsAsync(memberId);
+                if (availablePoints < points)
+                    throw new InvalidOperationException("Insufficient points");
+
+                var member = await _context.Members.FindAsync(memberId);
+                if (member == null) return false;
+
+                // Create MemberPoint transaction record
+                var memberPoint = new MemberPoint
+                {
+                    MemberId = memberId,
+                    Points = -points, // Negative for redemption
+                    Type = PointTransactionType.Redeem,
+                    Description = description,
+                    ReferenceNumber = referenceNumber,
+                    CreatedAt = _timezoneService.Now,
+                    CreatedBy = createdBy
+                };
+
+                _context.MemberPoints.Add(memberPoint);
+
+                // ✅ CRITICAL FIX: Update Member table's point columns
+                member.UsedPoints += points;
+                member.UpdatedAt = _timezoneService.Now;
+
+                await _context.SaveChangesAsync();
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error redeeming points for member: {MemberId}", memberId);
+                throw;
+            }
+        }
+
+        // ✅ NEW METHOD: Update member spending statistics
+        public async Task<bool> UpdateMemberStatsAsync(int memberId, decimal transactionAmount, int transactionCount = 1)
+        {
+            try
+            {
+                var member = await _context.Members.FindAsync(memberId);
+                if (member == null) return false;
+
+                member.TotalSpent += transactionAmount;
+                member.TotalTransactions += transactionCount;
+                member.LastTransactionDate = _timezoneService.Now;
+                member.UpdatedAt = _timezoneService.Now;
+
+                await _context.SaveChangesAsync();
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error updating member stats: {MemberId}", memberId);
+                throw;
+            }
         }
     }
 }
