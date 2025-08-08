@@ -1,4 +1,4 @@
-// Services/IMemberService.cs - Sprint 2 Member Service Interface
+﻿// Services/IMemberService.cs - Sprint 2 Member Service Interface
 using Berca_Backend.DTOs;
 using Berca_Backend.Models;
 namespace Berca_Backend.Services
@@ -23,6 +23,9 @@ namespace Berca_Backend.Services
         // Member Analytics
         Task<MemberStatsDto> GetMemberStatsAsync(int memberId);
         Task<List<TopMemberDto>> GetTopMembersAsync(int count = 10, DateTime? startDate = null, DateTime? endDate = null);
+
+        // ✅ ADDED: Member Statistics Update
+        Task<bool> UpdateMemberStatsAsync(int memberId, decimal transactionAmount, int transactionCount = 1);
 
         // Validation
         Task<bool> IsPhoneExistsAsync(string phone, int? excludeId = null);

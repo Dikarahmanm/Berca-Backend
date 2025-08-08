@@ -49,11 +49,11 @@ namespace Berca_Backend.Services
                 var sale = new Sale
                 {
                     SaleNumber = saleNumber,
-                    SaleDate = _timezoneService.Now, // ✅ FIXED: Use Indonesia time directly
+                    SaleDate = _timezoneService.Now,
                     Subtotal = request.SubTotal,
                     DiscountAmount = request.DiscountAmount,
                     DiscountPercentage = request.DiscountPercentage,
-                    TaxAmount = 0, // ✅ DISABLED: Always set to 0
+                    TaxAmount = 0,
                     Total = request.Total,
                     PaymentMethod = request.PaymentMethod,
                     AmountPaid = request.AmountPaid,
@@ -63,14 +63,15 @@ namespace Berca_Backend.Services
                     Notes = request.Notes,
                     Status = SaleStatus.Completed,
                     ReceiptPrinted = false,
-                    CreatedAt = _timezoneService.Now, // ✅ FIXED: Use Indonesia time directly
-                    UpdatedAt = _timezoneService.Now  // ✅ FIXED: Use Indonesia time directly
+                    CreatedAt = _timezoneService.Now,
+                    UpdatedAt = _timezoneService.Now,
+                    RedeemedPoints = request.RedeemedPoints
                 };
 
                 _context.Sales.Add(sale);
-                await _context.SaveChangesAsync();
+                await _context.SaveChangesAsync(); // ✅ CRITICAL: Save sale first to get ID
 
-                // ✅ CREATE SALE ITEMS WITH DUAL COMPATIBLE MAPPING
+                // Create sale items
                 foreach (var itemRequest in request.Items)
                 {
                     var product = await _context.Products.FindAsync(itemRequest.ProductId);
@@ -126,9 +127,18 @@ namespace Berca_Backend.Services
                     );
                 }
 
-                // Handle member points (existing logic)
+                await _context.SaveChangesAsync(); // ✅ Save sale items
+
+                // ✅ FIXED: Handle member points AFTER sale is committed
                 if (request.MemberId.HasValue)
                 {
+                    // Update member spending statistics
+                    await _memberService.UpdateMemberStatsAsync(
+                        request.MemberId.Value,
+                        request.Total,
+                        1
+                    );
+
                     var pointsEarned = CalculatePointsEarned(request.Total);
                     if (pointsEarned > 0)
                     {
@@ -155,18 +165,17 @@ namespace Berca_Backend.Services
                     }
                 }
 
-                await _context.SaveChangesAsync();
                 await transaction.CommitAsync();
 
-                // ✅ CREATE SALE COMPLETED NOTIFICATION - MISSING LOGIC!
+                // Create sale completed notification
                 try
                 {
                     await _notificationService.CreateSaleCompletedNotificationAsync(
-                        sale.Id, 
-                        sale.SaleNumber, 
+                        sale.Id,
+                        sale.SaleNumber,
                         sale.Total
                     );
-                    
+
                     _logger.LogInformation("✅ Sale notification created for sale: {SaleNumber}", sale.SaleNumber);
                 }
                 catch (Exception notificationEx)
@@ -220,6 +229,8 @@ namespace Berca_Backend.Services
                         CreatedAt = s.CreatedAt,
                         TotalItems = s.SaleItems.Sum(si => si.Quantity),
                         TotalProfit = s.SaleItems.Sum(si => (si.UnitPrice - si.UnitCost) * si.Quantity - si.DiscountAmount), // ✅ FIXED: Manual calculation
+                        // ✅ BUG FIX: Include redeemed points in the DTO
+                        RedeemedPoints = s.RedeemedPoints,
                         Items = s.SaleItems.Select(si => new SaleItemDto
                         {
                             Id = si.Id,
@@ -234,7 +245,7 @@ namespace Berca_Backend.Services
                             Unit = si.Unit,
                             Notes = si.Notes,
                             TotalProfit = (si.UnitPrice - si.UnitCost) * si.Quantity - si.DiscountAmount, // ✅ FIXED: Manual calculation
-                            DiscountPercentage = si.DiscountAmount > 0 && si.UnitPrice > 0 ? 
+                            DiscountPercentage = si.DiscountAmount > 0 && si.UnitPrice > 0 ?
                                 (si.DiscountAmount / (si.UnitPrice * si.Quantity)) * 100 : 0
                         }).ToList()
                     })
@@ -281,6 +292,8 @@ namespace Berca_Backend.Services
                         CreatedAt = s.CreatedAt,
                         TotalItems = s.SaleItems.Sum(si => si.Quantity),
                         TotalProfit = s.SaleItems.Sum(si => (si.UnitPrice - si.UnitCost) * si.Quantity - si.DiscountAmount), // ✅ FIXED: Manual calculation
+                        // ✅ BUG FIX: Include redeemed points in the DTO
+                        RedeemedPoints = s.RedeemedPoints,
                         Items = s.SaleItems.Select(si => new SaleItemDto
                         {
                             Id = si.Id,
@@ -295,7 +308,7 @@ namespace Berca_Backend.Services
                             Unit = si.Unit,
                             Notes = si.Notes,
                             TotalProfit = (si.UnitPrice - si.UnitCost) * si.Quantity - si.DiscountAmount, // ✅ FIXED: Manual calculation
-                            DiscountPercentage = si.DiscountAmount > 0 && si.UnitPrice > 0 ? 
+                            DiscountPercentage = si.DiscountAmount > 0 && si.UnitPrice > 0 ?
                                 (si.DiscountAmount / (si.UnitPrice * si.Quantity)) * 100 : 0
                         }).ToList()
                     })
@@ -380,7 +393,7 @@ namespace Berca_Backend.Services
                 sale.ReceiptPrintedAt = _timezoneService.Now; // ✅ FIXED: Use Indonesia time
 
                 await _context.SaveChangesAsync();
-                
+
                 // ✅ OPTIONAL: Create receipt printed notification
                 try
                 {
@@ -456,16 +469,30 @@ namespace Berca_Backend.Services
                     );
                 }
 
-                // Handle member points refund
+                // ✅ BUG FIX: Correctly handle point reversal for cancellations
                 if (sale.MemberId.HasValue)
                 {
-                    var pointsToRefund = CalculatePointsEarned(sale.Total);
-                    if (pointsToRefund > 0)
+                    // Reverse points earned from this sale
+                    var pointsEarned = CalculatePointsEarned(sale.Total);
+                    if (pointsEarned > 0)
                     {
                         await _memberService.RedeemPointsAsync(
                             sale.MemberId.Value,
-                            pointsToRefund,
-                            $"Sale cancellation refund - Sale #{sale.SaleNumber}",
+                            pointsEarned,
+                            $"Reversal for cancelled sale #{sale.SaleNumber}",
+                            sale.SaleNumber,
+                            "System"
+                        );
+                    }
+
+                    // Refund points that were redeemed in this sale
+                    if (sale.RedeemedPoints > 0)
+                    {
+                        await _memberService.AddPointsAsync(
+                            sale.MemberId.Value,
+                            sale.RedeemedPoints,
+                            $"Point refund for cancelled sale #{sale.SaleNumber}",
+                            null, // ✅ FIXED: Use null instead of sale.Id to avoid FK issues
                             sale.SaleNumber,
                             "System"
                         );
@@ -483,12 +510,12 @@ namespace Berca_Backend.Services
                 try
                 {
                     await _notificationService.CreateSaleCancelledNotificationAsync(
-                        sale.Id, 
-                        sale.SaleNumber, 
-                        sale.Total, 
+                        sale.Id,
+                        sale.SaleNumber,
+                        sale.Total,
                         reason
                     );
-                    
+
                     _logger.LogInformation("✅ Sale cancellation notification created for sale: {SaleNumber}", sale.SaleNumber);
                 }
                 catch (Exception notificationEx)
@@ -537,7 +564,9 @@ namespace Berca_Backend.Services
                     CashierId = processedBy,
                     Notes = $"Refund for Sale #{originalSale.SaleNumber} - {reason}",
                     Status = SaleStatus.Refunded,
-                    OriginalSaleId = originalSale.Id
+                    OriginalSaleId = originalSale.Id,
+                    // ✅ BUG FIX: Carry over redeemed points for reference, though not used in refund logic directly
+                    RedeemedPoints = originalSale.RedeemedPoints
                 };
 
                 _context.Sales.Add(refundSale);
@@ -570,16 +599,30 @@ namespace Berca_Backend.Services
                     );
                 }
 
-                // Handle member points refund
+                // ✅ BUG FIX: Correctly handle point reversal for refunds
                 if (originalSale.MemberId.HasValue)
                 {
-                    var pointsToRefund = CalculatePointsEarned(originalSale.Total);
-                    if (pointsToRefund > 0)
+                    // Reverse points earned from the original sale
+                    var pointsEarned = CalculatePointsEarned(originalSale.Total);
+                    if (pointsEarned > 0)
                     {
                         await _memberService.RedeemPointsAsync(
                             originalSale.MemberId.Value,
-                            pointsToRefund,
-                            $"Refund points - Sale #{originalSale.SaleNumber}",
+                            pointsEarned,
+                            $"Reversal for refunded sale #{originalSale.SaleNumber}",
+                            refundSaleNumber,
+                            $"User-{processedBy}"
+                        );
+                    }
+
+                    // Refund points that were redeemed in the original sale
+                    if (originalSale.RedeemedPoints > 0)
+                    {
+                        await _memberService.AddPointsAsync(
+                            originalSale.MemberId.Value,
+                            originalSale.RedeemedPoints,
+                            $"Point refund for refunded sale #{originalSale.SaleNumber}",
+                            null, // ✅ FIXED: Use null instead of originalSale.Id
                             refundSaleNumber,
                             $"User-{processedBy}"
                         );
@@ -598,12 +641,12 @@ namespace Berca_Backend.Services
                 try
                 {
                     await _notificationService.CreateSaleRefundedNotificationAsync(
-                        originalSale.Id, 
-                        originalSale.SaleNumber, 
-                        originalSale.Total, 
+                        originalSale.Id,
+                        originalSale.SaleNumber,
+                        originalSale.Total,
                         reason
                     );
-                    
+
                     _logger.LogInformation("✅ Sale refund notification created for sale: {SaleNumber}", originalSale.SaleNumber);
                 }
                 catch (Exception notificationEx)
@@ -901,7 +944,7 @@ namespace Berca_Backend.Services
                 throw;
             }
         }
-    
+
 
         public async Task<bool> ValidateStockAvailabilityAsync(List<CreateSaleItemRequest> items)
         {
