@@ -80,6 +80,7 @@ namespace Berca_Backend.Models
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
         public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 
+        [Column(TypeName = "decimal(5,2)")]
         public decimal DiscountPercentage { get; set; } = 0;
 
         // ✅ ADDED: Computed Properties for Financial Reports
