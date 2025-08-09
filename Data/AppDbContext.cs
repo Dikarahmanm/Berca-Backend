@@ -123,6 +123,7 @@ namespace Berca_Backend.Data
                 entity.Property(e => e.Notes).HasMaxLength(500);
                 entity.Property(e => e.CreatedAt).HasDefaultValueSql("GETUTCDATE()");
                 entity.Property(e => e.UpdatedAt).HasDefaultValueSql("GETUTCDATE()");
+                entity.Property(e => e.DiscountPercentage).HasColumnType("decimal(5,2)");
 
                 // Indexes
                 entity.HasIndex(e => e.SaleNumber).IsUnique().HasDatabaseName("IX_Sales_SaleNumber");
