@@ -45,7 +45,7 @@ namespace Berca_Backend.Services
                         Message = n.Message,
                         ActionUrl = n.ActionUrl,
                         IsRead = n.IsRead,
-                        Priority = n.Priority != null ? n.Priority.ToString() : "Normal", // ✅ FIXED: Use != null instead of ?.
+                        Priority = n.Priority != null ? n.Priority.Value.ToString() : "Normal",
                         CreatedAt = n.CreatedAt,
                         ReadAt = n.ReadAt
                     })
@@ -80,7 +80,7 @@ namespace Berca_Backend.Services
                         Message = n.Message,
                         ActionUrl = n.ActionUrl,
                         IsRead = n.IsRead,
-                        Priority = n.Priority != null ? n.Priority.ToString() : "Normal", // ✅ FIXED: Use != null instead of ?.
+                        Priority = n.Priority != null ? n.Priority.Value.ToString() : "Normal",
                         CreatedAt = n.CreatedAt,
                         ReadAt = n.ReadAt
                     })
