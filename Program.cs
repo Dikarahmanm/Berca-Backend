@@ -299,6 +299,7 @@ builder.Services.AddScoped<IMemberService, MemberService>();
 builder.Services.AddScoped<IPOSService, POSService>();
 builder.Services.AddScoped<IUserBranchAssignmentService, UserBranchAssignmentService>();
 builder.Services.AddScoped<IBranchService, BranchService>();
+builder.Services.AddScoped<IConsolidatedReportService, ConsolidatedReportService>();
 
 // ✅ Add Swagger
 builder.Services.AddEndpointsApiExplorer();
