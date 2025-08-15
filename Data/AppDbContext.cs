@@ -24,21 +24,151 @@ namespace Berca_Backend.Data
         public DbSet<Notification> Notifications { get; set; }
         public DbSet<NotificationSettings> NotificationSettings { get; set; }
         public DbSet<UserNotificationSettings> UserNotificationSettings { get; set; }
-
+        public DbSet<Branch> Branches { get; set; }
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             base.OnModelCreating(modelBuilder);
+            // Branch configuration
+            // Branch configuration
+            // ===== BRANCH CONFIGURATION (NEW) ===== //
+            modelBuilder.Entity<Branch>(entity =>
+            {
+                entity.HasKey(b => b.Id);
+
+                entity.Property(b => b.BranchCode)
+                    .IsRequired()
+                    .HasMaxLength(20);
+
+                entity.HasIndex(b => b.BranchCode)
+                    .IsUnique()
+                    .HasDatabaseName("IX_Branches_BranchCode");
+
+                entity.Property(b => b.BranchName)
+                    .IsRequired()
+                    .HasMaxLength(100);
+
+                entity.Property(b => b.Address)
+                    .IsRequired()
+                    .HasMaxLength(300); // Increased for full addresses
+
+                entity.Property(b => b.ManagerName)
+                    .IsRequired()
+                    .HasMaxLength(100);
+
+                entity.Property(b => b.Phone)
+                    .IsRequired()
+                    .HasMaxLength(20);
+
+                entity.Property(b => b.Email)
+                    .HasMaxLength(100);
+
+                // Location properties
+                entity.Property(b => b.City)
+                    .IsRequired()
+                    .HasMaxLength(50);
+
+                entity.Property(b => b.Province)
+                    .IsRequired()
+                    .HasMaxLength(50);
+
+                entity.Property(b => b.PostalCode)
+                    .IsRequired()
+                    .HasMaxLength(10);
+
+                // Store properties
+                entity.Property(b => b.StoreSize)
+                    .IsRequired()
+                    .HasMaxLength(20)
+                    .HasDefaultValue("Medium");
+
+                entity.Property(b => b.EmployeeCount)
+                    .HasDefaultValue(0);
+
+                entity.Property(b => b.IsActive)
+                    .HasDefaultValue(true);
+
+                // Timezone-aware date properties (stored as UTC)
+                entity.Property(b => b.OpeningDate)
+                    .IsRequired()
+                    .HasColumnType("datetime2");
+
+                entity.Property(b => b.CreatedAt)
+                    .IsRequired()
+                    .HasColumnType("datetime2")
+                    .HasDefaultValueSql("GETUTCDATE()");
+
+                entity.Property(b => b.UpdatedAt)
+                    .IsRequired()
+                    .HasColumnType("datetime2")
+                    .HasDefaultValueSql("GETUTCDATE()");
+
+                // Self-referencing relationship (kept for flexibility but not used in flat structure)
+                entity.HasOne(b => b.ParentBranch)
+                    .WithMany(b => b.SubBranches)
+                    .HasForeignKey(b => b.ParentBranchId)
+                    .OnDelete(DeleteBehavior.Restrict); // Prevent cascade delete
+
+                // Indexes for performance (retail chain queries)
+                entity.HasIndex(b => b.City)
+                    .HasDatabaseName("IX_Branches_City");
+
+                entity.HasIndex(b => b.Province)
+                    .HasDatabaseName("IX_Branches_Province");
+
+                entity.HasIndex(b => b.BranchType)
+                    .HasDatabaseName("IX_Branches_BranchType");
+
+                entity.HasIndex(b => b.IsActive)
+                    .HasDatabaseName("IX_Branches_IsActive");
+
+                entity.HasIndex(b => new { b.Province, b.City })
+                    .HasDatabaseName("IX_Branches_Province_City");
+            });
 
             // ==================== EXISTING CONFIGURATIONS ==================== //
 
             // User Configuration
             modelBuilder.Entity<User>(entity =>
             {
-                entity.HasKey(e => e.Id);
-                entity.Property(e => e.Username).IsRequired().HasMaxLength(50);
-                entity.Property(e => e.PasswordHash).IsRequired();
-                entity.Property(e => e.Role).IsRequired().HasMaxLength(20);
-                entity.HasIndex(e => e.Username).IsUnique();
+                entity.HasKey(u => u.Id);
+
+                entity.Property(u => u.Username)
+                    .IsRequired()
+                    .HasMaxLength(50);
+
+                entity.Property(u => u.PasswordHash)
+                    .IsRequired();
+
+                entity.Property(u => u.Role)
+                    .IsRequired()
+                    .HasMaxLength(20)
+                    .HasDefaultValue("User");
+
+                // NEW: Branch assignment properties
+                entity.Property(u => u.CanAccessMultipleBranches)
+                    .HasDefaultValue(false);
+
+                entity.Property(u => u.AccessibleBranchIds)
+                    .HasMaxLength(500); // JSON array storage
+
+                entity.Property(u => u.IsActive)
+                    .HasDefaultValue(true);
+
+                // Branch relationship
+                entity.HasOne(u => u.Branch)
+                    .WithMany(b => b.Users)
+                    .HasForeignKey(u => u.BranchId)
+                    .OnDelete(DeleteBehavior.SetNull); // User stays when branch deleted
+
+                // Indexes for user-branch queries
+                entity.HasIndex(u => u.BranchId)
+                    .HasDatabaseName("IX_Users_BranchId");
+
+                entity.HasIndex(u => u.Role)
+                    .HasDatabaseName("IX_Users_Role");
+
+                entity.HasIndex(u => new { u.BranchId, u.Role })
+                    .HasDatabaseName("IX_Users_BranchId_Role");
             });
 
             // UserProfile Configuration

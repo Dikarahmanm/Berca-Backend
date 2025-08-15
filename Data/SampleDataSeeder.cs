@@ -12,13 +12,22 @@ namespace Berca_Backend.Data
             if (await context.Sales.AnyAsync())
                 return;
 
-            // Create sample users first
+            // Create sample branches first (if they don't exist)
+            await SeedBranchesAsync(context);
+            
+            // Get branches for assignment
+            var headBranch = await context.Branches.FirstOrDefaultAsync(b => b.BranchType == BranchType.Head);
+            var firstBranch = await context.Branches.FirstOrDefaultAsync(b => b.BranchType == BranchType.Branch);
+
+            // Create sample users with proper branch assignments
             var adminUser = new User
             {
                 Id = 1,
                 Username = "admin",
                 PasswordHash = BCrypt.Net.BCrypt.HashPassword("admin123"),
                 Role = "Admin",
+                BranchId = null, // Admin can access all branches
+                CanAccessMultipleBranches = true,
                 IsActive = true
                 // ✅ Remove CreatedAt and UpdatedAt - they have default values
             };
@@ -29,9 +38,18 @@ namespace Berca_Backend.Data
                 Username = "cashier",
                 PasswordHash = BCrypt.Net.BCrypt.HashPassword("cashier123"),
                 Role = "User",
+                BranchId = firstBranch?.Id, // Assign to first branch
+                CanAccessMultipleBranches = false,
                 IsActive = true
                 // ✅ Remove CreatedAt and UpdatedAt - they have default values
             };
+
+            // Set accessible branches for admin (all branches)
+            var allBranchIds = await context.Branches.Select(b => b.Id).ToListAsync();
+            if (allBranchIds.Any())
+            {
+                adminUser.SetAccessibleBranchIds(allBranchIds);
+            }
 
             context.Users.AddRange(adminUser, cashierUser);
 
@@ -195,6 +213,152 @@ namespace Berca_Backend.Data
         {
             var paymentMethods = new[] { "Cash", "Debit Card", "Credit Card", "E-Wallet", "Bank Transfer" };
             return paymentMethods[random.Next(0, paymentMethods.Length)];
+        }
+
+        private static async Task SeedBranchesAsync(AppDbContext context)
+        {
+            // Only seed branches if none exist
+            if (await context.Branches.AnyAsync())
+                return;
+
+            var branches = new List<Branch>
+            {
+                new Branch
+                {
+                    Id = 1,
+                    BranchCode = "HQ",
+                    BranchName = "Head Office",
+                    BranchType = BranchType.Head,
+                    Address = "Jl. Raya Jakarta No. 123",
+                    ManagerName = "Budi Santoso",
+                    Phone = "021-1234567",
+                    Email = "hq@tokoeniwan.com",
+                    City = "Jakarta",
+                    Province = "DKI Jakarta",
+                    PostalCode = "12345",
+                    OpeningDate = DateTime.UtcNow.AddMonths(-12),
+                    StoreSize = "Large",
+                    EmployeeCount = 25,
+                    IsActive = true,
+                    CreatedAt = DateTime.UtcNow.AddMonths(-12),
+                    UpdatedAt = DateTime.UtcNow.AddMonths(-12)
+                },
+                new Branch
+                {
+                    Id = 2,
+                    BranchCode = "PWK-01",
+                    BranchName = "Toko Eniwan Purwakarta",
+                    BranchType = BranchType.Branch,
+                    Address = "Jl. Ahmad Yani No. 45, Purwakarta",
+                    ManagerName = "Siti Nurhaliza",
+                    Phone = "0264-123456",
+                    Email = "purwakarta@tokoeniwan.com",
+                    City = "Purwakarta",
+                    Province = "Jawa Barat",
+                    PostalCode = "41115",
+                    OpeningDate = DateTime.UtcNow.AddMonths(-8),
+                    StoreSize = "Medium",
+                    EmployeeCount = 8,
+                    IsActive = true,
+                    CreatedAt = DateTime.UtcNow.AddMonths(-8),
+                    UpdatedAt = DateTime.UtcNow.AddMonths(-8)
+                },
+                new Branch
+                {
+                    Id = 3,
+                    BranchCode = "BDG-01",
+                    BranchName = "Toko Eniwan Bandung",
+                    BranchType = BranchType.Branch,
+                    Address = "Jl. Braga No. 67, Bandung",
+                    ManagerName = "Ahmad Fauzi",
+                    Phone = "022-987654",
+                    Email = "bandung@tokoeniwan.com",
+                    City = "Bandung",
+                    Province = "Jawa Barat",
+                    PostalCode = "40111",
+                    OpeningDate = DateTime.UtcNow.AddMonths(-6),
+                    StoreSize = "Medium",
+                    EmployeeCount = 10,
+                    IsActive = true,
+                    CreatedAt = DateTime.UtcNow.AddMonths(-6),
+                    UpdatedAt = DateTime.UtcNow.AddMonths(-6)
+                },
+                new Branch
+                {
+                    Id = 4,
+                    BranchCode = "SBY-01",
+                    BranchName = "Toko Eniwan Surabaya",
+                    BranchType = BranchType.Branch,
+                    Address = "Jl. Tunjungan No. 89, Surabaya",
+                    ManagerName = "Dewi Sartika",
+                    Phone = "031-456789",
+                    Email = "surabaya@tokoeniwan.com",
+                    City = "Surabaya",
+                    Province = "Jawa Timur",
+                    PostalCode = "60261",
+                    OpeningDate = DateTime.UtcNow.AddMonths(-4),
+                    StoreSize = "Large",
+                    EmployeeCount = 15,
+                    IsActive = true,
+                    CreatedAt = DateTime.UtcNow.AddMonths(-4),
+                    UpdatedAt = DateTime.UtcNow.AddMonths(-4)
+                }
+            };
+
+            context.Branches.AddRange(branches);
+            await context.SaveChangesAsync();
+        }
+
+        /// <summary>
+        /// Fix existing users with NULL BranchId assignments
+        /// </summary>
+        public static async Task FixNullBranchAssignmentsAsync(AppDbContext context)
+        {
+            var usersWithoutBranch = await context.Users
+                .Where(u => u.BranchId == null && u.IsActive)
+                .ToListAsync();
+
+            if (!usersWithoutBranch.Any())
+                return;
+
+            var headBranch = await context.Branches.FirstOrDefaultAsync(b => b.BranchType == BranchType.Head);
+            var firstBranch = await context.Branches.FirstOrDefaultAsync(b => b.BranchType == BranchType.Branch);
+            var allBranchIds = await context.Branches.Where(b => b.IsActive).Select(b => b.Id).ToListAsync();
+
+            foreach (var user in usersWithoutBranch)
+            {
+                switch (user.Role.ToUpper())
+                {
+                    case "ADMIN":
+                        user.BranchId = null; // Admin tidak assigned ke branch tertentu
+                        user.CanAccessMultipleBranches = true;
+                        user.SetAccessibleBranchIds(allBranchIds);
+                        break;
+
+                    case "HEADMANAGER":
+                        user.BranchId = headBranch?.Id;
+                        user.CanAccessMultipleBranches = true;
+                        user.SetAccessibleBranchIds(allBranchIds);
+                        break;
+
+                    case "BRANCHMANAGER":
+                        user.BranchId = firstBranch?.Id;
+                        user.CanAccessMultipleBranches = false;
+                        user.AccessibleBranchIds = null;
+                        break;
+
+                    case "USER":
+                    default:
+                        user.BranchId = firstBranch?.Id;
+                        user.CanAccessMultipleBranches = false;
+                        user.AccessibleBranchIds = null;
+                        break;
+                }
+
+                user.UpdatedAt = DateTime.UtcNow;
+            }
+
+            await context.SaveChangesAsync();
         }
     }
 }
