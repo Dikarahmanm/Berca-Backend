@@ -52,6 +52,7 @@ namespace Berca_Backend.Models
         public virtual Category Category { get; set; } = null!;
         public virtual ICollection<SaleItem> SaleItems { get; set; } = new List<SaleItem>();
         public virtual ICollection<InventoryMutation> InventoryMutations { get; set; } = new List<InventoryMutation>();
+        public virtual ICollection<ProductBatch> ProductBatches { get; set; } = new List<ProductBatch>();
 
         // Audit Fields
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
@@ -68,5 +69,19 @@ namespace Berca_Backend.Models
 
         [NotMapped]
         public bool IsOutOfStock => Stock <= 0;
+
+        // Expiry-related computed properties
+        [NotMapped]
+        public bool RequiresExpiryTracking => Category?.RequiresExpiryDate ?? false;
+
+        [NotMapped]
+        public bool HasExpiredBatches => ProductBatches?.Any(b => b.IsExpired) ?? false;
+
+        [NotMapped]
+        public bool HasExpiringBatches => ProductBatches?.Any(b => 
+            b.ExpiryStatus == ExpiryStatus.Warning || b.ExpiryStatus == ExpiryStatus.Critical) ?? false;
+
+        [NotMapped]
+        public int AvailableStockExcludingExpired => ProductBatches?.Sum(b => b.AvailableStock) ?? Stock;
     }
 }

@@ -19,6 +19,18 @@ namespace Berca_Backend.Models
         [StringLength(500, ErrorMessage = "Description cannot exceed 500 characters")]
         public string? Description { get; set; }
 
+        /// <summary>
+        /// Indicates if products in this category require expiry date tracking
+        /// True for: Makanan, Minuman, Obat, Kesehatan
+        /// False for: Elektronik, Rumah Tangga
+        /// </summary>
+        public bool RequiresExpiryDate { get; set; } = false;
+
+        /// <summary>
+        /// Default expiry warning days for this category (days before expiry to show warnings)
+        /// </summary>
+        public int DefaultExpiryWarningDays { get; set; } = 7;
+
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
         public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 

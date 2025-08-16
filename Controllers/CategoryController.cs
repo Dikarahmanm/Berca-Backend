@@ -240,5 +240,152 @@ namespace Berca_Backend.Controllers
                 return StatusCode(500, new { message = "An error occurred while retrieving categories" });
             }
         }
+
+        // ==================== EXPIRY-RELATED ENDPOINTS ==================== //
+
+        /// <summary>
+        /// Get all categories that require expiry date tracking
+        /// </summary>
+        [HttpGet("with-expiry")]
+        public async Task<ActionResult<List<CategoryWithExpiryDto>>> GetCategoriesRequiringExpiry()
+        {
+            try
+            {
+                var username = User.FindFirst(ClaimTypes.Name)?.Value ?? "Unknown";
+                _logger.LogInformation("User {Username} requested categories requiring expiry", username);
+
+                var categories = await _categoryService.GetCategoriesRequiringExpiryAsync();
+                
+                _logger.LogInformation("Found {Count} categories requiring expiry tracking", categories.Count);
+                
+                return Ok(categories);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting categories requiring expiry");
+                return StatusCode(500, new { message = "An error occurred while retrieving expiry categories" });
+            }
+        }
+
+        /// <summary>
+        /// Check if a specific category requires expiry date tracking
+        /// </summary>
+        [HttpGet("{id}/requires-expiry")]
+        public async Task<ActionResult<object>> CheckCategoryRequiresExpiry(int id)
+        {
+            try
+            {
+                if (id <= 0)
+                {
+                    return BadRequest(new { message = "Invalid category ID" });
+                }
+
+                var requiresExpiry = await _categoryService.CategoryRequiresExpiryAsync(id);
+                
+                return Ok(new { 
+                    categoryId = id, 
+                    requiresExpiry = requiresExpiry 
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error checking expiry requirement for category {CategoryId}", id);
+                return StatusCode(500, new { message = "An error occurred while checking expiry requirement" });
+            }
+        }
+
+        /// <summary>
+        /// Get categories with expiry statistics (products counts, expiring, expired)
+        /// </summary>
+        [HttpGet("expiry-stats")]
+        [Authorize(Roles = "Admin,Manager")] // Only managers can view detailed stats
+        public async Task<ActionResult<List<CategoryDto>>> GetCategoriesWithExpiryStats()
+        {
+            try
+            {
+                var username = User.FindFirst(ClaimTypes.Name)?.Value ?? "Unknown";
+                _logger.LogInformation("User {Username} requested categories with expiry statistics", username);
+
+                var categories = await _categoryService.GetCategoriesWithExpiryStatsAsync();
+                
+                return Ok(categories);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting categories with expiry stats");
+                return StatusCode(500, new { message = "An error occurred while retrieving expiry statistics" });
+            }
+        }
+
+        /// <summary>
+        /// Update expiry requirements for multiple categories (batch operation)
+        /// </summary>
+        [HttpPost("update-expiry-requirements")]
+        [Authorize(Roles = "Admin")] // Only Admin can update expiry requirements
+        public async Task<ActionResult<object>> UpdateCategoryExpiryRequirements([FromBody] Dictionary<int, bool> categoryExpiryMap)
+        {
+            try
+            {
+                if (categoryExpiryMap == null || !categoryExpiryMap.Any())
+                {
+                    return BadRequest(new { message = "Category expiry mapping is required" });
+                }
+
+                var username = User.FindFirst(ClaimTypes.Name)?.Value ?? "Unknown";
+                _logger.LogInformation("User {Username} updating expiry requirements for {Count} categories", 
+                    username, categoryExpiryMap.Count);
+
+                var success = await _categoryService.UpdateCategoryExpiryRequirementsAsync(categoryExpiryMap);
+                
+                if (success)
+                {
+                    _logger.LogInformation("Successfully updated expiry requirements for categories by {Username}", username);
+                    return Ok(new { 
+                        message = "Category expiry requirements updated successfully",
+                        updatedCount = categoryExpiryMap.Count 
+                    });
+                }
+                else
+                {
+                    return BadRequest(new { message = "No categories were updated" });
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error updating category expiry requirements");
+                return StatusCode(500, new { message = "An error occurred while updating expiry requirements" });
+            }
+        }
+
+        /// <summary>
+        /// Get categories filtered by expiry requirement (for product forms)
+        /// </summary>
+        [HttpGet("by-expiry-requirement")]
+        public async Task<ActionResult<List<CategoryDto>>> GetCategoriesByExpiryRequirement([FromQuery] bool requiresExpiry = true)
+        {
+            try
+            {
+                var filter = new CategoryFilterDto
+                {
+                    RequiresExpiryDate = requiresExpiry,
+                    Page = 1,
+                    PageSize = 1000,
+                    SortBy = "name",
+                    SortOrder = "asc"
+                };
+
+                var result = await _categoryService.GetCategoriesAsync(filter);
+                
+                _logger.LogInformation("Found {Count} categories with expiry requirement: {RequiresExpiry}", 
+                    result.Categories.Count, requiresExpiry);
+                
+                return Ok(result.Categories);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting categories by expiry requirement");
+                return StatusCode(500, new { message = "An error occurred while retrieving categories" });
+            }
+        }
     }
 }

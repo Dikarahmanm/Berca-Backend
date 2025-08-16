@@ -31,6 +31,9 @@ namespace Berca_Backend.Data
         public DbSet<InventoryTransferItem> InventoryTransferItems { get; set; }
         public DbSet<InventoryTransferStatusHistory> InventoryTransferStatusHistories { get; set; }
         
+        // ==================== EXPIRY MANAGEMENT DBSETS ==================== //
+        public DbSet<ProductBatch> ProductBatches { get; set; }
+        
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             base.OnModelCreating(modelBuilder);
@@ -421,50 +424,502 @@ namespace Berca_Backend.Data
 
             // ==================== SEED DATA ==================== //
 
-            // Existing Category Seed Data
+            // ==================== COMPREHENSIVE INDONESIAN MINIMARKET CATEGORIES ==================== //
             modelBuilder.Entity<Category>().HasData(
+                // ===== FOOD & SNACKS CATEGORIES (RequiresExpiryDate = true, DefaultWarning = 30 days) =====
                 new Category
                 {
                     Id = 1,
-                    Name = "Makanan",
-                    Color = "#FF914D",
-                    Description = "Produk makanan dan snack",
+                    Name = "Makanan Instan",
+                    Color = "#FF6B35",
+                    Description = "Mie instan, nasi instan, bubur instan - Indomie, Pop Mie, Sedaap, Sarimi",
+                    RequiresExpiryDate = true,
+                    DefaultExpiryWarningDays = 30,
                     CreatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc),
                     UpdatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc)
                 },
                 new Category
                 {
                     Id = 2,
-                    Name = "Minuman",
-                    Color = "#4BBF7B",
-                    Description = "Minuman segar dan berenergi",
+                    Name = "Makanan Kaleng",
+                    Color = "#FF8E53",
+                    Description = "Kornet, sarden, buah kaleng, sayur kaleng - Pronas, ABC, Ayam Brand",
+                    RequiresExpiryDate = true,
+                    DefaultExpiryWarningDays = 30,
                     CreatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc),
                     UpdatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc)
                 },
                 new Category
                 {
                     Id = 3,
-                    Name = "Elektronik",
-                    Color = "#E15A4F",
-                    Description = "Perangkat elektronik dan aksesoris",
+                    Name = "Snacks & Keripik",
+                    Color = "#FFA726",
+                    Description = "Chitato, Taro, Qtela, Lay's, keripik tradisional, kacang-kacangan",
+                    RequiresExpiryDate = true,
+                    DefaultExpiryWarningDays = 30,
                     CreatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc),
                     UpdatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc)
                 },
                 new Category
                 {
                     Id = 4,
-                    Name = "Rumah Tangga",
-                    Color = "#FFB84D",
-                    Description = "Keperluan dan peralatan rumah tangga",
+                    Name = "Biskuit & Wafer",
+                    Color = "#FFB74D",
+                    Description = "Roma, Monde, Khong Guan, Oreo, wafer Tanggo, Marie Regal",
+                    RequiresExpiryDate = true,
+                    DefaultExpiryWarningDays = 30,
                     CreatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc),
                     UpdatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc)
                 },
                 new Category
                 {
                     Id = 5,
-                    Name = "Kesehatan",
-                    Color = "#6366F1",
-                    Description = "Produk kesehatan dan perawatan",
+                    Name = "Permen & Coklat",
+                    Color = "#8D4E85",
+                    Description = "Kopiko, Ricola, Cadbury, SilverQueen, permen lokal, Mentos",
+                    RequiresExpiryDate = true,
+                    DefaultExpiryWarningDays = 30,
+                    CreatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+                    UpdatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc)
+                },
+                new Category
+                {
+                    Id = 6,
+                    Name = "Kue & Roti",
+                    Color = "#D2691E",
+                    Description = "Kue kering, roti tawar, roti manis, donat, cake - Sari Roti, Breadtalk",
+                    RequiresExpiryDate = true,
+                    DefaultExpiryWarningDays = 30,
+                    CreatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+                    UpdatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc)
+                },
+                new Category
+                {
+                    Id = 7,
+                    Name = "Makanan Beku",
+                    Color = "#4FC3F7",
+                    Description = "Nugget, sosis, bakso beku, frozen food - Fiesta, Bernardi, So Good",
+                    RequiresExpiryDate = true,
+                    DefaultExpiryWarningDays = 30,
+                    CreatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+                    UpdatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc)
+                },
+
+                // ===== BEVERAGE CATEGORIES (RequiresExpiryDate = true, DefaultWarning = 60 days) =====
+                new Category
+                {
+                    Id = 8,
+                    Name = "Air Mineral",
+                    Color = "#29B6F6",
+                    Description = "Aqua, VIT, Club, Pristine, Le Minerale, Cleo",
+                    RequiresExpiryDate = true,
+                    DefaultExpiryWarningDays = 60,
+                    CreatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+                    UpdatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc)
+                },
+                new Category
+                {
+                    Id = 9,
+                    Name = "Minuman Ringan",
+                    Color = "#E53935",
+                    Description = "Coca Cola, Sprite, Fanta, 7UP, Pepsi, Mirinda",
+                    RequiresExpiryDate = true,
+                    DefaultExpiryWarningDays = 60,
+                    CreatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+                    UpdatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc)
+                },
+                new Category
+                {
+                    Id = 10,
+                    Name = "Teh & Kopi Kemasan",
+                    Color = "#6D4C41",
+                    Description = "Teh Botol, Ultra Teh, Good Day, Kapal Api, Nescafe, Teh Pucuk",
+                    RequiresExpiryDate = true,
+                    DefaultExpiryWarningDays = 60,
+                    CreatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+                    UpdatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc)
+                },
+                new Category
+                {
+                    Id = 11,
+                    Name = "Susu & Dairy",
+                    Color = "#FFF8E1",
+                    Description = "Ultra Milk, Indomilk, Frisian Flag, susu kental manis - Carnation, Cap Enak",
+                    RequiresExpiryDate = true,
+                    DefaultExpiryWarningDays = 60,
+                    CreatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+                    UpdatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc)
+                },
+                new Category
+                {
+                    Id = 12,
+                    Name = "Minuman Isotonik",
+                    Color = "#00BCD4",
+                    Description = "Pocari Sweat, Mizone, Hydro Coco, Ion Water, Revive",
+                    RequiresExpiryDate = true,
+                    DefaultExpiryWarningDays = 60,
+                    CreatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+                    UpdatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc)
+                },
+                new Category
+                {
+                    Id = 13,
+                    Name = "Jus & Minuman Buah",
+                    Color = "#FF7043",
+                    Description = "Buavita, SunTop, Minute Maid, Okky Jelly Drink, Frestea",
+                    RequiresExpiryDate = true,
+                    DefaultExpiryWarningDays = 60,
+                    CreatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+                    UpdatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc)
+                },
+                new Category
+                {
+                    Id = 14,
+                    Name = "Minuman Energi",
+                    Color = "#D32F2F",
+                    Description = "Kratingdaeng, M-150, Extra Joss, Red Bull, Shark",
+                    RequiresExpiryDate = true,
+                    DefaultExpiryWarningDays = 60,
+                    CreatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+                    UpdatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc)
+                },
+                new Category
+                {
+                    Id = 15,
+                    Name = "Es Krim",
+                    Color = "#E1BEE7",
+                    Description = "Walls, Aice, Diamond, Campina, Magnum, Cornetto",
+                    RequiresExpiryDate = true,
+                    DefaultExpiryWarningDays = 60,
+                    CreatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+                    UpdatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc)
+                },
+
+                // ===== HEALTH & MEDICINE CATEGORIES (RequiresExpiryDate = true, DefaultWarning = 90 days) =====
+                new Category
+                {
+                    Id = 16,
+                    Name = "Obat Bebas",
+                    Color = "#4CAF50",
+                    Description = "Paracetamol, Panadol, Bodrex, Paramex, Aspirin, Ibuprofen",
+                    RequiresExpiryDate = true,
+                    DefaultExpiryWarningDays = 90,
+                    CreatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+                    UpdatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc)
+                },
+                new Category
+                {
+                    Id = 17,
+                    Name = "Obat Flu & Batuk",
+                    Color = "#66BB6A",
+                    Description = "Mixagrip, Neozep, Woods, Vicks, Komix, Actifed",
+                    RequiresExpiryDate = true,
+                    DefaultExpiryWarningDays = 90,
+                    CreatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+                    UpdatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc)
+                },
+                new Category
+                {
+                    Id = 18,
+                    Name = "Obat Pencernaan",
+                    Color = "#81C784",
+                    Description = "Promag, Mylanta, Antasida, Norit, Entrostop, Diapet",
+                    RequiresExpiryDate = true,
+                    DefaultExpiryWarningDays = 90,
+                    CreatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+                    UpdatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc)
+                },
+                new Category
+                {
+                    Id = 19,
+                    Name = "Vitamin & Suplemen",
+                    Color = "#A5D6A7",
+                    Description = "Redoxon, CDR, Enervon-C, Sangobion, Blackmores, Imboost",
+                    RequiresExpiryDate = true,
+                    DefaultExpiryWarningDays = 90,
+                    CreatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+                    UpdatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc)
+                },
+                new Category
+                {
+                    Id = 20,
+                    Name = "Perawatan Luka",
+                    Color = "#C8E6C9",
+                    Description = "Plester, perban, betadine, alkohol, kapas, hansaplast",
+                    RequiresExpiryDate = true,
+                    DefaultExpiryWarningDays = 90,
+                    CreatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+                    UpdatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc)
+                },
+                new Category
+                {
+                    Id = 21,
+                    Name = "Hand Sanitizer & Antiseptik",
+                    Color = "#E8F5E8",
+                    Description = "Dettol, Antis, Lifebuoy, Nuvo, Mama Lime, Biore",
+                    RequiresExpiryDate = true,
+                    DefaultExpiryWarningDays = 90,
+                    CreatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+                    UpdatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc)
+                },
+
+                // ===== PERSONAL CARE CATEGORIES (RequiresExpiryDate = true, DefaultWarning = 180 days) =====
+                new Category
+                {
+                    Id = 22,
+                    Name = "Shampo & Hair Care",
+                    Color = "#2196F3",
+                    Description = "Pantene, Head & Shoulders, Sunsilk, Clear, Tresemme, Makarizo",
+                    RequiresExpiryDate = true,
+                    DefaultExpiryWarningDays = 180,
+                    CreatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+                    UpdatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc)
+                },
+                new Category
+                {
+                    Id = 23,
+                    Name = "Sabun Mandi",
+                    Color = "#42A5F5",
+                    Description = "Lux, Dove, Lifebuoy, Giv, Dettol, Biore, Citra",
+                    RequiresExpiryDate = true,
+                    DefaultExpiryWarningDays = 180,
+                    CreatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+                    UpdatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc)
+                },
+                new Category
+                {
+                    Id = 24,
+                    Name = "Pasta Gigi",
+                    Color = "#64B5F6",
+                    Description = "Pepsodent, Close Up, Formula, Sensodyne, Systema, Enzim",
+                    RequiresExpiryDate = true,
+                    DefaultExpiryWarningDays = 180,
+                    CreatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+                    UpdatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc)
+                },
+                new Category
+                {
+                    Id = 25,
+                    Name = "Body Lotion & Skin Care",
+                    Color = "#90CAF9",
+                    Description = "Vaseline, Nivea, Citra, Pond's, Olay, Garnier",
+                    RequiresExpiryDate = true,
+                    DefaultExpiryWarningDays = 180,
+                    CreatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+                    UpdatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc)
+                },
+                new Category
+                {
+                    Id = 26,
+                    Name = "Deodorant",
+                    Color = "#BBDEFB",
+                    Description = "Rexona, Dove Men, Gillette, Axe, Nivea Men, Adidas",
+                    RequiresExpiryDate = true,
+                    DefaultExpiryWarningDays = 180,
+                    CreatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+                    UpdatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc)
+                },
+                new Category
+                {
+                    Id = 27,
+                    Name = "Kosmetik & Makeup",
+                    Color = "#E91E63",
+                    Description = "Wardah, Pixy, Maybelline, Revlon, L'Oreal, Make Over",
+                    RequiresExpiryDate = true,
+                    DefaultExpiryWarningDays = 180,
+                    CreatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+                    UpdatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc)
+                },
+                new Category
+                {
+                    Id = 28,
+                    Name = "Parfum & Cologne",
+                    Color = "#F06292",
+                    Description = "Axe, Rexona, Body Shop, Calvin Klein, Hugo Boss, local brands",
+                    RequiresExpiryDate = true,
+                    DefaultExpiryWarningDays = 180,
+                    CreatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+                    UpdatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc)
+                },
+
+                // ===== BABY & KIDS CATEGORIES (RequiresExpiryDate = true, DefaultWarning = 45 days) =====
+                new Category
+                {
+                    Id = 29,
+                    Name = "Susu Formula",
+                    Color = "#FFE0B2",
+                    Description = "SGM, Dancow, Bebelac, Lactogen, Nutrilon, Enfamil",
+                    RequiresExpiryDate = true,
+                    DefaultExpiryWarningDays = 45,
+                    CreatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+                    UpdatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc)
+                },
+                new Category
+                {
+                    Id = 30,
+                    Name = "Makanan Bayi",
+                    Color = "#FFCC80",
+                    Description = "Cerelac, Milna, Promina, SUN, Heinz, Gerber",
+                    RequiresExpiryDate = true,
+                    DefaultExpiryWarningDays = 45,
+                    CreatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+                    UpdatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc)
+                },
+                new Category
+                {
+                    Id = 31,
+                    Name = "Popok & Diapers",
+                    Color = "#FFB74D",
+                    Description = "Pampers, MamyPoko, Sweety, Merries, Goon, Huggies",
+                    RequiresExpiryDate = true,
+                    DefaultExpiryWarningDays = 45,
+                    CreatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+                    UpdatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc)
+                },
+                new Category
+                {
+                    Id = 32,
+                    Name = "Baby Care Products",
+                    Color = "#FFA726",
+                    Description = "Baby oil, powder, lotion, shampoo - Johnson's, Cussons, Zwitsal",
+                    RequiresExpiryDate = true,
+                    DefaultExpiryWarningDays = 45,
+                    CreatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+                    UpdatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc)
+                },
+
+                // ===== HOUSEHOLD & CLEANING CATEGORIES (RequiresExpiryDate = true, DefaultWarning = 365 days) =====
+                new Category
+                {
+                    Id = 33,
+                    Name = "Deterjen & Sabun Cuci",
+                    Color = "#9C27B0",
+                    Description = "Rinso, Attack, Surf, So Klin, Daia, Total",
+                    RequiresExpiryDate = true,
+                    DefaultExpiryWarningDays = 365,
+                    CreatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+                    UpdatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc)
+                },
+                new Category
+                {
+                    Id = 34,
+                    Name = "Pembersih Piring",
+                    Color = "#AB47BC",
+                    Description = "Sunlight, Mama Lemon, Cream, Joy, Soklin, Economic",
+                    RequiresExpiryDate = true,
+                    DefaultExpiryWarningDays = 365,
+                    CreatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+                    UpdatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc)
+                },
+                new Category
+                {
+                    Id = 35,
+                    Name = "Pembersih Lantai",
+                    Color = "#BA68C8",
+                    Description = "Vixal, Super Pel, Wipol, Karbol, Kispray, Stella",
+                    RequiresExpiryDate = true,
+                    DefaultExpiryWarningDays = 365,
+                    CreatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+                    UpdatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc)
+                },
+                new Category
+                {
+                    Id = 36,
+                    Name = "Pembersih Kamar Mandi",
+                    Color = "#CE93D8",
+                    Description = "Vixal, Harpic, Domestos, Duck, Toilet Duck, Cif",
+                    RequiresExpiryDate = true,
+                    DefaultExpiryWarningDays = 365,
+                    CreatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+                    UpdatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc)
+                },
+                new Category
+                {
+                    Id = 37,
+                    Name = "Pelembut & Pewangi Pakaian",
+                    Color = "#E1BEE7",
+                    Description = "Molto, Downy, Soklin, Comfort, Rapika, Stella",
+                    RequiresExpiryDate = true,
+                    DefaultExpiryWarningDays = 365,
+                    CreatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+                    UpdatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc)
+                },
+
+                // ===== NON-EXPIRY CATEGORIES (RequiresExpiryDate = false) =====
+                new Category
+                {
+                    Id = 38,
+                    Name = "Elektronik & Gadget",
+                    Color = "#607D8B",
+                    Description = "Powerbank, charger, earphone, speaker, flashdisk, mouse",
+                    RequiresExpiryDate = false,
+                    DefaultExpiryWarningDays = 30,
+                    CreatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+                    UpdatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc)
+                },
+                new Category
+                {
+                    Id = 39,
+                    Name = "Aksesoris HP",
+                    Color = "#78909C",
+                    Description = "Case, screen protector, holder, cable, tempered glass, ring holder",
+                    RequiresExpiryDate = false,
+                    DefaultExpiryWarningDays = 30,
+                    CreatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+                    UpdatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc)
+                },
+                new Category
+                {
+                    Id = 40,
+                    Name = "Rokok & Tembakau",
+                    Color = "#8D6E63",
+                    Description = "Gudang Garam, Djarum, Marlboro, Sampoerna, Bentoel, Lucky Strike",
+                    RequiresExpiryDate = false,
+                    DefaultExpiryWarningDays = 30,
+                    CreatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+                    UpdatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc)
+                },
+                new Category
+                {
+                    Id = 41,
+                    Name = "Alat Tulis",
+                    Color = "#FF9800",
+                    Description = "Pensil, pulpen, buku, penggaris, penghapus, spidol - Faber Castell, Pilot",
+                    RequiresExpiryDate = false,
+                    DefaultExpiryWarningDays = 30,
+                    CreatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+                    UpdatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc)
+                },
+                new Category
+                {
+                    Id = 42,
+                    Name = "Perlengkapan Rumah",
+                    Color = "#795548",
+                    Description = "Tissue, toilet paper, kantong plastik, aluminum foil, plastic wrap",
+                    RequiresExpiryDate = false,
+                    DefaultExpiryWarningDays = 30,
+                    CreatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+                    UpdatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc)
+                },
+                new Category
+                {
+                    Id = 43,
+                    Name = "Seasonal & Gift Items",
+                    Color = "#F44336",
+                    Description = "Kartu ucapan, gift wrap, balon, hiasan, mainan kecil, souvenir",
+                    RequiresExpiryDate = false,
+                    DefaultExpiryWarningDays = 30,
+                    CreatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+                    UpdatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc)
+                },
+                new Category
+                {
+                    Id = 44,
+                    Name = "Baterai & Lampu",
+                    Color = "#FFEB3B",
+                    Description = "Baterai ABC, Energizer, Panasonic, lampu LED, senter, bohlam",
+                    RequiresExpiryDate = false,
+                    DefaultExpiryWarningDays = 30,
                     CreatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc),
                     UpdatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc)
                 }
@@ -483,23 +938,109 @@ namespace Berca_Backend.Data
                       .OnDelete(DeleteBehavior.Cascade);
             });
 
+            // ==================== PRODUCT BATCH CONFIGURATION ==================== //
+            modelBuilder.Entity<ProductBatch>(entity =>
+            {
+                entity.HasKey(e => e.Id);
+                
+                // Product relationship
+                entity.HasOne(pb => pb.Product)
+                      .WithMany(p => p.ProductBatches)
+                      .HasForeignKey(pb => pb.ProductId)
+                      .OnDelete(DeleteBehavior.Cascade);
 
+                // Branch relationship
+                entity.HasOne(pb => pb.Branch)
+                      .WithMany()
+                      .HasForeignKey(pb => pb.BranchId)
+                      .OnDelete(DeleteBehavior.SetNull);
 
+                // User relationships
+                entity.HasOne(pb => pb.CreatedByUser)
+                      .WithMany()
+                      .HasForeignKey(pb => pb.CreatedByUserId)
+                      .OnDelete(DeleteBehavior.Restrict);
 
-            // Sample Products Seed Data
+                entity.HasOne(pb => pb.UpdatedByUser)
+                      .WithMany()
+                      .HasForeignKey(pb => pb.UpdatedByUserId)
+                      .OnDelete(DeleteBehavior.Restrict);
+
+                entity.HasOne(pb => pb.DisposedByUser)
+                      .WithMany()
+                      .HasForeignKey(pb => pb.DisposedByUserId)
+                      .OnDelete(DeleteBehavior.SetNull);
+
+                // Property configurations
+                entity.Property(pb => pb.BatchNumber)
+                      .IsRequired()
+                      .HasMaxLength(50);
+
+                entity.Property(pb => pb.CostPerUnit)
+                      .HasColumnType("decimal(18,4)");
+
+                entity.Property(pb => pb.SupplierName)
+                      .HasMaxLength(100);
+
+                entity.Property(pb => pb.PurchaseOrderNumber)
+                      .HasMaxLength(50);
+
+                entity.Property(pb => pb.Notes)
+                      .HasMaxLength(500);
+
+                entity.Property(pb => pb.BlockReason)
+                      .HasMaxLength(200);
+
+                entity.Property(pb => pb.DisposalMethod)
+                      .HasMaxLength(100);
+
+                entity.Property(pb => pb.CreatedAt)
+                      .HasDefaultValueSql("GETUTCDATE()");
+
+                entity.Property(pb => pb.UpdatedAt)
+                      .HasDefaultValueSql("GETUTCDATE()");
+
+                // Indexes for performance
+                entity.HasIndex(pb => pb.ProductId)
+                      .HasDatabaseName("IX_ProductBatches_ProductId");
+
+                entity.HasIndex(pb => pb.BatchNumber)
+                      .HasDatabaseName("IX_ProductBatches_BatchNumber");
+
+                entity.HasIndex(pb => pb.ExpiryDate)
+                      .HasDatabaseName("IX_ProductBatches_ExpiryDate");
+
+                entity.HasIndex(pb => pb.BranchId)
+                      .HasDatabaseName("IX_ProductBatches_BranchId");
+
+                entity.HasIndex(pb => pb.IsExpired)
+                      .HasDatabaseName("IX_ProductBatches_IsExpired");
+
+                entity.HasIndex(pb => pb.IsDisposed)
+                      .HasDatabaseName("IX_ProductBatches_IsDisposed");
+
+                entity.HasIndex(pb => new { pb.ProductId, pb.ExpiryDate })
+                      .HasDatabaseName("IX_ProductBatches_ProductId_ExpiryDate");
+
+                entity.HasIndex(pb => new { pb.BranchId, pb.ExpiryDate })
+                      .HasDatabaseName("IX_ProductBatches_BranchId_ExpiryDate");
+            });
+
+            // ==================== REALISTIC INDONESIAN MINIMARKET PRODUCTS ==================== //
             modelBuilder.Entity<Product>().HasData(
+                // Food Products (Categories 1-7)
                 new Product
                 {
                     Id = 1,
                     Name = "Indomie Ayam Bawang",
                     Barcode = "8886001001923",
-                    Description = "Mie instan rasa ayam bawang",
+                    Description = "Mie instan rasa ayam bawang - Indofood",
                     BuyPrice = 2500,
                     SellPrice = 3500,
                     Stock = 50,
                     MinimumStock = 10,
                     Unit = "pcs",
-                    CategoryId = 1,
+                    CategoryId = 1, // Makanan Instan
                     IsActive = true,
                     CreatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc),
                     UpdatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc)
@@ -507,15 +1048,15 @@ namespace Berca_Backend.Data
                 new Product
                 {
                     Id = 2,
-                    Name = "Coca Cola 330ml",
-                    Barcode = "8851013301234",
-                    Description = "Minuman berkarbonasi rasa cola",
-                    BuyPrice = 6000,
-                    SellPrice = 8000,
-                    Stock = 30,
-                    MinimumStock = 5,
+                    Name = "Sarimi Ayam Bawang",
+                    Barcode = "8888001234567",
+                    Description = "Mie instan kuah rasa ayam bawang - Sarimi",
+                    BuyPrice = 2300,
+                    SellPrice = 3200,
+                    Stock = 40,
+                    MinimumStock = 10,
                     Unit = "pcs",
-                    CategoryId = 2,
+                    CategoryId = 1, // Makanan Instan
                     IsActive = true,
                     CreatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc),
                     UpdatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc)
@@ -523,15 +1064,15 @@ namespace Berca_Backend.Data
                 new Product
                 {
                     Id = 3,
-                    Name = "Baterai AA Alkaline",
-                    Barcode = "1234567890123",
-                    Description = "Baterai alkaline ukuran AA",
-                    BuyPrice = 12000,
-                    SellPrice = 15000,
-                    Stock = 20,
+                    Name = "Pronas Kornet Sapi",
+                    Barcode = "8992843287654",
+                    Description = "Kornet sapi kaleng 198g - Pronas",
+                    BuyPrice = 18000,
+                    SellPrice = 25000,
+                    Stock = 24,
                     MinimumStock = 5,
-                    Unit = "pcs",
-                    CategoryId = 3,
+                    Unit = "kaleng",
+                    CategoryId = 2, // Makanan Kaleng
                     IsActive = true,
                     CreatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc),
                     UpdatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc)
@@ -539,15 +1080,15 @@ namespace Berca_Backend.Data
                 new Product
                 {
                     Id = 4,
-                    Name = "Sabun Cuci Piring Sunlight",
-                    Barcode = "8992775123456",
-                    Description = "Sabun pencuci piring konsentrat",
+                    Name = "Chitato Rasa BBQ",
+                    Barcode = "8999999876543",
+                    Description = "Keripik kentang rasa BBQ - Chitato",
                     BuyPrice = 8500,
                     SellPrice = 12000,
-                    Stock = 25,
-                    MinimumStock = 5,
+                    Stock = 30,
+                    MinimumStock = 8,
                     Unit = "pcs",
-                    CategoryId = 4,
+                    CategoryId = 3, // Snacks & Keripik
                     IsActive = true,
                     CreatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc),
                     UpdatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc)
@@ -555,15 +1096,297 @@ namespace Berca_Backend.Data
                 new Product
                 {
                     Id = 5,
-                    Name = "Paracetamol 500mg",
+                    Name = "Roma Kelapa",
+                    Barcode = "8992753147258",
+                    Description = "Biskuit kelapa - Roma Mayora",
+                    BuyPrice = 4500,
+                    SellPrice = 6500,
+                    Stock = 36,
+                    MinimumStock = 12,
+                    Unit = "bks",
+                    CategoryId = 4, // Biskuit & Wafer
+                    IsActive = true,
+                    CreatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+                    UpdatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc)
+                },
+
+                // Beverage Products (Categories 8-15)
+                new Product
+                {
+                    Id = 6,
+                    Name = "Aqua 600ml",
+                    Barcode = "8992787134567",
+                    Description = "Air mineral kemasan botol 600ml - Aqua",
+                    BuyPrice = 2500,
+                    SellPrice = 3500,
+                    Stock = 48,
+                    MinimumStock = 12,
+                    Unit = "btl",
+                    CategoryId = 8, // Air Mineral
+                    IsActive = true,
+                    CreatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+                    UpdatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc)
+                },
+                new Product
+                {
+                    Id = 7,
+                    Name = "Coca Cola 330ml",
+                    Barcode = "8851013301234",
+                    Description = "Minuman berkarbonasi rasa cola - Coca Cola",
+                    BuyPrice = 6000,
+                    SellPrice = 8500,
+                    Stock = 30,
+                    MinimumStock = 6,
+                    Unit = "btl",
+                    CategoryId = 9, // Minuman Ringan
+                    IsActive = true,
+                    CreatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+                    UpdatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc)
+                },
+                new Product
+                {
+                    Id = 8,
+                    Name = "Teh Botol Sosro 450ml",
+                    Barcode = "8991002101234",
+                    Description = "Teh kemasan botol rasa manis - Sosro",
+                    BuyPrice = 4500,
+                    SellPrice = 6500,
+                    Stock = 24,
+                    MinimumStock = 6,
+                    Unit = "btl",
+                    CategoryId = 10, // Teh & Kopi Kemasan
+                    IsActive = true,
+                    CreatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+                    UpdatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc)
+                },
+                new Product
+                {
+                    Id = 9,
+                    Name = "Ultra Milk Coklat 250ml",
+                    Barcode = "8992761456789",
+                    Description = "Susu UHT rasa coklat - Ultra Milk",
+                    BuyPrice = 5500,
+                    SellPrice = 7500,
+                    Stock = 30,
+                    MinimumStock = 8,
+                    Unit = "kotak",
+                    CategoryId = 11, // Susu & Dairy
+                    IsActive = true,
+                    CreatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+                    UpdatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc)
+                },
+                new Product
+                {
+                    Id = 10,
+                    Name = "Pocari Sweat 350ml",
+                    Barcode = "8992696789012",
+                    Description = "Minuman isotonik elektrolit - Pocari Sweat",
+                    BuyPrice = 7000,
+                    SellPrice = 10000,
+                    Stock = 20,
+                    MinimumStock = 5,
+                    Unit = "btl",
+                    CategoryId = 12, // Minuman Isotonik
+                    IsActive = true,
+                    CreatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+                    UpdatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc)
+                },
+
+                // Health Products (Categories 16-21)
+                new Product
+                {
+                    Id = 11,
+                    Name = "Panadol Tablet",
                     Barcode = "8992832123456",
-                    Description = "Obat pereda nyeri dan demam",
-                    BuyPrice = 3000,
-                    SellPrice = 5000,
+                    Description = "Obat pereda nyeri dan demam - Panadol",
+                    BuyPrice = 12000,
+                    SellPrice = 16000,
+                    Stock = 25,
+                    MinimumStock = 5,
+                    Unit = "strip",
+                    CategoryId = 16, // Obat Bebas
+                    IsActive = true,
+                    CreatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+                    UpdatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc)
+                },
+                new Product
+                {
+                    Id = 12,
+                    Name = "Mixagrip Flu & Batuk",
+                    Barcode = "8992747369852",
+                    Description = "Obat flu dan batuk - Mixagrip",
+                    BuyPrice = 8500,
+                    SellPrice = 12000,
+                    Stock = 20,
+                    MinimumStock = 5,
+                    Unit = "strip",
+                    CategoryId = 17, // Obat Flu & Batuk
+                    IsActive = true,
+                    CreatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+                    UpdatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc)
+                },
+                new Product
+                {
+                    Id = 13,
+                    Name = "Redoxon Vitamin C",
+                    Barcode = "8992888147258",
+                    Description = "Vitamin C 1000mg - Redoxon",
+                    BuyPrice = 45000,
+                    SellPrice = 65000,
+                    Stock = 15,
+                    MinimumStock = 3,
+                    Unit = "btl",
+                    CategoryId = 19, // Vitamin & Suplemen
+                    IsActive = true,
+                    CreatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+                    UpdatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc)
+                },
+
+                // Personal Care Products (Categories 22-28)
+                new Product
+                {
+                    Id = 14,
+                    Name = "Pantene Shampo 170ml",
+                    Barcode = "8992777456789",
+                    Description = "Shampo rambut total damage care - Pantene",
+                    BuyPrice = 18000,
+                    SellPrice = 25000,
+                    Stock = 18,
+                    MinimumStock = 4,
+                    Unit = "btl",
+                    CategoryId = 22, // Shampo & Hair Care
+                    IsActive = true,
+                    CreatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+                    UpdatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc)
+                },
+                new Product
+                {
+                    Id = 15,
+                    Name = "Lux Sabun Mandi",
+                    Barcode = "8992556789012",
+                    Description = "Sabun mandi soft touch - Lux",
+                    BuyPrice = 4500,
+                    SellPrice = 6500,
+                    Stock = 30,
+                    MinimumStock = 8,
+                    Unit = "pcs",
+                    CategoryId = 23, // Sabun Mandi
+                    IsActive = true,
+                    CreatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+                    UpdatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc)
+                },
+                new Product
+                {
+                    Id = 16,
+                    Name = "Pepsodent 190g",
+                    Barcode = "8992334567890",
+                    Description = "Pasta gigi pencegah gigi berlubang - Pepsodent",
+                    BuyPrice = 12000,
+                    SellPrice = 16000,
+                    Stock = 20,
+                    MinimumStock = 5,
+                    Unit = "tube",
+                    CategoryId = 24, // Pasta Gigi
+                    IsActive = true,
+                    CreatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+                    UpdatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc)
+                },
+
+                // Household Products (Categories 33-37)
+                new Product
+                {
+                    Id = 17,
+                    Name = "Rinso Anti Noda 800g",
+                    Barcode = "8992775987654",
+                    Description = "Deterjen bubuk anti noda - Rinso",
+                    BuyPrice = 15000,
+                    SellPrice = 21000,
+                    Stock = 25,
+                    MinimumStock = 5,
+                    Unit = "bks",
+                    CategoryId = 33, // Deterjen & Sabun Cuci
+                    IsActive = true,
+                    CreatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+                    UpdatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc)
+                },
+                new Product
+                {
+                    Id = 18,
+                    Name = "Sunlight 755ml",
+                    Barcode = "8992775123456",
+                    Description = "Sabun pencuci piring konsentrat - Sunlight",
+                    BuyPrice = 8500,
+                    SellPrice = 12000,
+                    Stock = 22,
+                    MinimumStock = 5,
+                    Unit = "btl",
+                    CategoryId = 34, // Pembersih Piring
+                    IsActive = true,
+                    CreatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+                    UpdatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc)
+                },
+
+                // Non-Expiry Products (Categories 38-44)
+                new Product
+                {
+                    Id = 19,
+                    Name = "Powerbank Xiaomi 10000mAh",
+                    Barcode = "6941059648208",
+                    Description = "Powerbank portabel 10000mAh - Xiaomi",
+                    BuyPrice = 180000,
+                    SellPrice = 250000,
+                    Stock = 8,
+                    MinimumStock = 2,
+                    Unit = "pcs",
+                    CategoryId = 38, // Elektronik & Gadget
+                    IsActive = true,
+                    CreatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+                    UpdatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc)
+                },
+                new Product
+                {
+                    Id = 20,
+                    Name = "Gudang Garam Surya 16",
+                    Barcode = "8992704987654",
+                    Description = "Rokok kretek filter - Gudang Garam",
+                    BuyPrice = 18000,
+                    SellPrice = 20000,
+                    Stock = 50,
+                    MinimumStock = 10,
+                    Unit = "bks",
+                    CategoryId = 40, // Rokok & Tembakau
+                    IsActive = true,
+                    CreatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+                    UpdatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc)
+                },
+                new Product
+                {
+                    Id = 21,
+                    Name = "Baterai ABC AA",
+                    Barcode = "8992804321098",
+                    Description = "Baterai alkaline ukuran AA - ABC",
+                    BuyPrice = 8000,
+                    SellPrice = 12000,
                     Stock = 40,
                     MinimumStock = 10,
-                    Unit = "tablet",
-                    CategoryId = 5,
+                    Unit = "pack",
+                    CategoryId = 44, // Baterai & Lampu
+                    IsActive = true,
+                    CreatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+                    UpdatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc)
+                },
+                new Product
+                {
+                    Id = 22,
+                    Name = "Pulpen Standard AE7",
+                    Barcode = "8999812345678",
+                    Description = "Pulpen standard warna biru - Standard",
+                    BuyPrice = 1500,
+                    SellPrice = 2500,
+                    Stock = 50,
+                    MinimumStock = 15,
+                    Unit = "pcs",
+                    CategoryId = 41, // Alat Tulis
                     IsActive = true,
                     CreatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc),
                     UpdatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc)

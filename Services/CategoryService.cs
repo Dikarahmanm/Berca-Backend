@@ -38,6 +38,12 @@ namespace Berca_Backend.Services
                     query = query.Where(c => c.Color == filter.Color);
                 }
 
+                // Apply expiry requirement filter
+                if (filter.RequiresExpiryDate.HasValue)
+                {
+                    query = query.Where(c => c.RequiresExpiryDate == filter.RequiresExpiryDate.Value);
+                }
+
                 // Get total count before pagination
                 var totalCount = await query.CountAsync();
 
@@ -54,9 +60,13 @@ namespace Berca_Backend.Services
                         Name = c.Name,
                         Color = c.Color,
                         Description = c.Description,
+                        RequiresExpiryDate = c.RequiresExpiryDate,
+                        DefaultExpiryWarningDays = c.DefaultExpiryWarningDays,
                         CreatedAt = c.CreatedAt,
                         UpdatedAt = c.UpdatedAt,
-                        ProductCount = 0 // Set to 0 for now
+                        ProductCount = 0, // Will be calculated when needed
+                        ExpiringProductsCount = 0, // Will be calculated when needed
+                        ExpiredProductsCount = 0 // Will be calculated when needed
                     })
                     .ToListAsync();
 
@@ -90,9 +100,13 @@ namespace Berca_Backend.Services
                         Name = c.Name,
                         Color = c.Color,
                         Description = c.Description,
+                        RequiresExpiryDate = c.RequiresExpiryDate,
+                        DefaultExpiryWarningDays = c.DefaultExpiryWarningDays,
                         CreatedAt = c.CreatedAt,
                         UpdatedAt = c.UpdatedAt,
-                        ProductCount = 0
+                        ProductCount = 0,
+                        ExpiringProductsCount = 0,
+                        ExpiredProductsCount = 0
                     })
                     .FirstOrDefaultAsync();
 
@@ -120,6 +134,8 @@ namespace Berca_Backend.Services
                     Name = createDto.Name.Trim(),
                     Color = createDto.Color.ToUpperInvariant(),
                     Description = createDto.Description?.Trim(),
+                    RequiresExpiryDate = createDto.RequiresExpiryDate,
+                    DefaultExpiryWarningDays = createDto.DefaultExpiryWarningDays,
                     CreatedAt = DateTime.UtcNow,
                     UpdatedAt = DateTime.UtcNow
                 };
@@ -136,9 +152,13 @@ namespace Berca_Backend.Services
                     Name = category.Name,
                     Color = category.Color,
                     Description = category.Description,
+                    RequiresExpiryDate = category.RequiresExpiryDate,
+                    DefaultExpiryWarningDays = category.DefaultExpiryWarningDays,
                     CreatedAt = category.CreatedAt,
                     UpdatedAt = category.UpdatedAt,
-                    ProductCount = 0
+                    ProductCount = 0,
+                    ExpiringProductsCount = 0,
+                    ExpiredProductsCount = 0
                 };
             }
             catch (Exception ex)
@@ -167,6 +187,8 @@ namespace Berca_Backend.Services
                 category.Name = updateDto.Name.Trim();
                 category.Color = updateDto.Color.ToUpperInvariant();
                 category.Description = updateDto.Description?.Trim();
+                category.RequiresExpiryDate = updateDto.RequiresExpiryDate;
+                category.DefaultExpiryWarningDays = updateDto.DefaultExpiryWarningDays;
                 category.UpdatedAt = DateTime.UtcNow;
 
                 await _context.SaveChangesAsync();
@@ -180,9 +202,13 @@ namespace Berca_Backend.Services
                     Name = category.Name,
                     Color = category.Color,
                     Description = category.Description,
+                    RequiresExpiryDate = category.RequiresExpiryDate,
+                    DefaultExpiryWarningDays = category.DefaultExpiryWarningDays,
                     CreatedAt = category.CreatedAt,
                     UpdatedAt = category.UpdatedAt,
-                    ProductCount = 0
+                    ProductCount = 0,
+                    ExpiringProductsCount = 0,
+                    ExpiredProductsCount = 0
                 };
             }
             catch (Exception ex)
@@ -238,6 +264,116 @@ namespace Berca_Backend.Services
             }
         }
 
+        // ==================== EXPIRY-RELATED METHODS ==================== //
+
+        public async Task<List<CategoryWithExpiryDto>> GetCategoriesRequiringExpiryAsync()
+        {
+            try
+            {
+                var categories = await _context.Categories
+                    .Where(c => c.RequiresExpiryDate)
+                    .Select(c => new CategoryWithExpiryDto
+                    {
+                        Id = c.Id,
+                        Name = c.Name,
+                        Color = c.Color,
+                        DefaultExpiryWarningDays = c.DefaultExpiryWarningDays,
+                        ProductsWithExpiryCount = 0, // Will be calculated when needed
+                        ExpiringProductsCount = 0, // Will be calculated when needed
+                        ExpiredProductsCount = 0 // Will be calculated when needed
+                    })
+                    .OrderBy(c => c.Name)
+                    .ToListAsync();
+
+                return categories;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting categories requiring expiry");
+                throw;
+            }
+        }
+
+        public async Task<bool> CategoryRequiresExpiryAsync(int categoryId)
+        {
+            try
+            {
+                var category = await _context.Categories
+                    .Where(c => c.Id == categoryId)
+                    .Select(c => new { c.RequiresExpiryDate })
+                    .FirstOrDefaultAsync();
+
+                return category?.RequiresExpiryDate ?? false;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error checking if category requires expiry: {CategoryId}", categoryId);
+                throw;
+            }
+        }
+
+        public async Task<List<CategoryDto>> GetCategoriesWithExpiryStatsAsync()
+        {
+            try
+            {
+                var categories = await _context.Categories
+                    .Select(c => new CategoryDto
+                    {
+                        Id = c.Id,
+                        Name = c.Name,
+                        Color = c.Color,
+                        Description = c.Description,
+                        RequiresExpiryDate = c.RequiresExpiryDate,
+                        DefaultExpiryWarningDays = c.DefaultExpiryWarningDays,
+                        CreatedAt = c.CreatedAt,
+                        UpdatedAt = c.UpdatedAt,
+                        ProductCount = 0, // TODO: Calculate from Products table
+                        ExpiringProductsCount = 0, // TODO: Calculate from ProductBatch table
+                        ExpiredProductsCount = 0 // TODO: Calculate from ProductBatch table
+                    })
+                    .OrderBy(c => c.Name)
+                    .ToListAsync();
+
+                return categories;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting categories with expiry stats");
+                throw;
+            }
+        }
+
+        public async Task<bool> UpdateCategoryExpiryRequirementsAsync(Dictionary<int, bool> categoryExpiryMap)
+        {
+            try
+            {
+                var categoryIds = categoryExpiryMap.Keys.ToList();
+                var categories = await _context.Categories
+                    .Where(c => categoryIds.Contains(c.Id))
+                    .ToListAsync();
+
+                foreach (var category in categories)
+                {
+                    if (categoryExpiryMap.TryGetValue(category.Id, out bool requiresExpiry))
+                    {
+                        category.RequiresExpiryDate = requiresExpiry;
+                        category.UpdatedAt = DateTime.UtcNow;
+                    }
+                }
+
+                var updatedCount = await _context.SaveChangesAsync();
+                
+                _logger.LogInformation("Updated expiry requirements for {Count} categories", updatedCount);
+                
+                return updatedCount > 0;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error updating category expiry requirements");
+                throw;
+            }
+        }
+
         private static IQueryable<Category> ApplySorting(IQueryable<Category> query, string sortBy, string sortOrder)
         {
             Expression<Func<Category, object>> keySelector = sortBy.ToLower() switch
@@ -246,6 +382,7 @@ namespace Berca_Backend.Services
                 "color" => c => c.Color,
                 "createdat" => c => c.CreatedAt,
                 "updatedat" => c => c.UpdatedAt,
+                "requiresexpirydate" => c => c.RequiresExpiryDate,
                 _ => c => c.Name
             };
 

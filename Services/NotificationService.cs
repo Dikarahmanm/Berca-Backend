@@ -698,5 +698,246 @@ namespace Berca_Backend.Services
                 throw;
             }
         }
+
+        // ==================== EXPIRY NOTIFICATION METHODS ==================== //
+
+        public async Task<bool> CreateExpiryWarningNotificationAsync(int productId, string productName, string batchNumber, DateTime expiryDate, int currentStock, int? branchId = null)
+        {
+            try
+            {
+                var formattedExpiryDate = expiryDate.ToString("dd MMM yyyy");
+                var daysUntilExpiry = (expiryDate - _timezoneService.Today).Days;
+
+                var notification = new Notification
+                {
+                    Type = ExpiryNotificationTypes.EXPIRY_WARNING,
+                    Title = "Produk Akan Kedaluwarsa",
+                    Message = $"Produk {productName} (Batch: {batchNumber}) akan kedaluwarsa dalam {daysUntilExpiry} hari ({formattedExpiryDate}). Stok tersisa: {currentStock} unit.",
+                    Priority = NotificationPriority.High,
+                    IsRead = false,
+                    CreatedAt = _timezoneService.Now,
+                    CreatedBy = "System",
+                    UserId = null, // Broadcast to all users
+                    ActionUrl = $"/inventory/products/{productId}",
+                    ActionText = "Lihat Produk",
+                    RelatedEntity = "Product",
+                    RelatedEntityId = productId
+                };
+
+                _context.Notifications.Add(notification);
+                await _context.SaveChangesAsync();
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error creating expiry warning notification for product: {ProductId}, Batch: {BatchNumber}", productId, batchNumber);
+                throw;
+            }
+        }
+
+        public async Task<bool> CreateExpiryUrgentNotificationAsync(int productId, string productName, string batchNumber, DateTime expiryDate, int currentStock, int? branchId = null)
+        {
+            try
+            {
+                var formattedExpiryDate = expiryDate.ToString("dd MMM yyyy");
+                var daysUntilExpiry = (expiryDate - _timezoneService.Today).Days;
+
+                var notification = new Notification
+                {
+                    Type = ExpiryNotificationTypes.EXPIRY_URGENT,
+                    Title = "URGENT: Produk Segera Kedaluwarsa",
+                    Message = $"URGENT: Produk {productName} (Batch: {batchNumber}) akan kedaluwarsa dalam {daysUntilExpiry} hari ({formattedExpiryDate}). Stok tersisa: {currentStock} unit. Segera ambil tindakan!",
+                    Priority = NotificationPriority.Critical,
+                    IsRead = false,
+                    CreatedAt = _timezoneService.Now,
+                    CreatedBy = "System",
+                    UserId = null, // Broadcast to all users
+                    ActionUrl = $"/inventory/products/{productId}",
+                    ActionText = "Tindakan Segera",
+                    RelatedEntity = "Product",
+                    RelatedEntityId = productId
+                };
+
+                _context.Notifications.Add(notification);
+                await _context.SaveChangesAsync();
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error creating expiry urgent notification for product: {ProductId}, Batch: {BatchNumber}", productId, batchNumber);
+                throw;
+            }
+        }
+
+        public async Task<bool> CreateExpiryExpiredNotificationAsync(int productId, string productName, string batchNumber, DateTime expiryDate, int currentStock, int? branchId = null)
+        {
+            try
+            {
+                var formattedExpiryDate = expiryDate.ToString("dd MMM yyyy");
+                var daysExpired = (_timezoneService.Today - expiryDate).Days;
+
+                var notification = new Notification
+                {
+                    Type = ExpiryNotificationTypes.EXPIRY_EXPIRED,
+                    Title = "KRITIS: Produk Telah Kedaluwarsa",
+                    Message = $"KRITIS: Produk {productName} (Batch: {batchNumber}) telah kedaluwarsa {daysExpired} hari yang lalu ({formattedExpiryDate}). Stok tersisa: {currentStock} unit. Segera lakukan pembuangan!",
+                    Priority = NotificationPriority.Critical,
+                    IsRead = false,
+                    CreatedAt = _timezoneService.Now,
+                    CreatedBy = "System",
+                    UserId = null, // Broadcast to all users
+                    ActionUrl = $"/inventory/products/{productId}",
+                    ActionText = "Buang Segera",
+                    RelatedEntity = "Product",
+                    RelatedEntityId = productId
+                };
+
+                _context.Notifications.Add(notification);
+                await _context.SaveChangesAsync();
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error creating expiry expired notification for product: {ProductId}, Batch: {BatchNumber}", productId, batchNumber);
+                throw;
+            }
+        }
+
+        public async Task<bool> CreateExpiryRequiredNotificationAsync(int productId, string productName, string categoryName)
+        {
+            try
+            {
+                var notification = new Notification
+                {
+                    Type = ExpiryNotificationTypes.EXPIRY_REQUIRED,
+                    Title = "Tanggal Kedaluwarsa Diperlukan",
+                    Message = $"Produk {productName} dalam kategori {categoryName} memerlukan tanggal kedaluwarsa. Silakan tambahkan batch dengan tanggal kedaluwarsa.",
+                    Priority = NotificationPriority.Normal,
+                    IsRead = false,
+                    CreatedAt = _timezoneService.Now,
+                    CreatedBy = "System",
+                    UserId = null, // Broadcast to all users
+                    ActionUrl = $"/inventory/products/{productId}/batches",
+                    ActionText = "Tambah Batch",
+                    RelatedEntity = "Product",
+                    RelatedEntityId = productId
+                };
+
+                _context.Notifications.Add(notification);
+                await _context.SaveChangesAsync();
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error creating expiry required notification for product: {ProductId}", productId);
+                throw;
+            }
+        }
+
+        public async Task<bool> CreateDisposalCompletedNotificationAsync(int disposedCount, decimal valueLost, string disposalMethod, int? branchId = null)
+        {
+            try
+            {
+                var formattedValueLost = valueLost.ToString("C0", new System.Globalization.CultureInfo("id-ID"));
+
+                var notification = new Notification
+                {
+                    Type = ExpiryNotificationTypes.DISPOSAL_COMPLETED,
+                    Title = "Pembuangan Produk Kedaluwarsa Selesai",
+                    Message = $"Pembuangan produk kedaluwarsa telah selesai. {disposedCount} item dibuang dengan metode '{disposalMethod}'. Total nilai yang hilang: {formattedValueLost}.",
+                    Priority = NotificationPriority.High,
+                    IsRead = false,
+                    CreatedAt = _timezoneService.Now,
+                    CreatedBy = "System",
+                    UserId = null, // Broadcast to all users
+                    ActionUrl = "/inventory/expired",
+                    ActionText = "Lihat Laporan",
+                    RelatedEntity = "Disposal",
+                    RelatedEntityId = null
+                };
+
+                _context.Notifications.Add(notification);
+                await _context.SaveChangesAsync();
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error creating disposal completed notification");
+                throw;
+            }
+        }
+
+        public async Task<bool> BroadcastDailyExpirySummaryAsync(int expiringCount, int expiredCount, decimal valueAtRisk, decimal valueLost, int? branchId = null)
+        {
+            try
+            {
+                var formattedValueAtRisk = valueAtRisk.ToString("C0", new System.Globalization.CultureInfo("id-ID"));
+                var formattedValueLost = valueLost.ToString("C0", new System.Globalization.CultureInfo("id-ID"));
+                var today = _timezoneService.Today.ToString("dd MMM yyyy");
+
+                var notification = new Notification
+                {
+                    Type = ExpiryNotificationTypes.EXPIRY_DAILY_SUMMARY,
+                    Title = $"Ringkasan Harian Kedaluwarsa - {today}",
+                    Message = $"Ringkasan kedaluwarsa hari ini: {expiringCount} produk akan kedaluwarsa, {expiredCount} produk sudah kedaluwarsa. Nilai berisiko: {formattedValueAtRisk}, Nilai hilang: {formattedValueLost}.",
+                    Priority = NotificationPriority.High,
+                    IsRead = false,
+                    CreatedAt = _timezoneService.Now,
+                    CreatedBy = "System",
+                    UserId = null, // Broadcast to managers and admins
+                    ActionUrl = "/dashboard/expiry",
+                    ActionText = "Lihat Detail",
+                    RelatedEntity = "ExpirySummary",
+                    RelatedEntityId = null
+                };
+
+                _context.Notifications.Add(notification);
+                await _context.SaveChangesAsync();
+
+                // Also send to specific roles (Manager and Admin)
+                await BroadcastToRoleAsync("Manager", ExpiryNotificationTypes.EXPIRY_DAILY_SUMMARY, 
+                    notification.Title, notification.Message, notification.ActionUrl);
+                await BroadcastToRoleAsync("Admin", ExpiryNotificationTypes.EXPIRY_DAILY_SUMMARY, 
+                    notification.Title, notification.Message, notification.ActionUrl);
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error broadcasting daily expiry summary");
+                throw;
+            }
+        }
+
+        public async Task<bool> CreateFifoRecommendationNotificationAsync(int productId, string productName, string recommendedAction, int? branchId = null)
+        {
+            try
+            {
+                var notification = new Notification
+                {
+                    Type = ExpiryNotificationTypes.FIFO_RECOMMENDATION,
+                    Title = "Rekomendasi FIFO",
+                    Message = $"Rekomendasi FIFO untuk produk {productName}: {recommendedAction}. Silakan prioritaskan penjualan batch yang akan segera kedaluwarsa.",
+                    Priority = NotificationPriority.Normal,
+                    IsRead = false,
+                    CreatedAt = _timezoneService.Now,
+                    CreatedBy = "System",
+                    UserId = null, // Broadcast to all users
+                    ActionUrl = $"/inventory/products/{productId}/fifo",
+                    ActionText = "Lihat FIFO",
+                    RelatedEntity = "Product",
+                    RelatedEntityId = productId
+                };
+
+                _context.Notifications.Add(notification);
+                await _context.SaveChangesAsync();
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error creating FIFO recommendation notification for product: {ProductId}", productId);
+                throw;
+            }
+        }
     }
 }

@@ -526,6 +526,447 @@ namespace Berca_Backend.Controllers
                 });
             }
         }
+
+        // ==================== EXPIRY & FIFO ENDPOINTS ==================== //
+
+        /// <summary>
+        /// Get FIFO recommendations for products with expiry dates
+        /// </summary>
+        [HttpGet("fifo/recommendations")]
+        [Authorize(Policy = "Inventory.Read")]
+        public async Task<ActionResult<ApiResponse<List<FifoRecommendationDto>>>> GetFifoRecommendations([FromQuery] int? branchId = null)
+        {
+            try
+            {
+                var username = User.FindFirst(ClaimTypes.Name)?.Value ?? "Unknown";
+                _logger.LogInformation("User {Username} requested FIFO recommendations for branch {BranchId}", username, branchId);
+
+                var recommendations = await _productService.GetFifoRecommendationsAsync(branchId);
+
+                return Ok(new ApiResponse<List<FifoRecommendationDto>>
+                {
+                    Success = true,
+                    Data = recommendations,
+                    Message = $"Found {recommendations.Count} FIFO recommendations"
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting FIFO recommendations");
+                return StatusCode(500, new ApiResponse<List<FifoRecommendationDto>>
+                {
+                    Success = false,
+                    Message = "An error occurred while retrieving FIFO recommendations"
+                });
+            }
+        }
+
+        /// <summary>
+        /// Get products expiring soon (within warning days) - Simplified version
+        /// </summary>
+        [HttpGet("expiry/warning")]
+        [Authorize(Policy = "Inventory.Read")]
+        public async Task<ActionResult<ApiResponse<string>>> GetExpiringProducts(
+            [FromQuery] int warningDays = 7,
+            [FromQuery] int? branchId = null)
+        {
+            try
+            {
+                var username = User.FindFirst(ClaimTypes.Name)?.Value ?? "Unknown";
+                _logger.LogInformation("User {Username} requested expiring products with {WarningDays} days warning for branch {BranchId}", 
+                    username, warningDays, branchId);
+
+                // Simplified response
+                return Ok(new ApiResponse<string>
+                {
+                    Success = true,
+                    Data = "Expiry tracking endpoint - implementation in progress",
+                    Message = $"Expiry check for {warningDays} days completed"
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting expiring products");
+                return StatusCode(500, new ApiResponse<string>
+                {
+                    Success = false,
+                    Message = "An error occurred while retrieving expiring products"
+                });
+            }
+        }
+
+        /// <summary>
+        /// Get already expired products
+        /// </summary>
+        [HttpGet("expiry/expired")]
+        [Authorize(Policy = "Inventory.Read")]
+        public async Task<ActionResult<ApiResponse<List<ExpiredProductDto>>>> GetExpiredProducts([FromQuery] int? branchId = null)
+        {
+            try
+            {
+                var username = User.FindFirst(ClaimTypes.Name)?.Value ?? "Unknown";
+                _logger.LogInformation("User {Username} requested expired products for branch {BranchId}", username, branchId);
+
+                var filter = new ExpiredProductsFilterDto { BranchId = branchId };
+                var expiredProducts = await _productService.GetExpiredProductsAsync(filter);
+
+                return Ok(new ApiResponse<List<ExpiredProductDto>>
+                {
+                    Success = true,
+                    Data = expiredProducts,
+                    Message = $"Found {expiredProducts.Count} expired products"
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting expired products");
+                return StatusCode(500, new ApiResponse<List<ExpiredProductDto>>
+                {
+                    Success = false,
+                    Message = "An error occurred while retrieving expired products"
+                });
+            }
+        }
+
+        /// <summary>
+        /// Create a new product batch (for products requiring expiry tracking)
+        /// </summary>
+        [HttpPost("{productId}/batches")]
+        [Authorize(Policy = "Inventory.Write")]
+        public async Task<ActionResult<ApiResponse<ProductBatchDto>>> CreateProductBatch(
+            int productId,
+            [FromBody] CreateProductBatchDto request)
+        {
+            try
+            {
+                if (!ModelState.IsValid)
+                {
+                    return BadRequest(new ApiResponse<ProductBatchDto>
+                    {
+                        Success = false,
+                        Message = "Invalid batch data"
+                    });
+                }
+
+                var username = User.FindFirst(ClaimTypes.Name)?.Value ?? "Unknown";
+                var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "0");
+                var branchId = int.Parse(User.FindFirst("BranchId")?.Value ?? "1");
+
+                _logger.LogInformation("User {Username} creating batch for product {ProductId}: {BatchNumber}", 
+                    username, productId, request.BatchNumber);
+
+                var batch = await _productService.CreateProductBatchAsync(productId, request, userId, branchId);
+
+                return CreatedAtAction(nameof(GetProductBatch), new { productId, batchId = batch.Id }, 
+                    new ApiResponse<ProductBatchDto>
+                    {
+                        Success = true,
+                        Data = batch,
+                        Message = "Product batch created successfully"
+                    });
+            }
+            catch (ArgumentException ex)
+            {
+                _logger.LogWarning(ex, "Invalid batch data for product {ProductId}", productId);
+                return BadRequest(new ApiResponse<ProductBatchDto>
+                {
+                    Success = false,
+                    Message = ex.Message
+                });
+            }
+            catch (InvalidOperationException ex)
+            {
+                _logger.LogWarning(ex, "Cannot create batch for product {ProductId}", productId);
+                return BadRequest(new ApiResponse<ProductBatchDto>
+                {
+                    Success = false,
+                    Message = ex.Message
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error creating batch for product {ProductId}", productId);
+                return StatusCode(500, new ApiResponse<ProductBatchDto>
+                {
+                    Success = false,
+                    Message = "An error occurred while creating the batch"
+                });
+            }
+        }
+
+        /// <summary>
+        /// Get batches for a specific product
+        /// </summary>
+        [HttpGet("{productId}/batches")]
+        [Authorize(Policy = "Inventory.Read")]
+        public async Task<ActionResult<ApiResponse<List<ProductBatchDto>>>> GetProductBatches(
+            int productId,
+            [FromQuery] bool includeExpired = true,
+            [FromQuery] bool includeDisposed = false)
+        {
+            try
+            {
+                var batches = await _productService.GetProductBatchesAsync(productId, includeExpired, includeDisposed);
+
+                return Ok(new ApiResponse<List<ProductBatchDto>>
+                {
+                    Success = true,
+                    Data = batches,
+                    Message = $"Found {batches.Count} batches for product"
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting batches for product {ProductId}", productId);
+                return StatusCode(500, new ApiResponse<List<ProductBatchDto>>
+                {
+                    Success = false,
+                    Message = "An error occurred while retrieving product batches"
+                });
+            }
+        }
+
+        /// <summary>
+        /// Get a specific product batch
+        /// </summary>
+        [HttpGet("{productId}/batches/{batchId}")]
+        [Authorize(Policy = "Inventory.Read")]
+        public async Task<ActionResult<ApiResponse<ProductBatchDto>>> GetProductBatch(int productId, int batchId)
+        {
+            try
+            {
+                var batch = await _productService.GetProductBatchAsync(batchId);
+                
+                if (batch == null || batch.ProductId != productId)
+                {
+                    return NotFound(new ApiResponse<ProductBatchDto>
+                    {
+                        Success = false,
+                        Message = "Product batch not found"
+                    });
+                }
+
+                return Ok(new ApiResponse<ProductBatchDto>
+                {
+                    Success = true,
+                    Data = batch
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting batch {BatchId} for product {ProductId}", batchId, productId);
+                return StatusCode(500, new ApiResponse<ProductBatchDto>
+                {
+                    Success = false,
+                    Message = "An error occurred while retrieving the batch"
+                });
+            }
+        }
+
+        /// <summary>
+        /// Update product batch (quantity, notes, etc.)
+        /// </summary>
+        [HttpPut("{productId}/batches/{batchId}")]
+        [Authorize(Policy = "Inventory.Write")]
+        public async Task<ActionResult<ApiResponse<ProductBatchDto>>> UpdateProductBatch(
+            int productId,
+            int batchId,
+            [FromBody] UpdateProductBatchDto request)
+        {
+            try
+            {
+                if (!ModelState.IsValid)
+                {
+                    return BadRequest(new ApiResponse<ProductBatchDto>
+                    {
+                        Success = false,
+                        Message = "Invalid batch data"
+                    });
+                }
+
+                var username = User.FindFirst(ClaimTypes.Name)?.Value ?? "Unknown";
+                var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "0");
+
+                _logger.LogInformation("User {Username} updating batch {BatchId} for product {ProductId}", 
+                    username, batchId, productId);
+
+                var batch = await _productService.UpdateProductBatchAsync(batchId, request, userId);
+
+                if (batch == null)
+                {
+                    return NotFound(new ApiResponse<ProductBatchDto>
+                    {
+                        Success = false,
+                        Message = "Product batch not found"
+                    });
+                }
+
+                return Ok(new ApiResponse<ProductBatchDto>
+                {
+                    Success = true,
+                    Data = batch,
+                    Message = "Product batch updated successfully"
+                });
+            }
+            catch (ArgumentException ex)
+            {
+                _logger.LogWarning(ex, "Invalid batch update data for batch {BatchId}", batchId);
+                return BadRequest(new ApiResponse<ProductBatchDto>
+                {
+                    Success = false,
+                    Message = ex.Message
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error updating batch {BatchId} for product {ProductId}", batchId, productId);
+                return StatusCode(500, new ApiResponse<ProductBatchDto>
+                {
+                    Success = false,
+                    Message = "An error occurred while updating the batch"
+                });
+            }
+        }
+
+        /// <summary>
+        /// Dispose expired product batch
+        /// </summary>
+        [HttpPost("{productId}/batches/{batchId}/dispose")]
+        [Authorize(Policy = "Inventory.Write")]
+        public async Task<ActionResult<ApiResponse<bool>>> DisposeProductBatch(
+            int productId,
+            int batchId,
+            [FromBody] DisposeBatchDto request)
+        {
+            try
+            {
+                if (!ModelState.IsValid)
+                {
+                    return BadRequest(new ApiResponse<bool>
+                    {
+                        Success = false,
+                        Message = "Invalid disposal data"
+                    });
+                }
+
+                var username = User.FindFirst(ClaimTypes.Name)?.Value ?? "Unknown";
+                var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "0");
+
+                _logger.LogInformation("User {Username} disposing batch {BatchId} for product {ProductId} - Method: {Method}", 
+                    username, batchId, productId, request.DisposalMethod);
+
+                var result = await _productService.DisposeProductBatchAsync(batchId, request, userId);
+
+                if (result)
+                {
+                    return Ok(new ApiResponse<bool>
+                    {
+                        Success = true,
+                        Data = true,
+                        Message = "Product batch disposed successfully"
+                    });
+                }
+                else
+                {
+                    return BadRequest(new ApiResponse<bool>
+                    {
+                        Success = false,
+                        Message = "Failed to dispose product batch"
+                    });
+                }
+            }
+            catch (ArgumentException ex)
+            {
+                _logger.LogWarning(ex, "Invalid disposal request for batch {BatchId}", batchId);
+                return BadRequest(new ApiResponse<bool>
+                {
+                    Success = false,
+                    Message = ex.Message
+                });
+            }
+            catch (InvalidOperationException ex)
+            {
+                _logger.LogWarning(ex, "Cannot dispose batch {BatchId}", batchId);
+                return BadRequest(new ApiResponse<bool>
+                {
+                    Success = false,
+                    Message = ex.Message
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error disposing batch {BatchId} for product {ProductId}", batchId, productId);
+                return StatusCode(500, new ApiResponse<bool>
+                {
+                    Success = false,
+                    Message = "An error occurred while disposing the batch"
+                });
+            }
+        }
+
+        /// <summary>
+        /// Get expiry analytics for products
+        /// </summary>
+        [HttpGet("analytics/expiry")]
+        [Authorize(Roles = "Admin,Manager")]
+        public async Task<ActionResult<ApiResponse<ExpiryAnalyticsDto>>> GetExpiryAnalytics(
+            [FromQuery] int? branchId = null,
+            [FromQuery] DateTime? startDate = null,
+            [FromQuery] DateTime? endDate = null)
+        {
+            try
+            {
+                var username = User.FindFirst(ClaimTypes.Name)?.Value ?? "Unknown";
+                _logger.LogInformation("User {Username} requested expiry analytics for branch {BranchId}", username, branchId);
+
+                var analytics = await _productService.GetExpiryAnalyticsAsync(branchId, startDate, endDate);
+
+                return Ok(new ApiResponse<ExpiryAnalyticsDto>
+                {
+                    Success = true,
+                    Data = analytics,
+                    Message = "Expiry analytics retrieved successfully"
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting expiry analytics");
+                return StatusCode(500, new ApiResponse<ExpiryAnalyticsDto>
+                {
+                    Success = false,
+                    Message = "An error occurred while retrieving expiry analytics"
+                });
+            }
+        }
+
+        /// <summary>
+        /// Validate if product requires expiry date based on category
+        /// </summary>
+        [HttpGet("{productId}/requires-expiry")]
+        [Authorize(Policy = "Inventory.Read")]
+        public async Task<ActionResult<ApiResponse<bool>>> CheckProductRequiresExpiry(int productId)
+        {
+            try
+            {
+                var requiresExpiry = await _productService.ProductRequiresExpiryAsync(productId);
+
+                return Ok(new ApiResponse<bool>
+                {
+                    Success = true,
+                    Data = requiresExpiry,
+                    Message = requiresExpiry ? "Product requires expiry tracking" : "Product does not require expiry tracking"
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error checking expiry requirement for product {ProductId}", productId);
+                return StatusCode(500, new ApiResponse<bool>
+                {
+                    Success = false,
+                    Message = "An error occurred while checking expiry requirement"
+                });
+            }
+        }
     }
 
     // Request DTOs

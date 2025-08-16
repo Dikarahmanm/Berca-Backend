@@ -26,6 +26,39 @@ namespace Berca_Backend.Services
         // Inventory Reports
         Task<List<InventoryMutationDto>> GetInventoryHistoryAsync(int productId, DateTime? startDate = null, DateTime? endDate = null);
         Task<decimal> GetInventoryValueAsync();
+
+        // ==================== EXPIRY & BATCH MANAGEMENT ==================== //
+
+        // Product Batch Operations
+        Task<ProductBatchDto> CreateProductBatchAsync(CreateProductBatchDto request, int createdByUserId);
+        Task<ProductBatchDto> CreateProductBatchAsync(int productId, CreateProductBatchDto request, int createdByUserId, int branchId);
+        Task<ProductBatchDto?> UpdateProductBatchAsync(int batchId, UpdateProductBatchDto request, int updatedByUserId);
+        Task<bool> DeleteProductBatchAsync(int batchId);
+        Task<List<ProductBatchDto>> GetProductBatchesAsync(int productId);
+        Task<List<ProductBatchDto>> GetProductBatchesAsync(int productId, bool includeExpired = true, bool includeDisposed = false);
+        Task<ProductBatchDto?> GetProductBatchByIdAsync(int batchId);
+        Task<ProductBatchDto?> GetProductBatchAsync(int batchId);
+        Task<bool> DisposeProductBatchAsync(int batchId, DisposeBatchDto request, int disposedByUserId);
+
+        // Expiry Tracking
+        Task<List<ExpiringProductDto>> GetExpiringProductsAsync(ExpiringProductsFilterDto filter);
+        Task<List<ExpiredProductDto>> GetExpiredProductsAsync(ExpiredProductsFilterDto filter);
+        Task<ExpiryValidationDto> ValidateExpiryRequirementsAsync(int productId, DateTime? expiryDate);
+        Task<bool> MarkBatchesAsExpiredAsync();
+
+        // FIFO Logic
+        Task<List<FifoRecommendationDto>> GetFifoRecommendationsAsync(int? categoryId = null, int? branchId = null);
+        Task<List<BatchRecommendationDto>> GetBatchSaleOrderAsync(int productId, int requestedQuantity);
+        Task<bool> ProcessFifoSaleAsync(int productId, int quantity, string referenceNumber);
+
+        // Disposal Management
+        Task<bool> DisposeExpiredProductsAsync(DisposeExpiredProductsDto request, int disposedByUserId);
+        Task<List<ExpiredProductDto>> GetDisposableProductsAsync(int? branchId = null);
+
+        // Expiry Analytics
+        Task<ExpiryAnalyticsDto> GetExpiryAnalyticsAsync(int? branchId = null, DateTime? startDate = null, DateTime? endDate = null);
+        Task<List<ProductDto>> GetProductsRequiringExpiryAsync();
+        Task<bool> ProductRequiresExpiryAsync(int productId);
     }
 
     public class InventoryMutationDto
