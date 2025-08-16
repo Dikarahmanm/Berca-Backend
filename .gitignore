@@ -365,3 +365,5 @@ FodyWeavers.xsd
 # AI Assistant configuration and cache
 .claude/
 .instruction/
+/instruction/backend.instructions.md
+/.gitignore
