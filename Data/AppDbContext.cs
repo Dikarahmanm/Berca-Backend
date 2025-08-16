@@ -25,6 +25,12 @@ namespace Berca_Backend.Data
         public DbSet<NotificationSettings> NotificationSettings { get; set; }
         public DbSet<UserNotificationSettings> UserNotificationSettings { get; set; }
         public DbSet<Branch> Branches { get; set; }
+        
+        // ==================== INVENTORY TRANSFER DBSETS ==================== //
+        public DbSet<InventoryTransfer> InventoryTransfers { get; set; }
+        public DbSet<InventoryTransferItem> InventoryTransferItems { get; set; }
+        public DbSet<InventoryTransferStatusHistory> InventoryTransferStatusHistories { get; set; }
+        
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             base.OnModelCreating(modelBuilder);
