@@ -727,12 +727,12 @@ namespace Berca_Backend.Controllers
             return role.ToUpper() is "ADMIN" or "HEADMANAGER";
         }
 
-        private async Task<DateTime[]> GetDateRangeFromQueryParams(ConsolidatedReportQueryParams queryParams)
+        private Task<DateTime[]> GetDateRangeFromQueryParams(ConsolidatedReportQueryParams queryParams)
         {
             var now = _timezoneService.Now;
             var startDate = queryParams.StartDate ?? now.AddDays(-30);
             var endDate = queryParams.EndDate ?? now;
-            return new[] { startDate, endDate };
+            return Task.FromResult(new[] { startDate, endDate });
         }
 
         private string DetermineProductivityCategory(decimal salesPerEmployee)

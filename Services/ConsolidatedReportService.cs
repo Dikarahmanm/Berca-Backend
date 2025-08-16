@@ -206,14 +206,14 @@ namespace Berca_Backend.Services
             _logger.LogInformation("Export request for {ReportType} in {Format} format", 
                 exportParams.ReportType, exportParams.ExportFormat);
             
-            return new byte[0];
+            return await Task.FromResult(new byte[0]);
         }
 
         public async Task<string> GenerateReportUrlAsync(ExportParams exportParams, int? requestingUserId = null)
         {
             // Generate a temporary URL for report download
             var reportId = Guid.NewGuid().ToString();
-            return $"/api/ConsolidatedReport/download/{reportId}";
+            return await Task.FromResult($"/api/ConsolidatedReport/download/{reportId}");
         }
 
         public async Task<List<BranchSalesMetricsDto>> CalculateBranchSalesMetricsAsync(ConsolidatedReportQueryParams queryParams, List<int> accessibleBranchIds)
@@ -308,17 +308,17 @@ namespace Berca_Backend.Services
             return rankedMetrics;
         }
 
-        public async Task<ConsolidatedSalesMetricsDto> CalculateConsolidatedMetricsAsync(List<BranchSalesMetricsDto> branchMetrics)
+        public Task<ConsolidatedSalesMetricsDto> CalculateConsolidatedMetricsAsync(List<BranchSalesMetricsDto> branchMetrics)
         {
             if (!branchMetrics.Any())
-                return new ConsolidatedSalesMetricsDto();
+                return Task.FromResult(new ConsolidatedSalesMetricsDto());
 
             var topPerformer = branchMetrics.OrderByDescending(m => m.PerformanceScore).FirstOrDefault() 
                 ?? new BranchSalesMetricsDto();
             var bottomPerformer = branchMetrics.OrderBy(m => m.PerformanceScore).FirstOrDefault() 
                 ?? new BranchSalesMetricsDto();
 
-            return new ConsolidatedSalesMetricsDto
+            return Task.FromResult(new ConsolidatedSalesMetricsDto
             {
                 TotalRevenue = branchMetrics.Sum(m => m.TotalRevenue),
                 TotalTransactions = branchMetrics.Sum(m => m.TransactionCount),
@@ -336,7 +336,7 @@ namespace Berca_Backend.Services
                 AveragePerformanceScore = branchMetrics.Average(m => m.PerformanceScore),
                 TopPerformer = topPerformer,
                 BottomPerformer = bottomPerformer
-            };
+            });
         }
 
         public async Task<List<BranchInventoryDto>> CalculateBranchInventoryMetricsAsync(List<int> accessibleBranchIds)
@@ -427,7 +427,7 @@ namespace Berca_Backend.Services
             return rankedRegions;
         }
 
-        public async Task<decimal> CalculatePerformanceScoreAsync(BranchSalesMetricsDto metrics)
+        public Task<decimal> CalculatePerformanceScoreAsync(BranchSalesMetricsDto metrics)
         {
             // Weighted performance score calculation
             var revenueWeight = 0.3m;
@@ -449,13 +449,13 @@ namespace Berca_Backend.Services
                            (growthScore * growthWeight) +
                            (customerScore * customerWeight);
 
-            return totalScore;
+            return Task.FromResult(totalScore);
         }
 
-        public async Task<PerformanceBenchmarkDto> CalculatePerformanceBenchmarksAsync(List<BranchSalesMetricsDto> branchMetrics)
+        public Task<PerformanceBenchmarkDto> CalculatePerformanceBenchmarksAsync(List<BranchSalesMetricsDto> branchMetrics)
         {
             if (!branchMetrics.Any())
-                return new PerformanceBenchmarkDto();
+                return Task.FromResult(new PerformanceBenchmarkDto());
 
             var orderedByRevenue = branchMetrics.OrderBy(m => m.TotalRevenue).ToList();
             var orderedByProfit = branchMetrics.OrderBy(m => m.NetProfitMargin).ToList();
@@ -474,7 +474,7 @@ namespace Berca_Backend.Services
                 .GroupBy(m => m.Province)
                 .ToDictionary(g => g.Key, g => g.Average(m => m.PerformanceScore));
 
-            return new PerformanceBenchmarkDto
+            return Task.FromResult(new PerformanceBenchmarkDto
             {
                 TopQuartileRevenue = orderedByRevenue[topQuartileIndex].TotalRevenue,
                 MedianRevenue = orderedByRevenue[medianIndex].TotalRevenue,
@@ -487,10 +487,10 @@ namespace Berca_Backend.Services
                 BottomQuartileProductivity = orderedByProductivity[bottomQuartileIndex].SalesPerEmployee,
                 StoreSizeBenchmarks = storeSizeBenchmarks,
                 RegionalBenchmarks = regionalBenchmarks
-            };
+            });
         }
 
-        public async Task<List<PerformanceInsightDto>> GeneratePerformanceInsightsAsync(List<BranchSalesMetricsDto> branchMetrics)
+        public Task<List<PerformanceInsightDto>> GeneratePerformanceInsightsAsync(List<BranchSalesMetricsDto> branchMetrics)
         {
             var insights = new List<PerformanceInsightDto>();
 
@@ -540,7 +540,7 @@ namespace Berca_Backend.Services
                 });
             }
 
-            return insights;
+            return Task.FromResult(insights);
         }
 
         public async Task<List<GrowthOpportunityDto>> IdentifyGrowthOpportunitiesAsync(ConsolidatedReportQueryParams queryParams, List<int> accessibleBranchIds)
@@ -678,13 +678,13 @@ namespace Berca_Backend.Services
             };
         }
 
-        public async Task<TrendIndicator> CalculateTrendIndicatorAsync(decimal currentValue, decimal previousValue)
+        public Task<TrendIndicator> CalculateTrendIndicatorAsync(decimal currentValue, decimal previousValue)
         {
-            if (previousValue == 0) return TrendIndicator.Stable;
+            if (previousValue == 0) return Task.FromResult(TrendIndicator.Stable);
 
             var changePercent = ((currentValue - previousValue) / previousValue) * 100;
 
-            return changePercent switch
+            var result = changePercent switch
             {
                 > 20 => TrendIndicator.StronglyUp,
                 > 10 => TrendIndicator.Up,
@@ -694,6 +694,8 @@ namespace Berca_Backend.Services
                 >= -20 => TrendIndicator.Down,
                 _ => TrendIndicator.StronglyDown
             };
+            
+            return Task.FromResult(result);
         }
 
         public async Task<List<TrendDataPointDto>> CalculateTrendDataAsync(ConsolidatedReportQueryParams queryParams, string metricType, List<int> accessibleBranchIds)
@@ -729,11 +731,11 @@ namespace Berca_Backend.Services
             return trendData;
         }
 
-        public async Task<ForecastDto> GenerateForecastAsync(List<TrendDataPointDto> historicalData, int forecastPeriods = 12)
+        public Task<ForecastDto> GenerateForecastAsync(List<TrendDataPointDto> historicalData, int forecastPeriods = 12)
         {
             // Simple linear forecast (would use more sophisticated algorithms in production)
             if (!historicalData.Any()) 
-                return new ForecastDto();
+                return Task.FromResult(new ForecastDto());
 
             var avgGrowthRate = historicalData.Average(h => h.ChangePercent);
             var lastValue = historicalData.LastOrDefault()?.Value ?? 0;
@@ -754,13 +756,13 @@ namespace Berca_Backend.Services
                 });
             }
 
-            return new ForecastDto
+            return Task.FromResult(new ForecastDto
             {
                 NextPeriod = forecastData,
                 ConfidenceLevel = forecastData.Average(f => f.Confidence),
                 ForecastMethod = "Linear Trend Analysis",
                 Assumptions = new List<string> { "Historical growth patterns continue", "No major market disruptions" }
-            };
+            });
         }
 
         public async Task<List<int>> GetAccessibleBranchIdsForUserAsync(int userId)
@@ -775,7 +777,7 @@ namespace Berca_Backend.Services
             return userStatus?.Role.ToUpper() is "ADMIN" or "HEADMANAGER" or "BRANCHMANAGER";
         }
 
-        public async Task<DateTime[]> GetDateRangeFromParams(ConsolidatedReportQueryParams queryParams)
+        public Task<DateTime[]> GetDateRangeFromParams(ConsolidatedReportQueryParams queryParams)
         {
             var now = _timezoneService.Now;
             var startDate = now;
@@ -813,17 +815,18 @@ namespace Berca_Backend.Services
                 }
             }
 
-            return new[] { startDate, endDate };
+            return Task.FromResult(new[] { startDate, endDate });
         }
 
-        public async Task CacheReportDataAsync(string cacheKey, object data, TimeSpan expiration)
+        public Task CacheReportDataAsync(string cacheKey, object data, TimeSpan expiration)
         {
             _cache.Set(cacheKey, data, expiration);
+            return Task.CompletedTask;
         }
 
-        public async Task<T?> GetCachedReportDataAsync<T>(string cacheKey) where T : class
+        public Task<T?> GetCachedReportDataAsync<T>(string cacheKey) where T : class
         {
-            return _cache.Get<T>(cacheKey);
+            return Task.FromResult(_cache.Get<T>(cacheKey));
         }
 
         // Helper methods (private)
@@ -953,7 +956,7 @@ namespace Berca_Backend.Services
             };
         }
 
-        private async Task<List<BranchPerformanceRankingDto>> CalculateBranchRankingsAsync(List<BranchSalesMetricsDto> branchMetrics)
+        private Task<List<BranchPerformanceRankingDto>> CalculateBranchRankingsAsync(List<BranchSalesMetricsDto> branchMetrics)
         {
             var rankings = new List<BranchPerformanceRankingDto>();
 
@@ -1006,7 +1009,7 @@ namespace Berca_Backend.Services
                 });
             }
 
-            return rankings;
+            return Task.FromResult(rankings);
         }
 
         private TrendIndicator CalculateTrendFromBranches(List<BranchSalesMetricsDto> branches)
@@ -1139,9 +1142,9 @@ namespace Berca_Backend.Services
             };
         }
 
-        private async Task<ExecutiveKPIsDto> CalculateExecutiveKPIsAsync(ConsolidatedSalesMetricsDto consolidated, List<BranchSalesMetricsDto> branchMetrics, DateTime[] dateRange)
+        private Task<ExecutiveKPIsDto> CalculateExecutiveKPIsAsync(ConsolidatedSalesMetricsDto consolidated, List<BranchSalesMetricsDto> branchMetrics, DateTime[] dateRange)
         {
-            return new ExecutiveKPIsDto
+            return Task.FromResult(new ExecutiveKPIsDto
             {
                 TotalRevenue = consolidated.TotalRevenue,
                 RevenueGrowth = 12.5m, // Placeholder
@@ -1158,10 +1161,10 @@ namespace Berca_Backend.Services
                 CustomerSatisfactionScore = 85.5m, // Placeholder
                 InventoryTurnover = 12.0m, // Placeholder
                 MarketShareGrowth = 2.1m // Placeholder
-            };
+            });
         }
 
-        private async Task<List<KeyInsightDto>> GenerateKeyInsightsAsync(List<BranchSalesMetricsDto> branchMetrics, ConsolidatedSalesMetricsDto consolidated)
+        private Task<List<KeyInsightDto>> GenerateKeyInsightsAsync(List<BranchSalesMetricsDto> branchMetrics, ConsolidatedSalesMetricsDto consolidated)
         {
             var insights = new List<KeyInsightDto>();
 
@@ -1194,12 +1197,12 @@ namespace Berca_Backend.Services
                 ActionRequired = avgMargin < 10 ? "Focus on cost optimization" : "Maintain current performance"
             });
 
-            return insights;
+            return Task.FromResult(insights);
         }
 
-        private async Task<CompetitivePositionDto> CalculateCompetitivePositionAsync(ConsolidatedSalesMetricsDto consolidated)
+        private Task<CompetitivePositionDto> CalculateCompetitivePositionAsync(ConsolidatedSalesMetricsDto consolidated)
         {
-            return new CompetitivePositionDto
+            return Task.FromResult(new CompetitivePositionDto
             {
                 MarketPosition = "Strong Regional Player",
                 CompetitiveAdvantages = new List<string>
@@ -1215,7 +1218,7 @@ namespace Berca_Backend.Services
                 },
                 MarketShare = 15.5m, // Placeholder
                 MarketTrend = "Growing"
-            };
+            });
         }
 
         private TrendSummaryDto CalculateTrendSummary(List<TrendDataPointDto> trendData)
@@ -1252,10 +1255,10 @@ namespace Berca_Backend.Services
             };
         }
 
-        private async Task<List<SeasonalPatternDto>> CalculateSeasonalPatternsAsync(List<TrendDataPointDto> trendData)
+        private Task<List<SeasonalPatternDto>> CalculateSeasonalPatternsAsync(List<TrendDataPointDto> trendData)
         {
             // Simplified seasonal analysis
-            return new List<SeasonalPatternDto>
+            return Task.FromResult(new List<SeasonalPatternDto>
             {
                 new SeasonalPatternDto
                 {
@@ -1265,7 +1268,7 @@ namespace Berca_Backend.Services
                     Seasonality = 15.5m,
                     Patterns = new List<string> { "Holiday season boost", "Post-holiday decline" }
                 }
-            };
+            });
         }
 
         private async Task<decimal> CalculateMetricValueForDateAsync(DateTime date, string metricType, List<int> accessibleBranchIds)

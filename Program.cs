@@ -126,6 +126,32 @@ builder.Services.AddAuthorization(options =>
     options.AddPolicy("Reports.Branch", policy =>
         policy.RequireRole("Admin", "HeadManager", "BranchManager", "User"));
 
+    // ===== INVENTORY TRANSFER POLICIES ===== //
+
+    // Transfer request creation
+    options.AddPolicy("Transfer.Create", policy =>
+        policy.RequireRole("Admin", "HeadManager", "BranchManager"));
+
+    // Transfer approval - HeadManager for high-value, BranchManager for low-value
+    options.AddPolicy("Transfer.Approve", policy =>
+        policy.RequireRole("Admin", "HeadManager", "BranchManager"));
+
+    // Transfer view access
+    options.AddPolicy("Transfer.Read", policy =>
+        policy.RequireRole("Admin", "HeadManager", "BranchManager", "Manager", "User"));
+
+    // Transfer workflow management (ship, receive, cancel)
+    options.AddPolicy("Transfer.Manage", policy =>
+        policy.RequireRole("Admin", "HeadManager", "BranchManager"));
+
+    // Emergency transfer creation
+    options.AddPolicy("Transfer.Emergency", policy =>
+        policy.RequireRole("Admin", "HeadManager", "BranchManager"));
+
+    // Transfer analytics and reporting
+    options.AddPolicy("Transfer.Analytics", policy =>
+        policy.RequireRole("Admin", "HeadManager", "BranchManager"));
+
     // ===== ENHANCED EXISTING POLICIES (Branch-Aware) ===== //
 
     // Dashboard Policies (Branch-aware)
@@ -289,6 +315,9 @@ static bool ValidateBranchHierarchyAccess(AuthorizationHandlerContext context)
     return false;
 }
 
+// ✅ Add Memory Cache for ConsolidatedReportService
+builder.Services.AddMemoryCache();
+
 // ✅ Register services in correct dependency order
 builder.Services.AddScoped<ITimezoneService, TimezoneService>(); // FIRST - other services depend on this
 builder.Services.AddScoped<IProductService, ProductService>();
@@ -300,6 +329,7 @@ builder.Services.AddScoped<IPOSService, POSService>();
 builder.Services.AddScoped<IUserBranchAssignmentService, UserBranchAssignmentService>();
 builder.Services.AddScoped<IBranchService, BranchService>();
 builder.Services.AddScoped<IConsolidatedReportService, ConsolidatedReportService>();
+builder.Services.AddScoped<IInventoryTransferService, InventoryTransferService>();
 
 // ✅ Add Swagger
 builder.Services.AddEndpointsApiExplorer();
