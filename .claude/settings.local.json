@@ -11,7 +11,8 @@
       "Bash(curl:*)",
       "Bash(sqlcmd:*)",
       "Bash(dotnet run:*)",
-      "Bash(del:*)"
+      "Bash(del:*)",
+      "Bash(dotnet ef migrations:*)"
     ],
     "deny": [],
     "ask": [],

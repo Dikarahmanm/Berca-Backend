@@ -43,10 +43,10 @@ namespace Berca_Backend.Models
         public string? Notes { get; set; }
 
         [Column(TypeName = "decimal(18,2)")]
-        public decimal EstimatedCost { get; set; }
+        public decimal EstimatedCost { get; set; } = 0;
 
         [Column(TypeName = "decimal(18,2)")]
-        public decimal ActualCost { get; set; }
+        public decimal ActualCost { get; set; } = 0;
 
         // Transfer Items
         public virtual ICollection<InventoryTransferItem> TransferItems { get; set; } = new List<InventoryTransferItem>();
@@ -87,7 +87,7 @@ namespace Berca_Backend.Models
 
         public DateTime? EstimatedDeliveryDate { get; set; }
 
-        public decimal DistanceKm { get; set; }
+        public decimal DistanceKm { get; set; } = 0;
 
         // Audit Trail
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
@@ -186,10 +186,10 @@ namespace Berca_Backend.Models
 
         // Cost Information
         [Column(TypeName = "decimal(18,2)")]
-        public decimal UnitCost { get; set; }
+        public decimal UnitCost { get; set; } = 0;
 
         [Column(TypeName = "decimal(18,2)")]
-        public decimal TotalCost { get; set; }
+        public decimal TotalCost { get; set; } = 0;
 
         // Inventory Tracking
         public int SourceStockBefore { get; set; }
@@ -213,44 +213,6 @@ namespace Berca_Backend.Models
     }
 
     /// <summary>
-    /// Transfer status workflow
-    /// </summary>
-    [JsonConverter(typeof(JsonStringEnumConverter))]
-    public enum TransferStatus
-    {
-        Pending,      // Menunggu persetujuan
-        Approved,     // Disetujui, siap dikirim
-        InTransit,    // Dalam perjalanan
-        Completed,    // Selesai diterima
-        Cancelled,    // Dibatalkan
-        Rejected      // Ditolak
-    }
-
-    /// <summary>
-    /// Transfer type classification
-    /// </summary>
-    [JsonConverter(typeof(JsonStringEnumConverter))]
-    public enum TransferType
-    {
-        Regular,      // Transfer reguler
-        Emergency,    // Transfer darurat
-        Rebalancing,  // Rebalancing stok otomatis
-        Bulk          // Transfer bulk banyak produk
-    }
-
-    /// <summary>
-    /// Transfer priority levels
-    /// </summary>
-    [JsonConverter(typeof(JsonStringEnumConverter))]
-    public enum TransferPriority
-    {
-        Low,          // Prioritas rendah
-        Normal,       // Prioritas normal
-        High,         // Prioritas tinggi
-        Emergency     // Darurat (auto-approval)
-    }
-
-    /// <summary>
     /// Transfer status history for audit trail
     /// </summary>
     public class InventoryTransferStatusHistory
@@ -267,17 +229,40 @@ namespace Berca_Backend.Models
         [Required]
         public TransferStatus ToStatus { get; set; }
 
-        [Required]
         public int ChangedBy { get; set; }
         public virtual User ChangedByUser { get; set; } = null!;
 
-        [StringLength(500)]
-        public string? Reason { get; set; }
-
         public DateTime ChangedAt { get; set; } = DateTime.UtcNow;
 
-        // Computed Properties
-        [NotMapped]
-        public string ChangeDescription => $"{FromStatus} → {ToStatus}";
+        [StringLength(500)]
+        public string? Reason { get; set; }
+    }
+
+    // ==================== ENUMS ==================== //
+
+    public enum TransferStatus
+    {
+        Pending = 0,     // Waiting for approval
+        Approved = 1,    // Approved and ready to ship
+        InTransit = 2,   // Being shipped
+        Completed = 3,   // Received and completed
+        Cancelled = 4,   // Cancelled by user
+        Rejected = 5     // Rejected during approval
+    }
+
+    public enum TransferType
+    {
+        Regular = 0,     // Standard transfer
+        Emergency = 1,   // Emergency/urgent transfer
+        Rebalancing = 2, // Stock rebalancing
+        Bulk = 3         // Bulk transfer
+    }
+
+    public enum TransferPriority
+    {
+        Low = 0,
+        Normal = 1,
+        High = 2,
+        Emergency = 3
     }
 }
