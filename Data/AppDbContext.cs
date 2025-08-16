@@ -1026,6 +1026,178 @@ namespace Berca_Backend.Data
                       .HasDatabaseName("IX_ProductBatches_BranchId_ExpiryDate");
             });
 
+            // ==================== INVENTORY TRANSFER CONFIGURATION ==================== //
+            modelBuilder.Entity<InventoryTransfer>(entity =>
+            {
+                entity.HasKey(e => e.Id);
+                
+                // Column mappings for different names between model and database
+                entity.Property(it => it.SourceBranchId).HasColumnName("FromBranchId");
+                entity.Property(it => it.DestinationBranchId).HasColumnName("ToBranchId");
+                
+                // Map user ID properties to correct integer columns
+                entity.Property(it => it.RequestedBy).HasColumnName("RequestedByUserId");
+                entity.Property(it => it.ApprovedBy).HasColumnName("ApprovedByUserId");
+                entity.Property(it => it.ShippedBy).HasColumnName("ShippedByUserId");
+                entity.Property(it => it.ReceivedBy).HasColumnName("ReceivedByUserId");
+                entity.Property(it => it.CancelledBy).HasColumnName("CancelledByUserId");
+                
+                // Relationships
+                entity.HasOne(it => it.SourceBranch)
+                      .WithMany()
+                      .HasForeignKey(it => it.SourceBranchId)
+                      .OnDelete(DeleteBehavior.Restrict);
+
+                entity.HasOne(it => it.DestinationBranch)
+                      .WithMany()
+                      .HasForeignKey(it => it.DestinationBranchId)
+                      .OnDelete(DeleteBehavior.Restrict);
+
+                entity.HasOne(it => it.RequestedByUser)
+                      .WithMany()
+                      .HasForeignKey(it => it.RequestedBy)
+                      .OnDelete(DeleteBehavior.Cascade);
+
+                entity.HasOne(it => it.ApprovedByUser)
+                      .WithMany()
+                      .HasForeignKey(it => it.ApprovedBy)
+                      .OnDelete(DeleteBehavior.SetNull);
+
+                entity.HasOne(it => it.ShippedByUser)
+                      .WithMany()
+                      .HasForeignKey(it => it.ShippedBy)
+                      .OnDelete(DeleteBehavior.SetNull);
+
+                entity.HasOne(it => it.ReceivedByUser)
+                      .WithMany()
+                      .HasForeignKey(it => it.ReceivedBy)
+                      .OnDelete(DeleteBehavior.SetNull);
+
+                entity.HasOne(it => it.CancelledByUser)
+                      .WithMany()
+                      .HasForeignKey(it => it.CancelledBy)
+                      .OnDelete(DeleteBehavior.SetNull);
+                      
+                // Property configurations
+                entity.Property(e => e.TransferNumber)
+                      .IsRequired()
+                      .HasMaxLength(50);
+                      
+                entity.Property(e => e.RequestReason)
+                      .IsRequired()
+                      .HasMaxLength(500);
+                      
+                entity.Property(e => e.Notes)
+                      .HasMaxLength(1000);
+                      
+                entity.Property(e => e.DistanceKm)
+                      .HasColumnType("decimal(18,2)")
+                      .HasDefaultValue(0m);
+                      
+                entity.Property(e => e.EstimatedCost)
+                      .HasColumnType("decimal(18,2)")
+                      .HasDefaultValue(0m);
+                      
+                entity.Property(e => e.ActualCost)
+                      .HasColumnType("decimal(18,2)")
+                      .HasDefaultValue(0m);
+
+                // String properties
+                entity.Property(e => e.CancellationReason)
+                      .HasMaxLength(500);
+
+                entity.Property(e => e.LogisticsProvider)
+                      .HasMaxLength(100);
+
+                entity.Property(e => e.TrackingNumber)
+                      .HasMaxLength(100);
+
+                // Indexes for performance
+                entity.HasIndex(e => e.TransferNumber)
+                      .IsUnique()
+                      .HasDatabaseName("IX_InventoryTransfers_TransferNumber");
+
+                entity.HasIndex(e => e.Status)
+                      .HasDatabaseName("IX_InventoryTransfers_Status");
+
+                entity.HasIndex(e => e.SourceBranchId)
+                      .HasDatabaseName("IX_InventoryTransfers_SourceBranchId");
+
+                entity.HasIndex(e => e.DestinationBranchId)
+                      .HasDatabaseName("IX_InventoryTransfers_DestinationBranchId");
+
+                entity.HasIndex(e => e.CreatedAt)
+                      .HasDatabaseName("IX_InventoryTransfers_CreatedAt");
+            });
+
+            modelBuilder.Entity<InventoryTransferItem>(entity =>
+            {
+                entity.HasKey(e => e.Id);
+                
+                // Relationships
+                entity.HasOne(iti => iti.InventoryTransfer)
+                      .WithMany(it => it.TransferItems)
+                      .HasForeignKey(iti => iti.InventoryTransferId)
+                      .OnDelete(DeleteBehavior.Cascade);
+
+                entity.HasOne(iti => iti.Product)
+                      .WithMany()
+                      .HasForeignKey(iti => iti.ProductId)
+                      .OnDelete(DeleteBehavior.Restrict);
+
+                // Property configurations
+                entity.Property(e => e.UnitCost)
+                      .HasColumnType("decimal(18,2)")
+                      .HasDefaultValue(0m);
+
+                entity.Property(e => e.TotalCost)
+                      .HasColumnType("decimal(18,2)")
+                      .HasDefaultValue(0m);
+
+                entity.Property(e => e.BatchNumber)
+                      .HasMaxLength(50);
+
+                entity.Property(e => e.QualityNotes)
+                      .HasMaxLength(200);
+
+                // Indexes
+                entity.HasIndex(e => e.InventoryTransferId)
+                      .HasDatabaseName("IX_InventoryTransferItems_InventoryTransferId");
+
+                entity.HasIndex(e => e.ProductId)
+                      .HasDatabaseName("IX_InventoryTransferItems_ProductId");
+            });
+
+            modelBuilder.Entity<InventoryTransferStatusHistory>(entity =>
+            {
+                entity.HasKey(e => e.Id);
+                
+                // Relationships
+                entity.HasOne(itsh => itsh.InventoryTransfer)
+                      .WithMany()
+                      .HasForeignKey(itsh => itsh.InventoryTransferId)
+                      .OnDelete(DeleteBehavior.Cascade);
+
+                entity.HasOne(itsh => itsh.ChangedByUser)
+                      .WithMany()
+                      .HasForeignKey(itsh => itsh.ChangedBy)
+                      .OnDelete(DeleteBehavior.Restrict);
+
+                // Property configurations
+                entity.Property(e => e.Reason)
+                      .HasMaxLength(500);
+
+                // Indexes
+                entity.HasIndex(e => e.InventoryTransferId)
+                      .HasDatabaseName("IX_InventoryTransferStatusHistories_InventoryTransferId");
+
+                entity.HasIndex(e => e.ChangedBy)
+                      .HasDatabaseName("IX_InventoryTransferStatusHistories_ChangedBy");
+
+                entity.HasIndex(e => e.ChangedAt)
+                      .HasDatabaseName("IX_InventoryTransferStatusHistories_ChangedAt");
+            });
+
             // ==================== REALISTIC INDONESIAN MINIMARKET PRODUCTS ==================== //
             modelBuilder.Entity<Product>().HasData(
                 // Food Products (Categories 1-7)
