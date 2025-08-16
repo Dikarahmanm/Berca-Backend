@@ -367,3 +367,4 @@ FodyWeavers.xsd
 .instruction/
 /instruction/backend.instructions.md
 /.gitignore
+/cookies.txt
