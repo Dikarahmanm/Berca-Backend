@@ -368,3 +368,5 @@ FodyWeavers.xsd
 /instruction/backend.instructions.md
 /.gitignore
 /cookies.txt
+/AddSuppliersTableManual.sql
+/CreateSuppliersTableOnly.sql
