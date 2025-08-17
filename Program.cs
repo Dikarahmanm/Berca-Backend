@@ -152,6 +152,18 @@ builder.Services.AddAuthorization(options =>
     options.AddPolicy("Transfer.Analytics", policy =>
         policy.RequireRole("Admin", "HeadManager", "BranchManager"));
 
+    // ===== SUPPLIER MANAGEMENT POLICIES ===== //
+
+    // Supplier CRUD operations
+    options.AddPolicy("Supplier.Read", policy =>
+        policy.RequireRole("Admin", "HeadManager", "BranchManager", "Manager", "User"));
+
+    options.AddPolicy("Supplier.Write", policy =>
+        policy.RequireRole("Admin", "HeadManager", "BranchManager", "Manager"));
+
+    options.AddPolicy("Supplier.Delete", policy =>
+        policy.RequireRole("Admin", "HeadManager", "BranchManager"));
+
     // ===== ENHANCED EXISTING POLICIES (Branch-Aware) ===== //
 
     // Dashboard Policies (Branch-aware)
@@ -330,6 +342,7 @@ builder.Services.AddScoped<IUserBranchAssignmentService, UserBranchAssignmentSer
 builder.Services.AddScoped<IBranchService, BranchService>();
 builder.Services.AddScoped<IConsolidatedReportService, ConsolidatedReportService>();
 builder.Services.AddScoped<IInventoryTransferService, InventoryTransferService>();
+builder.Services.AddScoped<ISupplierService, SupplierService>();
 
 // ✅ Add Swagger
 builder.Services.AddEndpointsApiExplorer();
@@ -503,6 +516,10 @@ using (var scope = app.Services.CreateScope())
         // Fix any existing users with NULL branch assignments
         await SampleDataSeeder.FixNullBranchAssignmentsAsync(context);
         logger.LogInformation("🔧 Fixed NULL branch assignments for existing users");
+
+        // Seed supplier sample data
+        await SeedSupplierSampleData(context, logger);
+        logger.LogInformation("🏪 Supplier sample data seeded successfully");
     }
     catch (Exception ex)
     {
@@ -732,4 +749,204 @@ static async Task AssignUsersToRetailBranches(AppDbContext context, ILogger logg
     await context.SaveChangesAsync();
     logger.LogInformation("✅ Users assigned to retail branches successfully");
     logger.LogInformation("🏪 Branch assignments: Admin (Global), HeadManager (Multi), BranchManager (Single), Staff (Local)");
+}
+
+// ===== SUPPLIER SAMPLE DATA SEEDER ===== //
+
+static async Task SeedSupplierSampleData(AppDbContext context, ILogger logger)
+{
+    // Check if suppliers already exist
+    if (await context.Suppliers.AnyAsync())
+    {
+        logger.LogInformation("🏪 Supplier data already exists, skipping seed");
+        return;
+    }
+
+    logger.LogInformation("🌱 Seeding supplier sample data...");
+
+    // Use TimezoneService for proper Jakarta time
+    var timezoneService = new Berca_Backend.Services.TimezoneService(
+        Microsoft.Extensions.Logging.Abstractions.NullLogger<Berca_Backend.Services.TimezoneService>.Instance);
+
+    var now = timezoneService.Now;
+    var utcNow = DateTime.UtcNow;
+
+    var suppliers = new List<Berca_Backend.Models.Supplier>
+    {
+        // Global suppliers (available to all branches)
+        new Berca_Backend.Models.Supplier
+        {
+            SupplierCode = "SUP-2025-00001",
+            CompanyName = "PT. Sumber Rejeki Makmur",
+            ContactPerson = "Bambang Sutrisno",
+            Phone = "021-5551234",
+            Email = "bambang@sumberrejeki.co.id",
+            Address = "Jl. Industri Raya No. 88, Jakarta Timur, DKI Jakarta 13560",
+            PaymentTerms = 30,
+            CreditLimit = 500000000, // 500M IDR
+            BranchId = null, // Global supplier
+            IsActive = true,
+            CreatedBy = 5, // dikdika user
+            CreatedAt = utcNow,
+            UpdatedAt = utcNow
+        },
+        new Berca_Backend.Models.Supplier
+        {
+            SupplierCode = "SUP-2025-00002",
+            CompanyName = "CV. Mitra Elektronik Nusantara",
+            ContactPerson = "Siti Nurhaliza",
+            Phone = "022-8887777",
+            Email = "siti@mitraelektronik.com",
+            Address = "Jl. Soekarno-Hatta No. 456, Bandung, Jawa Barat 40286",
+            PaymentTerms = 45,
+            CreditLimit = 750000000, // 750M IDR
+            BranchId = null, // Global supplier
+            IsActive = true,
+            CreatedBy = 5,
+            CreatedAt = utcNow,
+            UpdatedAt = utcNow
+        },
+        new Berca_Backend.Models.Supplier
+        {
+            SupplierCode = "SUP-2025-00003",
+            CompanyName = "PT. Indo Komputer Teknologi",
+            ContactPerson = "Ahmad Rahman",
+            Phone = "031-9998888",
+            Email = "ahmad@indokomputer.co.id",
+            Address = "Jl. Basuki Rahmat No. 77, Surabaya, Jawa Timur 60271",
+            PaymentTerms = 60,
+            CreditLimit = 1000000000, // 1B IDR
+            BranchId = null, // Global supplier
+            IsActive = true,
+            CreatedBy = 5,
+            CreatedAt = utcNow,
+            UpdatedAt = utcNow
+        },
+
+        // Branch-specific suppliers
+        new Berca_Backend.Models.Supplier
+        {
+            SupplierCode = "SUP-2025-00004",
+            CompanyName = "Toko Kelontong Pak Hasan",
+            ContactPerson = "Hasan Basri",
+            Phone = "0264-555111",
+            Email = "hasan@tokokelontong.com",
+            Address = "Jl. Veteran No. 12, Purwakarta, Jawa Barat 41118",
+            PaymentTerms = 7, // Short term
+            CreditLimit = 25000000, // 25M IDR
+            BranchId = 2, // Purwakarta branch
+            IsActive = true,
+            CreatedBy = 5,
+            CreatedAt = utcNow,
+            UpdatedAt = utcNow
+        },
+        new Berca_Backend.Models.Supplier
+        {
+            SupplierCode = "SUP-2025-00005",
+            CompanyName = "CV. Bandung Fresh Market",
+            ContactPerson = "Rina Marlina",
+            Phone = "022-4445555",
+            Email = "rina@bandungfresh.co.id",
+            Address = "Jl. Pasteur No. 99, Bandung, Jawa Barat 40161",
+            PaymentTerms = 14,
+            CreditLimit = 150000000, // 150M IDR
+            BranchId = 3, // Bandung branch
+            IsActive = true,
+            CreatedBy = 5,
+            CreatedAt = utcNow,
+            UpdatedAt = utcNow
+        },
+        new Berca_Backend.Models.Supplier
+        {
+            SupplierCode = "SUP-2025-00006",
+            CompanyName = "PT. Surabaya Grosir Sentral",
+            ContactPerson = "Budi Rahardjo",
+            Phone = "031-7776666",
+            Email = "budi@surabayagrosir.com",
+            Address = "Jl. Pasar Besar No. 123, Surabaya, Jawa Timur 60174",
+            PaymentTerms = 21,
+            CreditLimit = 300000000, // 300M IDR
+            BranchId = 4, // Surabaya branch
+            IsActive = true,
+            CreatedBy = 5,
+            CreatedAt = utcNow,
+            UpdatedAt = utcNow
+        },
+        new Berca_Backend.Models.Supplier
+        {
+            SupplierCode = "SUP-2025-00007",
+            CompanyName = "Warung Sembako Bu Sari",
+            ContactPerson = "Sari Wulandari",
+            Phone = "021-6667777",
+            Email = "sari@warungsembako.com",
+            Address = "Jl. Kalimalang No. 45, Bekasi, Jawa Barat 17112",
+            PaymentTerms = 10,
+            CreditLimit = 50000000, // 50M IDR
+            BranchId = 5, // Bekasi branch
+            IsActive = true,
+            CreatedBy = 5,
+            CreatedAt = utcNow,
+            UpdatedAt = utcNow
+        },
+        new Berca_Backend.Models.Supplier
+        {
+            SupplierCode = "SUP-2025-00008",
+            CompanyName = "CV. Bogor Agro Mandiri",
+            ContactPerson = "Agus Setiawan",
+            Phone = "0251-888999",
+            Email = "agus@bogoragro.co.id",
+            Address = "Jl. Raya Bogor No. 567, Bogor, Jawa Barat 16129",
+            PaymentTerms = 14,
+            CreditLimit = 75000000, // 75M IDR
+            BranchId = 6, // Bogor branch
+            IsActive = true,
+            CreatedBy = 5,
+            CreatedAt = utcNow,
+            UpdatedAt = utcNow
+        },
+
+        // Long payment terms supplier (for alerts testing)
+        new Berca_Backend.Models.Supplier
+        {
+            SupplierCode = "SUP-2025-00009",
+            CompanyName = "PT. Kredit Panjang International",
+            ContactPerson = "Robert Tanoto",
+            Phone = "021-3334444",
+            Email = "robert@kreditpanjang.com",
+            Address = "Jl. Sudirman No. 999, Jakarta Pusat, DKI Jakarta 10220",
+            PaymentTerms = 120, // Long term - will trigger alert
+            CreditLimit = 2000000000, // 2B IDR - will trigger alert
+            BranchId = null,
+            IsActive = true,
+            CreatedBy = 5,
+            CreatedAt = utcNow,
+            UpdatedAt = utcNow
+        },
+
+        // Inactive supplier (for testing)
+        new Berca_Backend.Models.Supplier
+        {
+            SupplierCode = "SUP-2025-00010",
+            CompanyName = "CV. Supplier Tidak Aktif",
+            ContactPerson = "Inactive User",
+            Phone = "021-0000000",
+            Email = "inactive@supplier.com",
+            Address = "Jl. Tidak Aktif No. 0, Jakarta, DKI Jakarta 10000",
+            PaymentTerms = 30,
+            CreditLimit = 100000000,
+            BranchId = null,
+            IsActive = false, // Inactive - will trigger alert
+            CreatedBy = 5,
+            CreatedAt = utcNow,
+            UpdatedAt = utcNow
+        }
+    };
+
+    context.Suppliers.AddRange(suppliers);
+    await context.SaveChangesAsync();
+
+    logger.LogInformation("✅ Supplier sample data seeded: {Count} suppliers created", suppliers.Count);
+    logger.LogInformation("🏪 Suppliers: 3 global + 6 branch-specific + 1 long-term + 1 inactive");
+    logger.LogInformation("📊 Payment terms: 7-120 days, Credit limits: 25M-2B IDR");
+    logger.LogInformation("⚠️ Alert triggers: Long payment terms (120 days), High credit (2B), Inactive status");
 }

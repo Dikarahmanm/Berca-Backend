@@ -34,6 +34,9 @@ namespace Berca_Backend.Data
         // ==================== EXPIRY MANAGEMENT DBSETS ==================== //
         public DbSet<ProductBatch> ProductBatches { get; set; }
         
+        // ==================== SUPPLIER MANAGEMENT DBSETS ==================== //
+        public DbSet<Supplier> Suppliers { get; set; }
+        
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             base.OnModelCreating(modelBuilder);
@@ -1564,6 +1567,82 @@ namespace Berca_Backend.Data
                     UpdatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc)
                 }
             );
+
+            // ==================== SUPPLIER CONFIGURATION ==================== //
+            modelBuilder.Entity<Supplier>(entity =>
+            {
+                entity.HasKey(e => e.Id);
+
+                // Property configurations
+                entity.Property(e => e.SupplierCode)
+                      .IsRequired()
+                      .HasMaxLength(20);
+
+                entity.Property(e => e.CompanyName)
+                      .IsRequired()
+                      .HasMaxLength(100);
+
+                entity.Property(e => e.ContactPerson)
+                      .IsRequired()
+                      .HasMaxLength(50);
+
+                entity.Property(e => e.Phone)
+                      .IsRequired()
+                      .HasMaxLength(15);
+
+                entity.Property(e => e.Email)
+                      .IsRequired()
+                      .HasMaxLength(100);
+
+                entity.Property(e => e.Address)
+                      .HasMaxLength(500);
+
+                entity.Property(e => e.CreditLimit)
+                      .HasColumnType("decimal(18,2)");
+
+                entity.Property(e => e.CreatedAt)
+                      .HasDefaultValueSql("GETUTCDATE()");
+
+                entity.Property(e => e.UpdatedAt)
+                      .HasDefaultValueSql("GETUTCDATE()");
+
+                // Indexes for performance
+                entity.HasIndex(e => e.SupplierCode)
+                      .IsUnique()
+                      .HasDatabaseName("IX_Suppliers_SupplierCode");
+
+                entity.HasIndex(e => e.CompanyName)
+                      .HasDatabaseName("IX_Suppliers_CompanyName");
+
+                entity.HasIndex(e => e.Email)
+                      .IsUnique()
+                      .HasDatabaseName("IX_Suppliers_Email");
+
+                entity.HasIndex(e => new { e.BranchId, e.IsActive })
+                      .HasDatabaseName("IX_Suppliers_Branch_Status");
+
+                entity.HasIndex(e => e.PaymentTerms)
+                      .HasDatabaseName("IX_Suppliers_PaymentTerms");
+
+                entity.HasIndex(e => e.CreditLimit)
+                      .HasDatabaseName("IX_Suppliers_CreditLimit");
+
+                // Relationships
+                entity.HasOne(s => s.Branch)
+                      .WithMany()
+                      .HasForeignKey(s => s.BranchId)
+                      .OnDelete(DeleteBehavior.SetNull);
+
+                entity.HasOne(s => s.CreatedByUser)
+                      .WithMany()
+                      .HasForeignKey(s => s.CreatedBy)
+                      .OnDelete(DeleteBehavior.Restrict);
+
+                entity.HasOne(s => s.UpdatedByUser)
+                      .WithMany()
+                      .HasForeignKey(s => s.UpdatedBy)
+                      .OnDelete(DeleteBehavior.SetNull);
+            });
         }
     }
 }
