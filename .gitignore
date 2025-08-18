@@ -370,3 +370,4 @@ FodyWeavers.xsd
 /cookies.txt
 /AddSuppliersTableManual.sql
 /CreateSuppliersTableOnly.sql
+/facture_tables.sql
