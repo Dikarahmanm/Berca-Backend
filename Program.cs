@@ -688,6 +688,7 @@ static async Task SimpleIntegrityCheckAsync(AppDbContext context, ILogger logger
 
 // ===== SAMPLE DATA SEEDER FOR BRANCHES ===== //
 
+/* COMMENTED OUT: Unused function 
 static async Task SeedBranchSampleData(AppDbContext context, ILogger logger)
 {
     // Check if branches already exist
@@ -906,9 +907,11 @@ static async Task AssignUsersToRetailBranches(AppDbContext context, ILogger logg
     logger.LogInformation("✅ Users assigned to retail branches successfully");
     logger.LogInformation("🏪 Branch assignments: Admin (Global), HeadManager (Multi), BranchManager (Single), Staff (Local)");
 }
+*/
 
 // ===== SUPPLIER SAMPLE DATA SEEDER ===== //
 
+/* COMMENTED OUT: Unused function 
 static async Task SeedSupplierSampleData(AppDbContext context, ILogger logger)
 {
     // Check if suppliers already exist
@@ -1106,9 +1109,11 @@ static async Task SeedSupplierSampleData(AppDbContext context, ILogger logger)
     logger.LogInformation("📊 Payment terms: 7-120 days, Credit limits: 25M-2B IDR");
     logger.LogInformation("⚠️ Alert triggers: Long payment terms (120 days), High credit (2B), Inactive status");
 }
+*/
 
 // ===== FACTURE SAMPLE DATA SEEDER ===== //
 
+/* COMMENTED OUT: Unused function 
 static async Task SeedFactureSampleData(AppDbContext context, ILogger logger)
 {
     try
@@ -1315,7 +1320,9 @@ static async Task SeedFactureSampleData(AppDbContext context, ILogger logger)
     logger.LogInformation("💰 Payment methods: Bank Transfer, Check, Cash");
     logger.LogInformation("🔄 Workflow tracking: Complete audit trail for each facture");
 }
+*/
 
+/* COMMENTED OUT: Unused helper function
 static Berca_Backend.Models.FactureStatus GetRandomFactureStatus(int index)
 {
     return index switch
@@ -1339,3 +1346,4 @@ static Berca_Backend.Models.PaymentMethod GetRandomPaymentMethod()
     };
     return methods[Random.Shared.Next(methods.Length)];
 }
+*/
