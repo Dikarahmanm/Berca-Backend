@@ -14,8 +14,7 @@ namespace Berca_Backend.Controllers
     /// </summary>
     [ApiController]
     [Route("api/[controller]")]
-    [AllowAnonymous] // Temporary for testing - remove in production
-    // [Authorize]
+    [Authorize]
     public class SupplierController : ControllerBase
     {
         private readonly ISupplierService _supplierService;
@@ -228,7 +227,7 @@ namespace Berca_Backend.Controllers
                 if (!result)
                     return NotFound(ApiResponse<object>.ErrorResponse("Supplier not found"));
 
-                return Ok(ApiResponse<object>.SuccessResponse(null, "Supplier deleted successfully"));
+                return Ok(ApiResponse<object>.SuccessResponse(new object(), "Supplier deleted successfully"));
             }
             catch (Exception ex)
             {

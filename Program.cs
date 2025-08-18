@@ -164,6 +164,51 @@ builder.Services.AddAuthorization(options =>
     options.AddPolicy("Supplier.Delete", policy =>
         policy.RequireRole("Admin", "HeadManager", "BranchManager"));
 
+    // ===== FACTURE MANAGEMENT POLICIES ===== //
+
+    // Facture receiving operations
+    options.AddPolicy("Facture.Receive", policy =>
+        policy.RequireRole("Admin", "HeadManager", "BranchManager", "Manager", "User"));
+
+    // Facture verification workflow
+    options.AddPolicy("Facture.Verify", policy =>
+        policy.RequireRole("Admin", "HeadManager", "BranchManager", "Manager"));
+
+    // Facture approval workflow (high-value invoices)
+    options.AddPolicy("Facture.Approve", policy =>
+        policy.RequireRole("Admin", "HeadManager", "BranchManager"));
+
+    // Facture dispute management
+    options.AddPolicy("Facture.Dispute", policy =>
+        policy.RequireRole("Admin", "HeadManager", "BranchManager", "Manager"));
+
+    // Payment scheduling and processing
+    options.AddPolicy("Facture.SchedulePayment", policy =>
+        policy.RequireRole("Admin", "HeadManager", "BranchManager", "Manager"));
+
+    options.AddPolicy("Facture.ProcessPayment", policy =>
+        policy.RequireRole("Admin", "HeadManager", "BranchManager"));
+
+    // Payment confirmation from suppliers
+    options.AddPolicy("Facture.ConfirmPayment", policy =>
+        policy.RequireRole("Admin", "HeadManager", "BranchManager", "Manager", "User"));
+
+    // Facture read access
+    options.AddPolicy("Facture.Read", policy =>
+        policy.RequireRole("Admin", "HeadManager", "BranchManager", "Manager", "User"));
+
+    // Facture analytics and reporting
+    options.AddPolicy("Facture.Analytics", policy =>
+        policy.RequireRole("Admin", "HeadManager", "BranchManager", "Manager"));
+
+    // Facture bulk operations
+    options.AddPolicy("Facture.BulkOperations", policy =>
+        policy.RequireRole("Admin", "HeadManager", "BranchManager"));
+
+    // Facture validation and compliance
+    options.AddPolicy("Facture.Validate", policy =>
+        policy.RequireRole("Admin", "HeadManager", "BranchManager", "Manager"));
+
     // ===== ENHANCED EXISTING POLICIES (Branch-Aware) ===== //
 
     // Dashboard Policies (Branch-aware)
@@ -343,6 +388,7 @@ builder.Services.AddScoped<IBranchService, BranchService>();
 builder.Services.AddScoped<IConsolidatedReportService, ConsolidatedReportService>();
 builder.Services.AddScoped<IInventoryTransferService, InventoryTransferService>();
 builder.Services.AddScoped<ISupplierService, SupplierService>();
+builder.Services.AddScoped<IFactureService, FactureService>();
 
 // ✅ Add Swagger
 builder.Services.AddEndpointsApiExplorer();
@@ -400,6 +446,27 @@ builder.Services.Configure<CookiePolicyOptions>(options =>
 
 var app = builder.Build();
 
+// Check for command line arguments for database operations
+if (args.Length > 0 && args[0].ToLower() == "--reset-database")
+{
+    try
+    {
+        using var scope = app.Services.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
+
+        await DatabaseResetUtility.ResetDatabaseAsync(context, logger, forceReset: true);
+        
+        logger.LogInformation("🎉 Database reset completed successfully! Exiting...");
+        return;
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"❌ Database reset failed: {ex.Message}");
+        return;
+    }
+}
+
 // ✅ FIXED: Create directories BEFORE configuring static files
 var wwwrootPath = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot");
 var uploadsPath = Path.Combine(wwwrootPath, "uploads");
@@ -417,6 +484,13 @@ Directory.CreateDirectory(Path.Combine(exportsPath, "sales"));
 Directory.CreateDirectory(Path.Combine(exportsPath, "inventory"));
 Directory.CreateDirectory(Path.Combine(exportsPath, "financial"));
 Directory.CreateDirectory(Path.Combine(exportsPath, "customer"));
+
+// Create facture upload directories
+var facturesPath = Path.Combine(uploadsPath, "factures");
+Directory.CreateDirectory(facturesPath);
+Directory.CreateDirectory(Path.Combine(facturesPath, "invoices"));
+Directory.CreateDirectory(Path.Combine(facturesPath, "receipts"));
+Directory.CreateDirectory(Path.Combine(facturesPath, "supporting"));
 
 // ✅ Enable default static files
 app.UseStaticFiles();
@@ -492,7 +566,8 @@ if (app.Environment.IsDevelopment() || app.Environment.IsStaging())
 }
 
 startupLogger.LogInformation("🔐 Branch-Aware Authentication Configured");
-startupLogger.LogInformation("📁 Directories Created: wwwroot, uploads, exports");
+startupLogger.LogInformation("📁 Directories Created: wwwroot, uploads, exports, factures");
+startupLogger.LogInformation("📄 Facture Management System: ENABLED");
 
 // ✅ Auto-setup database and sample data
 using (var scope = app.Services.CreateScope())
@@ -502,24 +577,9 @@ using (var scope = app.Services.CreateScope())
 
     try
     {
-        await context.Database.EnsureCreatedAsync();
-        logger.LogInformation("📊 Database ensured/created successfully");
-
-        // Seed original sample data first
-        await SampleDataSeeder.SeedSampleDataAsync(context);
-        logger.LogInformation("🌱 Original sample data seeded successfully");
-
-        // Then seed branch sample data
-        await SeedBranchSampleData(context, logger);
-        logger.LogInformation("🏢 Branch sample data seeded successfully");
-
-        // Fix any existing users with NULL branch assignments
-        await SampleDataSeeder.FixNullBranchAssignmentsAsync(context);
-        logger.LogInformation("🔧 Fixed NULL branch assignments for existing users");
-
-        // Seed supplier sample data
-        await SeedSupplierSampleData(context, logger);
-        logger.LogInformation("🏪 Supplier sample data seeded successfully");
+        // Use enhanced database utility for setup
+        await DatabaseResetUtility.EnsureDatabaseAsync(context, logger);
+        logger.LogInformation("📊 Database setup completed successfully");
     }
     catch (Exception ex)
     {
@@ -949,4 +1009,237 @@ static async Task SeedSupplierSampleData(AppDbContext context, ILogger logger)
     logger.LogInformation("🏪 Suppliers: 3 global + 6 branch-specific + 1 long-term + 1 inactive");
     logger.LogInformation("📊 Payment terms: 7-120 days, Credit limits: 25M-2B IDR");
     logger.LogInformation("⚠️ Alert triggers: Long payment terms (120 days), High credit (2B), Inactive status");
+}
+
+// ===== FACTURE SAMPLE DATA SEEDER ===== //
+
+static async Task SeedFactureSampleData(AppDbContext context, ILogger logger)
+{
+    try
+    {
+        // Check if factures already exist
+        if (await context.Factures.AnyAsync())
+        {
+            logger.LogInformation("📄 Facture data already exists, skipping seed");
+            return;
+        }
+    }
+    catch (Microsoft.Data.SqlClient.SqlException ex) when (ex.Number == 208)
+    {
+        // Table doesn't exist yet, continue with seeding
+        logger.LogInformation("📄 Factures table doesn't exist yet, will be created during migration");
+    }
+
+    logger.LogInformation("🌱 Seeding facture sample data...");
+
+    // Use TimezoneService for proper Jakarta time
+    var timezoneService = new Berca_Backend.Services.TimezoneService(
+        Microsoft.Extensions.Logging.Abstractions.NullLogger<Berca_Backend.Services.TimezoneService>.Instance);
+
+    var now = timezoneService.Now;
+    var utcNow = DateTime.UtcNow;
+
+    // Get existing suppliers and users
+    var suppliers = await context.Suppliers.Take(5).ToListAsync();
+    var users = await context.Users.Where(u => u.Role != "Cashier").ToListAsync();
+    var admin = users.FirstOrDefault(u => u.Role == "Admin");
+
+    if (!suppliers.Any() || admin == null)
+    {
+        logger.LogWarning("⚠️ Cannot seed factures: Missing suppliers or admin user");
+        return;
+    }
+
+    var factures = new List<Berca_Backend.Models.Facture>();
+    var factureItems = new List<Berca_Backend.Models.FactureItem>();
+    var facturePayments = new List<Berca_Backend.Models.FacturePayment>();
+
+    var factureCounter = 1;
+
+    foreach (var supplier in suppliers)
+    {
+        // Create 2-3 factures per supplier with different statuses
+        for (int i = 1; i <= 3; i++)
+        {
+            var invoiceDate = now.AddDays(-Random.Shared.Next(1, 90));
+            var dueDate = invoiceDate.AddDays(supplier.PaymentTerms);
+            var amount = Random.Shared.Next(5000000, 50000000); // 5M - 50M IDR
+
+            var facture = new Berca_Backend.Models.Facture
+            {
+                SupplierInvoiceNumber = $"INV-{supplier.SupplierCode.Split('-').Last()}-{i:D3}",
+                InternalReferenceNumber = $"INT-FAC-{now.Year}-{factureCounter:D5}",
+                SupplierId = supplier.Id,
+                BranchId = supplier.BranchId,
+                InvoiceDate = timezoneService.LocalToUtc(invoiceDate),
+                DueDate = timezoneService.LocalToUtc(dueDate),
+                SupplierPONumber = $"PO-{supplier.SupplierCode.Split('-').Last()}-{i}",
+                DeliveryDate = timezoneService.LocalToUtc(invoiceDate.AddDays(Random.Shared.Next(1, 3))),
+                DeliveryNoteNumber = $"DN-{supplier.SupplierCode.Split('-').Last()}-{i}",
+                TotalAmount = amount,
+                Tax = amount * 0.11m, // 11% PPN
+                Discount = amount * 0.02m, // 2% discount
+                Status = GetRandomFactureStatus(i),
+                ReceivedBy = admin.Id,
+                ReceivedAt = timezoneService.LocalToUtc(invoiceDate.AddDays(1)),
+                Description = $"Invoice for monthly supply from {supplier.CompanyName}",
+                Notes = $"Delivery completed on time. Quality inspection passed.",
+                CreatedBy = admin.Id,
+                CreatedAt = utcNow,
+                UpdatedAt = utcNow
+            };
+
+            // Set workflow tracking based on status
+            if (facture.Status >= Berca_Backend.Models.FactureStatus.Verified)
+            {
+                facture.VerifiedBy = admin.Id;
+                facture.VerifiedAt = timezoneService.LocalToUtc(invoiceDate.AddDays(2));
+            }
+
+            if (facture.Status >= Berca_Backend.Models.FactureStatus.Approved)
+            {
+                facture.ApprovedBy = admin.Id;
+                facture.ApprovedAt = timezoneService.LocalToUtc(invoiceDate.AddDays(3));
+            }
+
+            // Set paid amount based on status
+            if (facture.Status == Berca_Backend.Models.FactureStatus.Paid)
+            {
+                facture.PaidAmount = facture.TotalAmount;
+            }
+            else if (facture.Status == Berca_Backend.Models.FactureStatus.PartiallyPaid)
+            {
+                facture.PaidAmount = facture.TotalAmount * 0.6m; // 60% paid
+            }
+
+            factures.Add(facture);
+
+            // Create facture items
+            var itemCount = Random.Shared.Next(2, 6);
+            for (int j = 1; j <= itemCount; j++)
+            {
+                var itemPrice = Random.Shared.Next(50000, 2000000);
+                var itemQuantity = Random.Shared.Next(5, 50);
+
+                var factureItem = new Berca_Backend.Models.FactureItem
+                {
+                    FactureId = facture.Id, // Will be set after facture is saved
+                    SupplierItemCode = $"ITEM-{j:D3}",
+                    SupplierItemDescription = $"Product Item {j} from {supplier.CompanyName}",
+                    Quantity = itemQuantity,
+                    UnitPrice = itemPrice,
+                    ReceivedQuantity = facture.Status >= Berca_Backend.Models.FactureStatus.Verified ? itemQuantity : null,
+                    AcceptedQuantity = facture.Status >= Berca_Backend.Models.FactureStatus.Verified ? itemQuantity : null,
+                    TaxRate = 11, // 11% PPN
+                    DiscountAmount = itemPrice * itemQuantity * 0.02m, // 2% discount
+                    Notes = $"Standard delivery item {j}",
+                    VerificationNotes = facture.Status >= Berca_Backend.Models.FactureStatus.Verified ? "Quantity verified and accepted" : null,
+                    IsVerified = facture.Status >= Berca_Backend.Models.FactureStatus.Verified,
+                    VerifiedAt = facture.Status >= Berca_Backend.Models.FactureStatus.Verified ? facture.VerifiedAt : null,
+                    VerifiedBy = facture.Status >= Berca_Backend.Models.FactureStatus.Verified ? facture.VerifiedBy : null,
+                    CreatedAt = utcNow,
+                    UpdatedAt = utcNow
+                };
+
+                factureItems.Add(factureItem);
+            }
+
+            // Create payments for paid/partially paid factures
+            if (facture.Status == Berca_Backend.Models.FactureStatus.Paid || 
+                facture.Status == Berca_Backend.Models.FactureStatus.PartiallyPaid)
+            {
+                var paymentDate = dueDate.AddDays(-Random.Shared.Next(1, 5));
+                var paymentAmount = facture.Status == Berca_Backend.Models.FactureStatus.Paid 
+                    ? facture.TotalAmount 
+                    : facture.TotalAmount * 0.6m;
+
+                var payment = new Berca_Backend.Models.FacturePayment
+                {
+                    FactureId = facture.Id, // Will be set after facture is saved
+                    PaymentDate = timezoneService.LocalToUtc(paymentDate),
+                    Amount = paymentAmount,
+                    PaymentMethod = GetRandomPaymentMethod(),
+                    Status = Berca_Backend.Models.PaymentStatus.Confirmed,
+                    OurPaymentReference = $"PAY-{factureCounter:D5}-001",
+                    SupplierAckReference = $"ACK-{supplier.SupplierCode.Split('-').Last()}-{i}",
+                    BankAccount = "BCA 1234567890",
+                    TransferReference = $"TRF-{DateTime.Now:yyyyMMdd}-{factureCounter:D3}",
+                    ProcessedBy = admin.Id,
+                    ApprovedBy = admin.Id,
+                    ApprovedAt = timezoneService.LocalToUtc(paymentDate.AddDays(-1)),
+                    ConfirmedAt = timezoneService.LocalToUtc(paymentDate.AddHours(2)),
+                    Notes = "Payment processed successfully via bank transfer",
+                    CreatedAt = utcNow,
+                    UpdatedAt = utcNow
+                };
+
+                facturePayments.Add(payment);
+            }
+
+            factureCounter++;
+        }
+    }
+
+    // Save factures first
+    context.Factures.AddRange(factures);
+    await context.SaveChangesAsync();
+
+    // Update facture items and payments with correct FactureId
+    var itemIndex = 0;
+    var paymentIndex = 0;
+    
+    foreach (var facture in factures)
+    {
+        // Update items for this facture
+        var itemCount = Random.Shared.Next(2, 6); // Same range as when creating items
+        for (int j = 0; j < itemCount && itemIndex < factureItems.Count; j++)
+        {
+            factureItems[itemIndex].FactureId = facture.Id;
+            itemIndex++;
+        }
+
+        // Update payment for this facture if it has one
+        if ((facture.Status == Berca_Backend.Models.FactureStatus.Paid || 
+             facture.Status == Berca_Backend.Models.FactureStatus.PartiallyPaid) &&
+            paymentIndex < facturePayments.Count)
+        {
+            facturePayments[paymentIndex].FactureId = facture.Id;
+            paymentIndex++;
+        }
+    }
+
+    // Save items and payments
+    context.FactureItems.AddRange(factureItems);
+    context.FacturePayments.AddRange(facturePayments);
+    await context.SaveChangesAsync();
+
+    logger.LogInformation("✅ Facture sample data seeded: {FactureCount} factures, {ItemCount} items, {PaymentCount} payments", 
+        factures.Count, factureItems.Count, facturePayments.Count);
+    logger.LogInformation("📄 Facture statuses: Received, Verified, Approved, Paid, PartiallyPaid");
+    logger.LogInformation("💰 Payment methods: Bank Transfer, Check, Cash");
+    logger.LogInformation("🔄 Workflow tracking: Complete audit trail for each facture");
+}
+
+static Berca_Backend.Models.FactureStatus GetRandomFactureStatus(int index)
+{
+    return index switch
+    {
+        1 => Berca_Backend.Models.FactureStatus.Received,
+        2 => Berca_Backend.Models.FactureStatus.Verified,
+        3 => Random.Shared.Next(0, 2) == 0 
+            ? Berca_Backend.Models.FactureStatus.Paid 
+            : Berca_Backend.Models.FactureStatus.PartiallyPaid,
+        _ => Berca_Backend.Models.FactureStatus.Approved
+    };
+}
+
+static Berca_Backend.Models.PaymentMethod GetRandomPaymentMethod()
+{
+    var methods = new[]
+    {
+        Berca_Backend.Models.PaymentMethod.BankTransfer,
+        Berca_Backend.Models.PaymentMethod.Check,
+        Berca_Backend.Models.PaymentMethod.Cash
+    };
+    return methods[Random.Shared.Next(methods.Length)];
 }

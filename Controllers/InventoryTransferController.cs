@@ -14,8 +14,7 @@ namespace Berca_Backend.Controllers
     /// </summary>
     [ApiController]
     [Route("api/[controller]")]
-    [AllowAnonymous] // Temporary for testing
-    // [Authorize]
+    [Authorize]
     public class InventoryTransferController : ControllerBase
     {
         private readonly IInventoryTransferService _transferService;

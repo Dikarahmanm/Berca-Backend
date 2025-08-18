@@ -672,6 +672,392 @@ namespace Berca_Backend.Migrations
                         });
                 });
 
+            modelBuilder.Entity("Berca_Backend.Models.Facture", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime?>("ApprovedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int?>("ApprovedBy")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("BranchId")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("datetime2")
+                        .HasDefaultValueSql("GETUTCDATE()");
+
+                    b.Property<int>("CreatedBy")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime?>("DeliveryDate")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("DeliveryNoteNumber")
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)");
+
+                    b.Property<decimal>("Discount")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("decimal(18,2)")
+                        .HasDefaultValue(0m);
+
+                    b.Property<string>("DisputeReason")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<DateTime>("DueDate")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("InternalReferenceNumber")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<DateTime>("InvoiceDate")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Notes")
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)");
+
+                    b.Property<decimal>("PaidAmount")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("decimal(18,2)")
+                        .HasDefaultValue(0m);
+
+                    b.Property<string>("ReceiptFile")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<DateTime?>("ReceivedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int?>("ReceivedBy")
+                        .HasColumnType("int");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("int");
+
+                    b.Property<int>("SupplierId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("SupplierInvoiceFile")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<string>("SupplierInvoiceNumber")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
+                    b.Property<string>("SupplierPONumber")
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
+                    b.Property<string>("SupportingDocs")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<decimal>("Tax")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("decimal(18,2)")
+                        .HasDefaultValue(0m);
+
+                    b.Property<decimal>("TotalAmount")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("datetime2")
+                        .HasDefaultValueSql("GETUTCDATE()");
+
+                    b.Property<int?>("UpdatedBy")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime?>("VerifiedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int?>("VerifiedBy")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ApprovedBy");
+
+                    b.HasIndex("BranchId")
+                        .HasDatabaseName("IX_Factures_BranchId");
+
+                    b.HasIndex("CreatedBy");
+
+                    b.HasIndex("DueDate")
+                        .HasDatabaseName("IX_Factures_DueDate");
+
+                    b.HasIndex("InternalReferenceNumber")
+                        .IsUnique()
+                        .HasDatabaseName("IX_Factures_InternalReferenceNumber");
+
+                    b.HasIndex("InvoiceDate")
+                        .HasDatabaseName("IX_Factures_InvoiceDate");
+
+                    b.HasIndex("ReceivedBy");
+
+                    b.HasIndex("Status")
+                        .HasDatabaseName("IX_Factures_Status");
+
+                    b.HasIndex("TotalAmount")
+                        .HasDatabaseName("IX_Factures_TotalAmount");
+
+                    b.HasIndex("UpdatedBy");
+
+                    b.HasIndex("VerifiedBy");
+
+                    b.HasIndex("BranchId", "Status")
+                        .HasDatabaseName("IX_Factures_Branch_Status");
+
+                    b.HasIndex("Status", "DueDate")
+                        .HasDatabaseName("IX_Factures_Status_DueDate");
+
+                    b.HasIndex("SupplierId", "SupplierInvoiceNumber")
+                        .IsUnique()
+                        .HasDatabaseName("IX_Factures_Supplier_InvoiceNumber");
+
+                    b.ToTable("Factures");
+                });
+
+            modelBuilder.Entity("Berca_Backend.Models.FactureItem", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<decimal?>("AcceptedQuantity")
+                        .HasColumnType("decimal(18,4)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("datetime2")
+                        .HasDefaultValueSql("GETUTCDATE()");
+
+                    b.Property<decimal>("DiscountAmount")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("decimal(18,2)")
+                        .HasDefaultValue(0m);
+
+                    b.Property<int>("FactureId")
+                        .HasColumnType("int");
+
+                    b.Property<bool>("IsVerified")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("Notes")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<int?>("ProductId")
+                        .HasColumnType("int");
+
+                    b.Property<decimal>("Quantity")
+                        .HasColumnType("decimal(18,4)");
+
+                    b.Property<decimal?>("ReceivedQuantity")
+                        .HasColumnType("decimal(18,4)");
+
+                    b.Property<string>("SupplierItemCode")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("SupplierItemDescription")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<decimal>("TaxRate")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("decimal(5,2)")
+                        .HasDefaultValue(0m);
+
+                    b.Property<decimal>("UnitPrice")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("datetime2")
+                        .HasDefaultValueSql("GETUTCDATE()");
+
+                    b.Property<string>("VerificationNotes")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<DateTime?>("VerifiedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int?>("VerifiedBy")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("FactureId")
+                        .HasDatabaseName("IX_FactureItems_FactureId");
+
+                    b.HasIndex("IsVerified")
+                        .HasDatabaseName("IX_FactureItems_IsVerified");
+
+                    b.HasIndex("ProductId")
+                        .HasDatabaseName("IX_FactureItems_ProductId");
+
+                    b.HasIndex("VerifiedBy");
+
+                    b.ToTable("FactureItems");
+                });
+
+            modelBuilder.Entity("Berca_Backend.Models.FacturePayment", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<decimal>("Amount")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<DateTime?>("ApprovedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int?>("ApprovedBy")
+                        .HasColumnType("int");
+
+                    b.Property<string>("BankAccount")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("CheckNumber")
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
+                    b.Property<string>("ConfirmationFile")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<DateTime?>("ConfirmedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int?>("ConfirmedBy")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("datetime2")
+                        .HasDefaultValueSql("GETUTCDATE()");
+
+                    b.Property<int>("CreatedBy")
+                        .HasColumnType("int");
+
+                    b.Property<string>("DisputeReason")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<int>("FactureId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("FailureReason")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<bool>("IsRecurring")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("Notes")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<string>("OurPaymentReference")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<DateTime>("PaymentDate")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("PaymentMethod")
+                        .HasColumnType("int");
+
+                    b.Property<string>("PaymentReceiptFile")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<int>("ProcessedBy")
+                        .HasColumnType("int");
+
+                    b.Property<string>("RecurrencePattern")
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
+                    b.Property<DateTime?>("ScheduledDate")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("int");
+
+                    b.Property<string>("SupplierAckReference")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("TransferReference")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("datetime2")
+                        .HasDefaultValueSql("GETUTCDATE()");
+
+                    b.Property<int?>("UpdatedBy")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ApprovedBy");
+
+                    b.HasIndex("ConfirmedBy");
+
+                    b.HasIndex("CreatedBy");
+
+                    b.HasIndex("FactureId")
+                        .HasDatabaseName("IX_FacturePayments_FactureId");
+
+                    b.HasIndex("PaymentDate")
+                        .HasDatabaseName("IX_FacturePayments_PaymentDate");
+
+                    b.HasIndex("PaymentMethod")
+                        .HasDatabaseName("IX_FacturePayments_PaymentMethod");
+
+                    b.HasIndex("ProcessedBy");
+
+                    b.HasIndex("Status")
+                        .HasDatabaseName("IX_FacturePayments_Status");
+
+                    b.HasIndex("UpdatedBy");
+
+                    b.HasIndex("Status", "PaymentDate")
+                        .HasDatabaseName("IX_FacturePayments_Status_PaymentDate");
+
+                    b.ToTable("FacturePayments");
+                });
+
             modelBuilder.Entity("Berca_Backend.Models.InventoryMutation", b =>
                 {
                     b.Property<int>("Id")
@@ -2367,6 +2753,133 @@ namespace Berca_Backend.Migrations
                     b.Navigation("ParentBranch");
                 });
 
+            modelBuilder.Entity("Berca_Backend.Models.Facture", b =>
+                {
+                    b.HasOne("Berca_Backend.Models.User", "ApprovedByUser")
+                        .WithMany()
+                        .HasForeignKey("ApprovedBy")
+                        .OnDelete(DeleteBehavior.NoAction);
+
+                    b.HasOne("Berca_Backend.Models.Branch", "Branch")
+                        .WithMany()
+                        .HasForeignKey("BranchId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("Berca_Backend.Models.User", "CreatedByUser")
+                        .WithMany()
+                        .HasForeignKey("CreatedBy")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Berca_Backend.Models.User", "ReceivedByUser")
+                        .WithMany()
+                        .HasForeignKey("ReceivedBy")
+                        .OnDelete(DeleteBehavior.NoAction);
+
+                    b.HasOne("Berca_Backend.Models.Supplier", "Supplier")
+                        .WithMany("Factures")
+                        .HasForeignKey("SupplierId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Berca_Backend.Models.User", "UpdatedByUser")
+                        .WithMany()
+                        .HasForeignKey("UpdatedBy")
+                        .OnDelete(DeleteBehavior.NoAction);
+
+                    b.HasOne("Berca_Backend.Models.User", "VerifiedByUser")
+                        .WithMany()
+                        .HasForeignKey("VerifiedBy")
+                        .OnDelete(DeleteBehavior.NoAction);
+
+                    b.Navigation("ApprovedByUser");
+
+                    b.Navigation("Branch");
+
+                    b.Navigation("CreatedByUser");
+
+                    b.Navigation("ReceivedByUser");
+
+                    b.Navigation("Supplier");
+
+                    b.Navigation("UpdatedByUser");
+
+                    b.Navigation("VerifiedByUser");
+                });
+
+            modelBuilder.Entity("Berca_Backend.Models.FactureItem", b =>
+                {
+                    b.HasOne("Berca_Backend.Models.Facture", "Facture")
+                        .WithMany("Items")
+                        .HasForeignKey("FactureId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Berca_Backend.Models.Product", "Product")
+                        .WithMany()
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("Berca_Backend.Models.User", "VerifiedByUser")
+                        .WithMany()
+                        .HasForeignKey("VerifiedBy")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("Facture");
+
+                    b.Navigation("Product");
+
+                    b.Navigation("VerifiedByUser");
+                });
+
+            modelBuilder.Entity("Berca_Backend.Models.FacturePayment", b =>
+                {
+                    b.HasOne("Berca_Backend.Models.User", "ApprovedByUser")
+                        .WithMany()
+                        .HasForeignKey("ApprovedBy")
+                        .OnDelete(DeleteBehavior.NoAction);
+
+                    b.HasOne("Berca_Backend.Models.User", "ConfirmedByUser")
+                        .WithMany()
+                        .HasForeignKey("ConfirmedBy")
+                        .OnDelete(DeleteBehavior.NoAction);
+
+                    b.HasOne("Berca_Backend.Models.User", "CreatedByUser")
+                        .WithMany()
+                        .HasForeignKey("CreatedBy")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Berca_Backend.Models.Facture", "Facture")
+                        .WithMany("Payments")
+                        .HasForeignKey("FactureId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Berca_Backend.Models.User", "ProcessedByUser")
+                        .WithMany()
+                        .HasForeignKey("ProcessedBy")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Berca_Backend.Models.User", "UpdatedByUser")
+                        .WithMany()
+                        .HasForeignKey("UpdatedBy")
+                        .OnDelete(DeleteBehavior.NoAction);
+
+                    b.Navigation("ApprovedByUser");
+
+                    b.Navigation("ConfirmedByUser");
+
+                    b.Navigation("CreatedByUser");
+
+                    b.Navigation("Facture");
+
+                    b.Navigation("ProcessedByUser");
+
+                    b.Navigation("UpdatedByUser");
+                });
+
             modelBuilder.Entity("Berca_Backend.Models.InventoryMutation", b =>
                 {
                     b.HasOne("Berca_Backend.Models.Product", "Product")
@@ -2390,12 +2903,12 @@ namespace Berca_Backend.Migrations
                     b.HasOne("Berca_Backend.Models.User", "ApprovedByUser")
                         .WithMany()
                         .HasForeignKey("ApprovedBy")
-                        .OnDelete(DeleteBehavior.SetNull);
+                        .OnDelete(DeleteBehavior.NoAction);
 
                     b.HasOne("Berca_Backend.Models.User", "CancelledByUser")
                         .WithMany()
                         .HasForeignKey("CancelledBy")
-                        .OnDelete(DeleteBehavior.SetNull);
+                        .OnDelete(DeleteBehavior.NoAction);
 
                     b.HasOne("Berca_Backend.Models.Branch", "DestinationBranch")
                         .WithMany()
@@ -2406,18 +2919,18 @@ namespace Berca_Backend.Migrations
                     b.HasOne("Berca_Backend.Models.User", "ReceivedByUser")
                         .WithMany()
                         .HasForeignKey("ReceivedBy")
-                        .OnDelete(DeleteBehavior.SetNull);
+                        .OnDelete(DeleteBehavior.NoAction);
 
                     b.HasOne("Berca_Backend.Models.User", "RequestedByUser")
                         .WithMany()
                         .HasForeignKey("RequestedBy")
-                        .OnDelete(DeleteBehavior.Cascade)
+                        .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
                     b.HasOne("Berca_Backend.Models.User", "ShippedByUser")
                         .WithMany()
                         .HasForeignKey("ShippedBy")
-                        .OnDelete(DeleteBehavior.SetNull);
+                        .OnDelete(DeleteBehavior.NoAction);
 
                     b.HasOne("Berca_Backend.Models.Branch", "SourceBranch")
                         .WithMany()
@@ -2670,6 +3183,13 @@ namespace Berca_Backend.Migrations
                     b.Navigation("Users");
                 });
 
+            modelBuilder.Entity("Berca_Backend.Models.Facture", b =>
+                {
+                    b.Navigation("Items");
+
+                    b.Navigation("Payments");
+                });
+
             modelBuilder.Entity("Berca_Backend.Models.InventoryTransfer", b =>
                 {
                     b.Navigation("TransferItems");
@@ -2694,6 +3214,11 @@ namespace Berca_Backend.Migrations
             modelBuilder.Entity("Berca_Backend.Models.Sale", b =>
                 {
                     b.Navigation("SaleItems");
+                });
+
+            modelBuilder.Entity("Berca_Backend.Models.Supplier", b =>
+                {
+                    b.Navigation("Factures");
                 });
 
             modelBuilder.Entity("Berca_Backend.Models.User", b =>

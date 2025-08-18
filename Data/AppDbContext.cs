@@ -37,6 +37,18 @@ namespace Berca_Backend.Data
         // ==================== SUPPLIER MANAGEMENT DBSETS ==================== //
         public DbSet<Supplier> Suppliers { get; set; }
         
+        // ==================== FACTURE MANAGEMENT DBSETS ==================== //
+        public DbSet<Facture> Factures { get; set; }
+        public DbSet<FactureItem> FactureItems { get; set; }
+        public DbSet<FacturePayment> FacturePayments { get; set; }
+        
+        protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
+        {
+            base.OnConfiguring(optionsBuilder);
+            optionsBuilder.ConfigureWarnings(warnings =>
+                warnings.Ignore(Microsoft.EntityFrameworkCore.Diagnostics.RelationalEventId.PendingModelChangesWarning));
+        }
+        
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             base.OnModelCreating(modelBuilder);
@@ -46,6 +58,7 @@ namespace Berca_Backend.Data
             modelBuilder.Entity<Branch>(entity =>
             {
                 entity.HasKey(b => b.Id);
+                entity.Property(b => b.Id).ValueGeneratedOnAdd(); // Explicit identity column configuration
 
                 entity.Property(b => b.BranchCode)
                     .IsRequired()
@@ -143,6 +156,7 @@ namespace Berca_Backend.Data
             modelBuilder.Entity<User>(entity =>
             {
                 entity.HasKey(u => u.Id);
+                entity.Property(u => u.Id).ValueGeneratedOnAdd(); // Explicit identity column configuration
 
                 entity.Property(u => u.Username)
                     .IsRequired()
@@ -1059,27 +1073,27 @@ namespace Berca_Backend.Data
                 entity.HasOne(it => it.RequestedByUser)
                       .WithMany()
                       .HasForeignKey(it => it.RequestedBy)
-                      .OnDelete(DeleteBehavior.Cascade);
+                      .OnDelete(DeleteBehavior.Restrict);
 
                 entity.HasOne(it => it.ApprovedByUser)
                       .WithMany()
                       .HasForeignKey(it => it.ApprovedBy)
-                      .OnDelete(DeleteBehavior.SetNull);
+                      .OnDelete(DeleteBehavior.NoAction);
 
                 entity.HasOne(it => it.ShippedByUser)
                       .WithMany()
                       .HasForeignKey(it => it.ShippedBy)
-                      .OnDelete(DeleteBehavior.SetNull);
+                      .OnDelete(DeleteBehavior.NoAction);
 
                 entity.HasOne(it => it.ReceivedByUser)
                       .WithMany()
                       .HasForeignKey(it => it.ReceivedBy)
-                      .OnDelete(DeleteBehavior.SetNull);
+                      .OnDelete(DeleteBehavior.NoAction);
 
                 entity.HasOne(it => it.CancelledByUser)
                       .WithMany()
                       .HasForeignKey(it => it.CancelledBy)
-                      .OnDelete(DeleteBehavior.SetNull);
+                      .OnDelete(DeleteBehavior.NoAction);
                       
                 // Property configurations
                 entity.Property(e => e.TransferNumber)
@@ -1642,6 +1656,302 @@ namespace Berca_Backend.Data
                       .WithMany()
                       .HasForeignKey(s => s.UpdatedBy)
                       .OnDelete(DeleteBehavior.SetNull);
+            });
+
+            // ==================== FACTURE MANAGEMENT CONFIGURATION ==================== //
+            
+            // Facture Configuration
+            modelBuilder.Entity<Facture>(entity =>
+            {
+                entity.HasKey(e => e.Id);
+
+                // Property configurations
+                entity.Property(e => e.SupplierInvoiceNumber)
+                      .IsRequired()
+                      .HasMaxLength(50);
+
+                entity.Property(e => e.InternalReferenceNumber)
+                      .IsRequired()
+                      .HasMaxLength(20);
+
+                entity.Property(e => e.SupplierPONumber)
+                      .HasMaxLength(50);
+
+                entity.Property(e => e.DeliveryNoteNumber)
+                      .HasMaxLength(50);
+
+                entity.Property(e => e.TotalAmount)
+                      .HasColumnType("decimal(18,2)");
+
+                entity.Property(e => e.PaidAmount)
+                      .HasColumnType("decimal(18,2)")
+                      .HasDefaultValue(0);
+
+                entity.Property(e => e.Tax)
+                      .HasColumnType("decimal(18,2)")
+                      .HasDefaultValue(0);
+
+                entity.Property(e => e.Discount)
+                      .HasColumnType("decimal(18,2)")
+                      .HasDefaultValue(0);
+
+                entity.Property(e => e.Description)
+                      .HasMaxLength(2000);
+
+                entity.Property(e => e.Notes)
+                      .HasMaxLength(2000);
+
+                entity.Property(e => e.DisputeReason)
+                      .HasMaxLength(1000);
+
+                entity.Property(e => e.SupplierInvoiceFile)
+                      .HasMaxLength(500);
+
+                entity.Property(e => e.ReceiptFile)
+                      .HasMaxLength(500);
+
+                entity.Property(e => e.SupportingDocs)
+                      .HasMaxLength(500);
+
+                entity.Property(e => e.CreatedAt)
+                      .HasDefaultValueSql("GETUTCDATE()");
+
+                entity.Property(e => e.UpdatedAt)
+                      .HasDefaultValueSql("GETUTCDATE()");
+
+                // Relationships
+                entity.HasOne(f => f.Supplier)
+                      .WithMany(s => s.Factures)
+                      .HasForeignKey(f => f.SupplierId)
+                      .OnDelete(DeleteBehavior.Restrict);
+
+                entity.HasOne(f => f.Branch)
+                      .WithMany()
+                      .HasForeignKey(f => f.BranchId)
+                      .OnDelete(DeleteBehavior.SetNull);
+
+                entity.HasOne(f => f.CreatedByUser)
+                      .WithMany()
+                      .HasForeignKey(f => f.CreatedBy)
+                      .OnDelete(DeleteBehavior.Restrict);
+
+                entity.HasOne(f => f.UpdatedByUser)
+                      .WithMany()
+                      .HasForeignKey(f => f.UpdatedBy)
+                      .OnDelete(DeleteBehavior.NoAction);
+
+                entity.HasOne(f => f.ReceivedByUser)
+                      .WithMany()
+                      .HasForeignKey(f => f.ReceivedBy)
+                      .OnDelete(DeleteBehavior.NoAction);
+
+                entity.HasOne(f => f.VerifiedByUser)
+                      .WithMany()
+                      .HasForeignKey(f => f.VerifiedBy)
+                      .OnDelete(DeleteBehavior.NoAction);
+
+                entity.HasOne(f => f.ApprovedByUser)
+                      .WithMany()
+                      .HasForeignKey(f => f.ApprovedBy)
+                      .OnDelete(DeleteBehavior.NoAction);
+
+                // Indexes for performance
+                entity.HasIndex(f => f.InternalReferenceNumber)
+                      .IsUnique()
+                      .HasDatabaseName("IX_Factures_InternalReferenceNumber");
+
+                entity.HasIndex(f => new { f.SupplierId, f.SupplierInvoiceNumber })
+                      .IsUnique()
+                      .HasDatabaseName("IX_Factures_Supplier_InvoiceNumber");
+
+                entity.HasIndex(f => f.Status)
+                      .HasDatabaseName("IX_Factures_Status");
+
+                entity.HasIndex(f => f.DueDate)
+                      .HasDatabaseName("IX_Factures_DueDate");
+
+                entity.HasIndex(f => f.InvoiceDate)
+                      .HasDatabaseName("IX_Factures_InvoiceDate");
+
+                entity.HasIndex(f => f.BranchId)
+                      .HasDatabaseName("IX_Factures_BranchId");
+
+                entity.HasIndex(f => f.TotalAmount)
+                      .HasDatabaseName("IX_Factures_TotalAmount");
+
+                entity.HasIndex(f => new { f.Status, f.DueDate })
+                      .HasDatabaseName("IX_Factures_Status_DueDate");
+
+                entity.HasIndex(f => new { f.BranchId, f.Status })
+                      .HasDatabaseName("IX_Factures_Branch_Status");
+            });
+
+            // FactureItem Configuration
+            modelBuilder.Entity<FactureItem>(entity =>
+            {
+                entity.HasKey(e => e.Id);
+
+                // Property configurations
+                entity.Property(e => e.SupplierItemCode)
+                      .HasMaxLength(100);
+
+                entity.Property(e => e.SupplierItemDescription)
+                      .IsRequired()
+                      .HasMaxLength(500);
+
+                entity.Property(e => e.Quantity)
+                      .HasColumnType("decimal(18,4)");
+
+                entity.Property(e => e.UnitPrice)
+                      .HasColumnType("decimal(18,2)");
+
+                entity.Property(e => e.ReceivedQuantity)
+                      .HasColumnType("decimal(18,4)");
+
+                entity.Property(e => e.AcceptedQuantity)
+                      .HasColumnType("decimal(18,4)");
+
+                entity.Property(e => e.TaxRate)
+                      .HasColumnType("decimal(5,2)")
+                      .HasDefaultValue(0);
+
+                entity.Property(e => e.DiscountAmount)
+                      .HasColumnType("decimal(18,2)")
+                      .HasDefaultValue(0);
+
+                entity.Property(e => e.Notes)
+                      .HasMaxLength(1000);
+
+                entity.Property(e => e.VerificationNotes)
+                      .HasMaxLength(500);
+
+                entity.Property(e => e.CreatedAt)
+                      .HasDefaultValueSql("GETUTCDATE()");
+
+                entity.Property(e => e.UpdatedAt)
+                      .HasDefaultValueSql("GETUTCDATE()");
+
+                // Relationships
+                entity.HasOne(fi => fi.Facture)
+                      .WithMany(f => f.Items)
+                      .HasForeignKey(fi => fi.FactureId)
+                      .OnDelete(DeleteBehavior.Cascade);
+
+                entity.HasOne(fi => fi.Product)
+                      .WithMany()
+                      .HasForeignKey(fi => fi.ProductId)
+                      .OnDelete(DeleteBehavior.SetNull);
+
+                entity.HasOne(fi => fi.VerifiedByUser)
+                      .WithMany()
+                      .HasForeignKey(fi => fi.VerifiedBy)
+                      .OnDelete(DeleteBehavior.SetNull);
+
+                // Indexes
+                entity.HasIndex(fi => fi.FactureId)
+                      .HasDatabaseName("IX_FactureItems_FactureId");
+
+                entity.HasIndex(fi => fi.ProductId)
+                      .HasDatabaseName("IX_FactureItems_ProductId");
+
+                entity.HasIndex(fi => fi.IsVerified)
+                      .HasDatabaseName("IX_FactureItems_IsVerified");
+            });
+
+            // FacturePayment Configuration
+            modelBuilder.Entity<FacturePayment>(entity =>
+            {
+                entity.HasKey(e => e.Id);
+
+                // Property configurations
+                entity.Property(e => e.Amount)
+                      .HasColumnType("decimal(18,2)");
+
+                entity.Property(e => e.OurPaymentReference)
+                      .HasMaxLength(100);
+
+                entity.Property(e => e.SupplierAckReference)
+                      .HasMaxLength(100);
+
+                entity.Property(e => e.BankAccount)
+                      .HasMaxLength(100);
+
+                entity.Property(e => e.CheckNumber)
+                      .HasMaxLength(50);
+
+                entity.Property(e => e.TransferReference)
+                      .HasMaxLength(100);
+
+                entity.Property(e => e.Notes)
+                      .HasMaxLength(1000);
+
+                entity.Property(e => e.FailureReason)
+                      .HasMaxLength(1000);
+
+                entity.Property(e => e.DisputeReason)
+                      .HasMaxLength(500);
+
+                entity.Property(e => e.PaymentReceiptFile)
+                      .HasMaxLength(500);
+
+                entity.Property(e => e.ConfirmationFile)
+                      .HasMaxLength(500);
+
+                entity.Property(e => e.RecurrencePattern)
+                      .HasMaxLength(50);
+
+                entity.Property(e => e.CreatedAt)
+                      .HasDefaultValueSql("GETUTCDATE()");
+
+                entity.Property(e => e.UpdatedAt)
+                      .HasDefaultValueSql("GETUTCDATE()");
+
+                // Relationships
+                entity.HasOne(fp => fp.Facture)
+                      .WithMany(f => f.Payments)
+                      .HasForeignKey(fp => fp.FactureId)
+                      .OnDelete(DeleteBehavior.Cascade);
+
+                entity.HasOne(fp => fp.ProcessedByUser)
+                      .WithMany()
+                      .HasForeignKey(fp => fp.ProcessedBy)
+                      .OnDelete(DeleteBehavior.Restrict);
+
+                entity.HasOne(fp => fp.ApprovedByUser)
+                      .WithMany()
+                      .HasForeignKey(fp => fp.ApprovedBy)
+                      .OnDelete(DeleteBehavior.NoAction);
+
+                entity.HasOne(fp => fp.ConfirmedByUser)
+                      .WithMany()
+                      .HasForeignKey(fp => fp.ConfirmedBy)
+                      .OnDelete(DeleteBehavior.NoAction);
+
+                entity.HasOne(fp => fp.CreatedByUser)
+                      .WithMany()
+                      .HasForeignKey(fp => fp.CreatedBy)
+                      .OnDelete(DeleteBehavior.Restrict);
+
+                entity.HasOne(fp => fp.UpdatedByUser)
+                      .WithMany()
+                      .HasForeignKey(fp => fp.UpdatedBy)
+                      .OnDelete(DeleteBehavior.NoAction);
+
+                // Indexes
+                entity.HasIndex(fp => fp.FactureId)
+                      .HasDatabaseName("IX_FacturePayments_FactureId");
+
+                entity.HasIndex(fp => fp.PaymentDate)
+                      .HasDatabaseName("IX_FacturePayments_PaymentDate");
+
+                entity.HasIndex(fp => fp.Status)
+                      .HasDatabaseName("IX_FacturePayments_Status");
+
+                entity.HasIndex(fp => fp.PaymentMethod)
+                      .HasDatabaseName("IX_FacturePayments_PaymentMethod");
+
+                entity.HasIndex(fp => new { fp.Status, fp.PaymentDate })
+                      .HasDatabaseName("IX_FacturePayments_Status_PaymentDate");
             });
         }
     }

@@ -631,8 +631,8 @@ namespace Berca_Backend.Services
                 var analysisEndDate = endDate ?? currentDate;
 
                 var query = _context.ProductBatches
-                    .Include(pb => pb.Product)
-                    .ThenInclude(p => p.Category)
+                    .Include(pb => pb.Product!)
+                    .ThenInclude(p => p.Category!)
                     .AsQueryable();
 
                 if (branchId.HasValue)
@@ -664,7 +664,7 @@ namespace Berca_Backend.Services
                 var categoryBreakdown = batches
                     .Where(b => b.ExpiryDate.HasValue && b.ExpiryDate.Value >= currentDate && 
                                b.ExpiryDate.Value <= currentDate.AddDays(30))
-                    .GroupBy(b => new { b.Product.Category.Id, b.Product.Category.Name, b.Product.Category.Color })
+                    .GroupBy(b => new { b.Product!.Category!.Id, b.Product.Category.Name, b.Product.Category.Color })
                     .Select(g => new CategoryExpiryStatsDto
                     {
                         CategoryId = g.Key.Id,
@@ -709,14 +709,14 @@ namespace Berca_Backend.Services
                 var currentDate = _timezoneService.Today;
 
                 var query = _context.ProductBatches
-                    .Include(pb => pb.Product)
-                    .ThenInclude(p => p.Category)
+                    .Include(pb => pb.Product!)
+                    .ThenInclude(p => p.Category!)
                     .Where(pb => !pb.IsDisposed && !pb.IsExpired && pb.CurrentStock > 0 && pb.ExpiryDate.HasValue)
                     .AsQueryable();
 
                 if (categoryId.HasValue)
                 {
-                    query = query.Where(pb => pb.Product.CategoryId == categoryId.Value);
+                    query = query.Where(pb => pb.Product!.CategoryId == categoryId.Value);
                 }
 
                 if (branchId.HasValue)
@@ -736,7 +736,7 @@ namespace Berca_Backend.Services
                 {
                     var productBatches = group.OrderBy(b => b.ExpiryDate).ToList();
                     var earliestBatch = productBatches.First();
-                    var product = earliestBatch.Product;
+                    var product = earliestBatch.Product!;
 
                     if (earliestBatch.ExpiryDate.HasValue)
                     {
@@ -793,8 +793,8 @@ namespace Berca_Backend.Services
                 var warningDate = currentDate.AddDays(warningDays);
 
                 var query = _context.ProductBatches
-                    .Include(pb => pb.Product)
-                    .ThenInclude(p => p.Category)
+                    .Include(pb => pb.Product!)
+                    .ThenInclude(p => p.Category!)
                     .Where(pb => !pb.IsDisposed && !pb.IsExpired && 
                                 pb.ExpiryDate.HasValue && 
                                 pb.ExpiryDate.Value >= currentDate && 
@@ -812,9 +812,9 @@ namespace Berca_Backend.Services
 
                 return batches.Select(b => new ExpiringProductDto
                 {
-                    ProductId = b.Product.Id,
+                    ProductId = b.Product!.Id,
                     ProductName = b.Product.Name,
-                    CategoryName = b.Product.Category.Name,
+                    CategoryName = b.Product.Category!.Name,
                     BatchNumber = b.BatchNumber,
                     ExpiryDate = b.ExpiryDate!.Value,
                     DaysUntilExpiry = (b.ExpiryDate!.Value - currentDate).Days,
@@ -841,8 +841,8 @@ namespace Berca_Backend.Services
                 var currentDate = _timezoneService.Today;
 
                 var query = _context.ProductBatches
-                    .Include(pb => pb.Product)
-                    .ThenInclude(p => p.Category)
+                    .Include(pb => pb.Product!)
+                    .ThenInclude(p => p.Category!)
                     .Where(pb => !pb.IsDisposed && 
                                 (pb.IsExpired || (pb.ExpiryDate.HasValue && pb.ExpiryDate.Value < currentDate)))
                     .AsQueryable();
@@ -858,9 +858,9 @@ namespace Berca_Backend.Services
 
                 return batches.Select(b => new ExpiredProductDto
                 {
-                    ProductId = b.Product.Id,
+                    ProductId = b.Product!.Id,
                     ProductName = b.Product.Name,
-                    CategoryName = b.Product.Category.Name,
+                    CategoryName = b.Product.Category!.Name,
                     BatchNumber = b.BatchNumber,
                     ExpiryDate = b.ExpiryDate!.Value,
                     DaysExpired = b.ExpiryDate.HasValue ? (currentDate - b.ExpiryDate.Value).Days : 0,
@@ -930,7 +930,7 @@ namespace Berca_Backend.Services
                 {
                     Id = b.Id,
                     ProductId = b.ProductId,
-                    ProductName = b.Product.Name,
+                    ProductName = b.Product!.Name,
                     BatchNumber = b.BatchNumber,
                     ExpiryDate = b.ExpiryDate,
                     ProductionDate = b.ProductionDate,
@@ -979,7 +979,7 @@ namespace Berca_Backend.Services
                 {
                     Id = batch.Id,
                     ProductId = batch.ProductId,
-                    ProductName = batch.Product.Name,
+                    ProductName = batch.Product!.Name,
                     BatchNumber = batch.BatchNumber,
                     ExpiryDate = batch.ExpiryDate,
                     ProductionDate = batch.ProductionDate,
@@ -1008,17 +1008,17 @@ namespace Berca_Backend.Services
         }
 
         // Implement remaining methods as minimal stubs for now
-        public async Task<ProductBatchDto> CreateProductBatchAsync(CreateProductBatchDto request, int createdByUserId)
+        public Task<ProductBatchDto> CreateProductBatchAsync(CreateProductBatchDto request, int createdByUserId)
         {
             throw new NotImplementedException("Product batch creation not fully implemented yet");
         }
 
-        public async Task<ProductBatchDto> CreateProductBatchAsync(int productId, CreateProductBatchDto request, int createdByUserId, int branchId)
+        public Task<ProductBatchDto> CreateProductBatchAsync(int productId, CreateProductBatchDto request, int createdByUserId, int branchId)
         {
             throw new NotImplementedException("Product batch creation not fully implemented yet");
         }
-        public async Task<ProductBatchDto?> UpdateProductBatchAsync(int batchId, UpdateProductBatchDto request, int updatedByUserId) => throw new NotImplementedException("Product batch updates not fully implemented yet");
-        public async Task<bool> DeleteProductBatchAsync(int batchId) => throw new NotImplementedException("Product batch deletion not fully implemented yet");
+        public Task<ProductBatchDto?> UpdateProductBatchAsync(int batchId, UpdateProductBatchDto request, int updatedByUserId) => throw new NotImplementedException("Product batch updates not fully implemented yet");
+        public Task<bool> DeleteProductBatchAsync(int batchId) => throw new NotImplementedException("Product batch deletion not fully implemented yet");
         public async Task<List<ExpiringProductDto>> GetExpiringProductsAsync(ExpiringProductsFilterDto filter)
         {
             // Convert filter to the parameters we expect
@@ -1029,13 +1029,13 @@ namespace Berca_Backend.Services
         {
             return await GetExpiredProductsAsync(filter.BranchId);
         }
-        public async Task<ExpiryValidationDto> ValidateExpiryRequirementsAsync(int productId, DateTime? expiryDate) => throw new NotImplementedException("Expiry validation not fully implemented yet");
-        public async Task<bool> MarkBatchesAsExpiredAsync() => throw new NotImplementedException("Batch expiry marking not fully implemented yet");
-        public async Task<List<BatchRecommendationDto>> GetBatchSaleOrderAsync(int productId, int requestedQuantity) => throw new NotImplementedException("Batch sale order not fully implemented yet");
-        public async Task<bool> ProcessFifoSaleAsync(int productId, int quantity, string referenceNumber) => throw new NotImplementedException("FIFO sale processing not fully implemented yet");
-        public async Task<bool> DisposeExpiredProductsAsync(DisposeExpiredProductsDto request, int disposedByUserId) => throw new NotImplementedException("Bulk disposal not fully implemented yet");
-        public async Task<bool> DisposeProductBatchAsync(int batchId, DisposeBatchDto request, int disposedByUserId) => throw new NotImplementedException("Batch disposal not fully implemented yet");
-        public async Task<List<ExpiredProductDto>> GetDisposableProductsAsync(int? branchId = null) => throw new NotImplementedException("Use GetExpiredProductsAsync method instead");
-        public async Task<List<ProductDto>> GetProductsRequiringExpiryAsync() => throw new NotImplementedException("Products requiring expiry not fully implemented yet");
+        public Task<ExpiryValidationDto> ValidateExpiryRequirementsAsync(int productId, DateTime? expiryDate) => throw new NotImplementedException("Expiry validation not fully implemented yet");
+        public Task<bool> MarkBatchesAsExpiredAsync() => throw new NotImplementedException("Batch expiry marking not fully implemented yet");
+        public Task<List<BatchRecommendationDto>> GetBatchSaleOrderAsync(int productId, int requestedQuantity) => throw new NotImplementedException("Batch sale order not fully implemented yet");
+        public Task<bool> ProcessFifoSaleAsync(int productId, int quantity, string referenceNumber) => throw new NotImplementedException("FIFO sale processing not fully implemented yet");
+        public Task<bool> DisposeExpiredProductsAsync(DisposeExpiredProductsDto request, int disposedByUserId) => throw new NotImplementedException("Bulk disposal not fully implemented yet");
+        public Task<bool> DisposeProductBatchAsync(int batchId, DisposeBatchDto request, int disposedByUserId) => throw new NotImplementedException("Batch disposal not fully implemented yet");
+        public Task<List<ExpiredProductDto>> GetDisposableProductsAsync(int? branchId = null) => throw new NotImplementedException("Use GetExpiredProductsAsync method instead");
+        public Task<List<ProductDto>> GetProductsRequiringExpiryAsync() => throw new NotImplementedException("Products requiring expiry not fully implemented yet");
     }
 }

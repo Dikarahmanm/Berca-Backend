@@ -566,7 +566,7 @@ namespace Berca_Backend.Controllers
         /// </summary>
         [HttpGet("expiry/warning")]
         [Authorize(Policy = "Inventory.Read")]
-        public async Task<ActionResult<ApiResponse<string>>> GetExpiringProducts(
+        public ActionResult<ApiResponse<string>> GetExpiringProducts(
             [FromQuery] int warningDays = 7,
             [FromQuery] int? branchId = null)
         {

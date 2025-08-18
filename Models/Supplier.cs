@@ -63,6 +63,9 @@ namespace Berca_Backend.Models
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
         public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 
+        // Navigation Properties
+        public virtual ICollection<Facture> Factures { get; set; } = new List<Facture>();
+
         // Computed Properties
         [NotMapped]
         public string StatusDisplay => IsActive ? "Aktif" : "Tidak Aktif";
