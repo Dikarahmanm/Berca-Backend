@@ -1,5 +1,6 @@
 ﻿// DTOs/NotificationDTOs.cs - Sprint 2 Notification DTOs (FIXED)
-using System.ComponentModel.DataAnnotations; // ✅ ADDED: Missing import
+using System.ComponentModel.DataAnnotations;
+using Berca_Backend.Models; // ✅ ADDED: Missing import
 
 namespace Berca_Backend.DTOs
 {
@@ -52,4 +53,17 @@ namespace Berca_Backend.DTOs
         public int UnreadCount { get; set; }
         public List<NotificationDto> RecentNotifications { get; set; } = new(); // ✅ Fixed name
     }
+
+    // ==================== ADDITIONAL DTOs FOR EXPIRY SYSTEM ==================== //
+
+    /// <summary>
+    /// DTO for creating notifications (alias for CreateNotificationRequest)
+    /// </summary>
+    public class CreateNotificationDto : CreateNotificationRequest
+    {
+        public int? BranchId { get; set; }
+        public bool IsSystemNotification { get; set; }
+        public bool RequiresAction { get; set; }
+    }
+
 }

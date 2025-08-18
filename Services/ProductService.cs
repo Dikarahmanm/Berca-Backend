@@ -1007,35 +1007,576 @@ namespace Berca_Backend.Services
             }
         }
 
-        // Implement remaining methods as minimal stubs for now
-        public Task<ProductBatchDto> CreateProductBatchAsync(CreateProductBatchDto request, int createdByUserId)
+        // ==================== COMPLETE EXPIRY METHOD IMPLEMENTATIONS ==================== //
+
+        public async Task<ProductBatchDto> CreateProductBatchAsync(CreateProductBatchDto request, int createdByUserId)
         {
-            throw new NotImplementedException("Product batch creation not fully implemented yet");
+            try
+            {
+                var product = await _context.Products
+                    .Include(p => p.Category)
+                    .FirstOrDefaultAsync(p => p.Id == request.ProductId);
+
+                if (product == null)
+                    throw new ArgumentException("Product not found");
+
+                // Validate expiry requirements
+                if (product.Category.RequiresExpiryDate && !request.ExpiryDate.HasValue)
+                    throw new ArgumentException("Expiry date is required for this product category");
+
+                var batch = new ProductBatch
+                {
+                    ProductId = request.ProductId,
+                    BatchNumber = request.BatchNumber,
+                    ExpiryDate = request.ExpiryDate,
+                    ProductionDate = request.ProductionDate,
+                    CurrentStock = request.InitialStock,
+                    InitialStock = request.InitialStock,
+                    CostPerUnit = request.CostPerUnit,
+                    SupplierName = request.SupplierName,
+                    PurchaseOrderNumber = request.PurchaseOrderNumber,
+                    Notes = request.Notes,
+                    BranchId = request.BranchId,
+                    CreatedByUserId = createdByUserId,
+                    UpdatedByUserId = createdByUserId,
+                    CreatedAt = _timezoneService.Now,
+                    UpdatedAt = _timezoneService.Now
+                };
+
+                _context.ProductBatches.Add(batch);
+                await _context.SaveChangesAsync();
+
+                return await GetProductBatchAsync(batch.Id) ?? throw new Exception("Batch created but not found");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error creating product batch for ProductId: {ProductId}", request.ProductId);
+                throw;
+            }
         }
 
-        public Task<ProductBatchDto> CreateProductBatchAsync(int productId, CreateProductBatchDto request, int createdByUserId, int branchId)
+        public async Task<ProductBatchDto> CreateProductBatchAsync(int productId, CreateProductBatchDto request, int createdByUserId, int branchId)
         {
-            throw new NotImplementedException("Product batch creation not fully implemented yet");
+            request.ProductId = productId;
+            request.BranchId = branchId;
+            return await CreateProductBatchAsync(request, createdByUserId);
         }
-        public Task<ProductBatchDto?> UpdateProductBatchAsync(int batchId, UpdateProductBatchDto request, int updatedByUserId) => throw new NotImplementedException("Product batch updates not fully implemented yet");
-        public Task<bool> DeleteProductBatchAsync(int batchId) => throw new NotImplementedException("Product batch deletion not fully implemented yet");
+
+        public async Task<ProductBatchDto?> UpdateProductBatchAsync(int batchId, UpdateProductBatchDto request, int updatedByUserId)
+        {
+            try
+            {
+                var batch = await _context.ProductBatches.FindAsync(batchId);
+                if (batch == null) return null;
+
+                batch.BatchNumber = request.BatchNumber;
+                batch.ExpiryDate = request.ExpiryDate;
+                batch.ProductionDate = request.ProductionDate;
+                batch.CurrentStock = request.CurrentStock;
+                batch.CostPerUnit = request.CostPerUnit;
+                batch.SupplierName = request.SupplierName;
+                batch.PurchaseOrderNumber = request.PurchaseOrderNumber;
+                batch.Notes = request.Notes;
+                batch.IsBlocked = request.IsBlocked;
+                batch.BlockReason = request.BlockReason;
+                batch.UpdatedByUserId = updatedByUserId;
+                batch.UpdatedAt = _timezoneService.Now;
+
+                await _context.SaveChangesAsync();
+                return await GetProductBatchAsync(batchId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error updating product batch {BatchId}", batchId);
+                throw;
+            }
+        }
+
+        public async Task<bool> DeleteProductBatchAsync(int batchId)
+        {
+            try
+            {
+                var batch = await _context.ProductBatches.FindAsync(batchId);
+                if (batch == null) return false;
+
+                if (batch.CurrentStock > 0)
+                    throw new InvalidOperationException("Cannot delete batch with remaining stock");
+
+                _context.ProductBatches.Remove(batch);
+                await _context.SaveChangesAsync();
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error deleting product batch {BatchId}", batchId);
+                throw;
+            }
+        }
+
         public async Task<List<ExpiringProductDto>> GetExpiringProductsAsync(ExpiringProductsFilterDto filter)
         {
-            // Convert filter to the parameters we expect
-            var warningDays = filter.DaysUntilExpiry ?? 7;
-            return await GetExpiringProductsAsync(warningDays, filter.BranchId);
+            try
+            {
+                var currentDate = _timezoneService.Today;
+                var query = _context.ProductBatches
+                    .Include(b => b.Product)
+                    .ThenInclude(p => p.Category)
+                    .Include(b => b.Branch)
+                    .Where(b => b.ExpiryDate.HasValue && b.CurrentStock > 0 && !b.IsDisposed);
+
+                // Apply filters
+                if (filter.CategoryId.HasValue)
+                    query = query.Where(b => b.Product.CategoryId == filter.CategoryId);
+
+                if (filter.BranchId.HasValue)
+                    query = query.Where(b => b.BranchId == filter.BranchId);
+
+                if (filter.DaysUntilExpiry.HasValue)
+                {
+                    var targetDate = currentDate.AddDays(filter.DaysUntilExpiry.Value);
+                    query = query.Where(b => b.ExpiryDate.Value.Date <= targetDate);
+                }
+
+                if (!filter.IncludeBlocked.GetValueOrDefault())
+                    query = query.Where(b => !b.IsBlocked);
+
+                if (!string.IsNullOrEmpty(filter.SearchTerm))
+                {
+                    var searchTerm = filter.SearchTerm.ToLower();
+                    query = query.Where(b => b.Product.Name.ToLower().Contains(searchTerm) ||
+                                           b.Product.Barcode.ToLower().Contains(searchTerm) ||
+                                           b.BatchNumber.ToLower().Contains(searchTerm));
+                }
+
+                var batches = await query
+                    .OrderBy(b => b.ExpiryDate)
+                    .Skip((filter.Page - 1) * filter.PageSize)
+                    .Take(filter.PageSize)
+                    .ToListAsync();
+
+                return batches.Select(batch => new ExpiringProductDto
+                {
+                    ProductId = batch.ProductId,
+                    ProductName = batch.Product.Name,
+                    ProductBarcode = batch.Product.Barcode,
+                    CategoryName = batch.Product.Category.Name,
+                    CategoryColor = batch.Product.Category.Color,
+                    BatchId = batch.Id,
+                    BatchNumber = batch.BatchNumber,
+                    ExpiryDate = batch.ExpiryDate.Value,
+                    DaysUntilExpiry = batch.DaysUntilExpiry ?? 0,
+                    ExpiryStatus = batch.ExpiryStatus,
+                    CurrentStock = batch.CurrentStock,
+                    AvailableStock = batch.AvailableStock,
+                    ValueAtRisk = batch.CurrentStock * batch.CostPerUnit,
+                    CostPerUnit = batch.CostPerUnit,
+                    UrgencyLevel = GetExpiryUrgency(batch.DaysUntilExpiry ?? 0),
+                    CreatedAt = batch.CreatedAt,
+                    BranchId = batch.BranchId,
+                    BranchName = batch.Branch?.BranchName,
+                    SupplierName = batch.SupplierName,
+                    IsBlocked = batch.IsBlocked
+                }).ToList();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting expiring products with filter");
+                throw;
+            }
         }
+
         public async Task<List<ExpiredProductDto>> GetExpiredProductsAsync(ExpiredProductsFilterDto filter)
         {
-            return await GetExpiredProductsAsync(filter.BranchId);
+            try
+            {
+                var today = _timezoneService.Today;
+                var query = _context.ProductBatches
+                    .Include(b => b.Product)
+                    .ThenInclude(p => p.Category)
+                    .Include(b => b.Branch)
+                    .Where(b => b.ExpiryDate.HasValue && b.ExpiryDate.Value.Date < today);
+
+                // Apply filters
+                if (filter.CategoryId.HasValue)
+                    query = query.Where(b => b.Product.CategoryId == filter.CategoryId);
+
+                if (filter.BranchId.HasValue)
+                    query = query.Where(b => b.BranchId == filter.BranchId);
+
+                if (filter.IsDisposed.HasValue)
+                    query = query.Where(b => b.IsDisposed == filter.IsDisposed);
+
+                if (filter.ExpiredAfter.HasValue)
+                    query = query.Where(b => b.ExpiryDate >= filter.ExpiredAfter);
+
+                if (filter.ExpiredBefore.HasValue)
+                    query = query.Where(b => b.ExpiryDate <= filter.ExpiredBefore);
+
+                if (!string.IsNullOrEmpty(filter.SearchTerm))
+                {
+                    var searchTerm = filter.SearchTerm.ToLower();
+                    query = query.Where(b => b.Product.Name.ToLower().Contains(searchTerm) ||
+                                           b.Product.Barcode.ToLower().Contains(searchTerm) ||
+                                           b.BatchNumber.ToLower().Contains(searchTerm));
+                }
+
+                var batches = await query
+                    .OrderByDescending(b => b.ExpiryDate)
+                    .Skip((filter.Page - 1) * filter.PageSize)
+                    .Take(filter.PageSize)
+                    .ToListAsync();
+
+                return batches.Select(batch => new ExpiredProductDto
+                {
+                    ProductId = batch.ProductId,
+                    ProductName = batch.Product.Name,
+                    ProductBarcode = batch.Product.Barcode,
+                    CategoryName = batch.Product.Category.Name,
+                    BatchId = batch.Id,
+                    BatchNumber = batch.BatchNumber,
+                    ExpiryDate = batch.ExpiryDate.Value,
+                    DaysExpired = Math.Abs(batch.DaysUntilExpiry ?? 0),
+                    CurrentStock = batch.CurrentStock,
+                    ValueLost = batch.CurrentStock * batch.CostPerUnit,
+                    CostPerUnit = batch.CostPerUnit,
+                    ExpiredAt = batch.ExpiryDate.Value,
+                    RequiresDisposal = !batch.IsDisposed,
+                    DisposalUrgency = GetDisposalUrgency(Math.Abs(batch.DaysUntilExpiry ?? 0)),
+                    BranchId = batch.BranchId,
+                    BranchName = batch.Branch?.BranchName,
+                    IsDisposed = batch.IsDisposed,
+                    DisposalDate = batch.DisposalDate,
+                    DisposalMethod = batch.DisposalMethod,
+                    SupplierName = batch.SupplierName
+                }).ToList();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting expired products with filter");
+                throw;
+            }
         }
-        public Task<ExpiryValidationDto> ValidateExpiryRequirementsAsync(int productId, DateTime? expiryDate) => throw new NotImplementedException("Expiry validation not fully implemented yet");
-        public Task<bool> MarkBatchesAsExpiredAsync() => throw new NotImplementedException("Batch expiry marking not fully implemented yet");
-        public Task<List<BatchRecommendationDto>> GetBatchSaleOrderAsync(int productId, int requestedQuantity) => throw new NotImplementedException("Batch sale order not fully implemented yet");
-        public Task<bool> ProcessFifoSaleAsync(int productId, int quantity, string referenceNumber) => throw new NotImplementedException("FIFO sale processing not fully implemented yet");
-        public Task<bool> DisposeExpiredProductsAsync(DisposeExpiredProductsDto request, int disposedByUserId) => throw new NotImplementedException("Bulk disposal not fully implemented yet");
-        public Task<bool> DisposeProductBatchAsync(int batchId, DisposeBatchDto request, int disposedByUserId) => throw new NotImplementedException("Batch disposal not fully implemented yet");
-        public Task<List<ExpiredProductDto>> GetDisposableProductsAsync(int? branchId = null) => throw new NotImplementedException("Use GetExpiredProductsAsync method instead");
-        public Task<List<ProductDto>> GetProductsRequiringExpiryAsync() => throw new NotImplementedException("Products requiring expiry not fully implemented yet");
+
+        public async Task<ExpiryValidationDto> ValidateExpiryRequirementsAsync(int productId, DateTime? expiryDate)
+        {
+            try
+            {
+                var product = await _context.Products
+                    .Include(p => p.Category)
+                    .FirstOrDefaultAsync(p => p.Id == productId);
+
+                var result = new ExpiryValidationDto
+                {
+                    ProductId = productId,
+                    CategoryId = product?.CategoryId ?? 0,
+                    CategoryRequiresExpiry = product?.Category?.RequiresExpiryDate ?? false,
+                    ProvidedExpiryDate = expiryDate,
+                    ValidationErrors = new List<string>()
+                };
+
+                if (product == null)
+                {
+                    result.ValidationErrors.Add("Product not found");
+                    result.IsValid = false;
+                    return result;
+                }
+
+                result.CategoryId = product.CategoryId;
+                result.CategoryRequiresExpiry = product.Category.RequiresExpiryDate;
+
+                if (product.Category.RequiresExpiryDate)
+                {
+                    if (!expiryDate.HasValue)
+                    {
+                        result.ValidationErrors.Add($"Expiry date is required for category '{product.Category.Name}'");
+                    }
+                    else if (expiryDate.Value.Date <= _timezoneService.Today)
+                    {
+                        result.ValidationErrors.Add("Expiry date must be in the future");
+                    }
+                }
+
+                result.IsValid = !result.ValidationErrors.Any();
+                return result;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error validating expiry requirements for product {ProductId}", productId);
+                throw;
+            }
+        }
+
+        public async Task<bool> MarkBatchesAsExpiredAsync()
+        {
+            try
+            {
+                var today = _timezoneService.Today;
+                var expiredBatches = await _context.ProductBatches
+                    .Where(b => b.ExpiryDate.HasValue && 
+                               b.ExpiryDate.Value.Date < today && 
+                               !b.IsExpired)
+                    .ToListAsync();
+
+                foreach (var batch in expiredBatches)
+                {
+                    batch.IsExpired = true;
+                    batch.UpdatedAt = _timezoneService.Now;
+                }
+
+                await _context.SaveChangesAsync();
+                return expiredBatches.Count > 0;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error marking batches as expired");
+                throw;
+            }
+        }
+
+        public async Task<List<BatchRecommendationDto>> GetBatchSaleOrderAsync(int productId, int requestedQuantity)
+        {
+            try
+            {
+                var batches = await _context.ProductBatches
+                    .Where(b => b.ProductId == productId && 
+                               b.CurrentStock > 0 && 
+                               !b.IsBlocked && 
+                               !b.IsExpired)
+                    .OrderBy(b => b.ExpiryDate)
+                    .ThenBy(b => b.CreatedAt)
+                    .ToListAsync();
+
+                return GetBatchRecommendations(batches, requestedQuantity);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting batch sale order for product {ProductId}", productId);
+                throw;
+            }
+        }
+
+        public async Task<bool> ProcessFifoSaleAsync(int productId, int quantity, string referenceNumber)
+        {
+            try
+            {
+                using var transaction = await _context.Database.BeginTransactionAsync();
+                
+                var batches = await _context.ProductBatches
+                    .Where(b => b.ProductId == productId && 
+                               b.CurrentStock > 0 && 
+                               !b.IsBlocked && 
+                               !b.IsExpired)
+                    .OrderBy(b => b.ExpiryDate)
+                    .ThenBy(b => b.CreatedAt)
+                    .ToListAsync();
+
+                var totalAvailable = batches.Sum(b => b.CurrentStock);
+                if (totalAvailable < quantity)
+                    throw new InvalidOperationException("Insufficient stock available");
+
+                var remainingQuantity = quantity;
+                foreach (var batch in batches)
+                {
+                    if (remainingQuantity <= 0) break;
+
+                    var quantityFromThisBatch = Math.Min(remainingQuantity, batch.CurrentStock);
+                    batch.CurrentStock -= quantityFromThisBatch;
+                    batch.UpdatedAt = _timezoneService.Now;
+
+                    remainingQuantity -= quantityFromThisBatch;
+                }
+
+                await _context.SaveChangesAsync();
+                await transaction.CommitAsync();
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error processing FIFO sale for ProductId: {ProductId}", productId);
+                throw;
+            }
+        }
+
+        public async Task<bool> DisposeExpiredProductsAsync(DisposeExpiredProductsDto request, int disposedByUserId)
+        {
+            try
+            {
+                using var transaction = await _context.Database.BeginTransactionAsync();
+                
+                var batches = await _context.ProductBatches
+                    .Where(b => request.BatchIds.Contains(b.Id))
+                    .ToListAsync();
+
+                foreach (var batch in batches)
+                {
+                    batch.IsDisposed = true;
+                    batch.DisposalDate = _timezoneService.Now;
+                    batch.DisposedByUserId = disposedByUserId;
+                    batch.DisposalMethod = request.DisposalMethod;
+                    batch.Notes = string.IsNullOrEmpty(batch.Notes) 
+                        ? request.Notes 
+                        : $"{batch.Notes}; {request.Notes}";
+                    batch.UpdatedAt = _timezoneService.Now;
+                    batch.UpdatedByUserId = disposedByUserId;
+                }
+
+                await _context.SaveChangesAsync();
+                await transaction.CommitAsync();
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error disposing expired products");
+                throw;
+            }
+        }
+
+        public async Task<bool> DisposeProductBatchAsync(int batchId, DisposeBatchDto request, int disposedByUserId)
+        {
+            try
+            {
+                var batch = await _context.ProductBatches.FindAsync(batchId);
+                if (batch == null) return false;
+
+                batch.IsDisposed = true;
+                batch.DisposalDate = _timezoneService.Now;
+                batch.DisposedByUserId = disposedByUserId;
+                batch.DisposalMethod = request.DisposalMethod;
+                batch.BlockReason = request.DisposalReason;
+                batch.Notes = string.IsNullOrEmpty(batch.Notes) 
+                    ? request.Notes 
+                    : $"{batch.Notes}; {request.Notes}";
+                batch.UpdatedAt = _timezoneService.Now;
+                batch.UpdatedByUserId = disposedByUserId;
+
+                await _context.SaveChangesAsync();
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error disposing product batch {BatchId}", batchId);
+                throw;
+            }
+        }
+
+        public async Task<List<ExpiredProductDto>> GetDisposableProductsAsync(int? branchId = null)
+        {
+            var filter = new ExpiredProductsFilterDto
+            {
+                BranchId = branchId,
+                IsDisposed = false,
+                PageSize = 1000
+            };
+            return await GetExpiredProductsAsync(filter);
+        }
+
+        public async Task<List<ProductDto>> GetProductsRequiringExpiryAsync()
+        {
+            try
+            {
+                var productsWithoutBatches = await _context.Products
+                    .Include(p => p.Category)
+                    .Include(p => p.ProductBatches)
+                    .Where(p => p.Category.RequiresExpiryDate && !p.ProductBatches.Any())
+                    .Select(p => new ProductDto
+                    {
+                        Id = p.Id,
+                        Name = p.Name,
+                        Barcode = p.Barcode,
+                        Stock = p.Stock,
+                        BuyPrice = p.BuyPrice,
+                        SellPrice = p.SellPrice,
+                        CategoryId = p.CategoryId,
+                        CategoryName = p.Category.Name,
+                        CategoryColor = p.Category.Color,
+                        IsActive = p.IsActive,
+                        CreatedAt = p.CreatedAt,
+                        UpdatedAt = p.UpdatedAt,
+                        MinimumStock = p.MinimumStock
+                    })
+                    .ToListAsync();
+
+                return productsWithoutBatches;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting products requiring expiry");
+                throw;
+            }
+        }
+
+        // ==================== PRIVATE HELPER METHODS ==================== //
+
+        private List<BatchRecommendationDto> GetBatchRecommendations(List<ProductBatch> batches, int? requestedQuantity = null)
+        {
+            var recommendations = new List<BatchRecommendationDto>();
+            var orderedBatches = batches
+                .OrderBy(b => b.ExpiryDate)
+                .ThenBy(b => b.CreatedAt)
+                .ToList();
+
+            var remainingQuantity = requestedQuantity ?? int.MaxValue;
+            var orderIndex = 1;
+
+            foreach (var batch in orderedBatches)
+            {
+                if (remainingQuantity <= 0 && requestedQuantity.HasValue) break;
+
+                var recommendation = new BatchRecommendationDto
+                {
+                    BatchId = batch.Id,
+                    BatchNumber = batch.BatchNumber,
+                    ExpiryDate = batch.ExpiryDate,
+                    AvailableStock = batch.AvailableStock,
+                    CostPerUnit = batch.CostPerUnit,
+                    ExpiryStatus = batch.ExpiryStatus,
+                    DaysUntilExpiry = batch.DaysUntilExpiry,
+                    RecommendedSaleOrder = orderIndex++,
+                    RecommendationReason = GetRecommendationReason(batch)
+                };
+
+                recommendations.Add(recommendation);
+
+                if (requestedQuantity.HasValue)
+                    remainingQuantity -= batch.AvailableStock;
+            }
+
+            return recommendations;
+        }
+
+        private string GetRecommendationReason(ProductBatch batch)
+        {
+            return batch.ExpiryStatus switch
+            {
+                ExpiryStatus.Critical => "Critical - Expires very soon!",
+                ExpiryStatus.Warning => "Warning - Expires within a week",
+                ExpiryStatus.Normal => "Normal - FIFO order",
+                ExpiryStatus.Good => "Good condition - FIFO order",
+                ExpiryStatus.Expired => "EXPIRED - Dispose immediately",
+                _ => "No expiry date"
+            };
+        }
+
+        private ExpiryUrgency GetExpiryUrgency(int daysUntilExpiry)
+        {
+            return daysUntilExpiry switch
+            {
+                <= 1 => ExpiryUrgency.Critical,
+                <= 3 => ExpiryUrgency.High,
+                <= 7 => ExpiryUrgency.Medium,
+                _ => ExpiryUrgency.Low
+            };
+        }
+
+        private DisposalUrgency GetDisposalUrgency(int daysExpired)
+        {
+            return daysExpired switch
+            {
+                >= 30 => DisposalUrgency.Critical,
+                >= 14 => DisposalUrgency.High,
+                >= 7 => DisposalUrgency.Medium,
+                _ => DisposalUrgency.Low
+            };
+        }
     }
 }

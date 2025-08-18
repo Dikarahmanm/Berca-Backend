@@ -569,7 +569,7 @@ startupLogger.LogInformation("🔐 Branch-Aware Authentication Configured");
 startupLogger.LogInformation("📁 Directories Created: wwwroot, uploads, exports, factures");
 startupLogger.LogInformation("📄 Facture Management System: ENABLED");
 
-// ✅ Auto-setup database and sample data
+// ✅ IMPROVED: Enhanced database setup with proper error handling
 using (var scope = app.Services.CreateScope())
 {
     var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
@@ -577,18 +577,114 @@ using (var scope = app.Services.CreateScope())
 
     try
     {
-        // Use enhanced database utility for setup
-        await DatabaseResetUtility.EnsureDatabaseAsync(context, logger);
+        logger.LogInformation("🔄 Starting database setup...");
+        
+        // ✅ FIX: Set connection timeout to prevent deadlocks
+        context.Database.SetCommandTimeout(TimeSpan.FromMinutes(10));
+        
+        // ✅ FIX: Use safer database setup approach
+        await SafeDatabaseSetupAsync(context, logger);
+        
         logger.LogInformation("📊 Database setup completed successfully");
     }
     catch (Exception ex)
     {
         logger.LogError(ex, "❌ Error during database setup or seeding");
+        // Don't crash the application, just log the error
+        logger.LogWarning("⚠️ Application will continue without sample data");
     }
 }
 
 // ✅ Run the application
 await app.RunAsync();
+
+// ==================== SAFE DATABASE SETUP METHODS ==================== //
+
+/// <summary>
+/// Safe database setup method with concurrency fixes
+/// </summary>
+static async Task SafeDatabaseSetupAsync(AppDbContext context, ILogger logger)
+{
+    try
+    {
+        // Check database connectivity first
+        var canConnect = await context.Database.CanConnectAsync();
+        if (!canConnect)
+        {
+            logger.LogInformation("📦 Creating new database...");
+            await context.Database.EnsureCreatedAsync();
+        }
+
+        // Apply pending migrations
+        var pendingMigrations = await context.Database.GetPendingMigrationsAsync();
+        if (pendingMigrations.Any())
+        {
+            logger.LogInformation($"🔄 Applying {pendingMigrations.Count()} pending migrations...");
+            await context.Database.MigrateAsync();
+        }
+
+        // Seed data with retry mechanism
+        await SeedDataWithRetryAsync(context, logger);
+        
+        // Simple integrity check (no complex operations)
+        await SimpleIntegrityCheckAsync(context, logger);
+    }
+    catch (Exception ex)
+    {
+        logger.LogError(ex, "❌ Safe database setup failed");
+        throw;
+    }
+}
+
+/// <summary>
+/// Retry mechanism for seeding with progressive delay
+/// </summary>
+static async Task SeedDataWithRetryAsync(AppDbContext context, ILogger logger, int maxRetries = 3)
+{
+    for (int attempt = 1; attempt <= maxRetries; attempt++)
+    {
+        try
+        {
+            await SampleDataSeeder.SeedSampleDataAsync(context, logger);
+            return; // Success
+        }
+        catch (Exception ex) when (attempt < maxRetries)
+        {
+            logger.LogWarning(ex, $"⚠️ Seeding attempt {attempt} failed, retrying...");
+            await Task.Delay(1000 * attempt); // Progressive delay
+        }
+    }
+    
+    // Final attempt without catch
+    await SampleDataSeeder.SeedSampleDataAsync(context, logger);
+}
+
+/// <summary>
+/// Simple integrity check without concurrency issues
+/// </summary>
+static async Task SimpleIntegrityCheckAsync(AppDbContext context, ILogger logger)
+{
+    try
+    {
+        var userCount = await context.Users.CountAsync();
+        var branchCount = await context.Branches.CountAsync();
+        
+        logger.LogInformation($"📊 Basic integrity check: {userCount} users, {branchCount} branches");
+        
+        if (userCount == 0 || branchCount == 0)
+        {
+            logger.LogWarning("⚠️ Some tables appear empty, but application will continue");
+        }
+        else
+        {
+            logger.LogInformation("✅ Basic integrity check passed");
+        }
+    }
+    catch (Exception ex)
+    {
+        logger.LogWarning(ex, "⚠️ Integrity check failed, but application will continue");
+    }
+}
 
 // ===== SAMPLE DATA SEEDER FOR BRANCHES ===== //
 

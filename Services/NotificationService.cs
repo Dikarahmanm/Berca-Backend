@@ -154,6 +154,31 @@ namespace Berca_Backend.Services
             }
         }
 
+        public async Task<NotificationDto> CreateNotificationAsync(CreateNotificationDto request, string? createdBy = null)
+        {
+            // Convert CreateNotificationDto to CreateNotificationRequest and call the base method
+            var baseRequest = new CreateNotificationRequest
+            {
+                UserId = request.UserId,
+                Type = request.Type,
+                Title = request.Title,
+                Message = request.Message,
+                Priority = request.Priority,
+                ActionUrl = request.ActionUrl,
+                ActionText = request.ActionText,
+                ExpiryDate = request.ExpiryDate
+            };
+
+            return await CreateNotificationAsync(baseRequest, createdBy);
+        }
+
+        public async Task<NotificationDto> CreateSystemNotificationAsync(CreateNotificationDto request, string? createdBy = null)
+        {
+            // System notifications go to all admins/managers
+            request.UserId = null; // Broadcast notification
+            return await CreateNotificationAsync(request, createdBy ?? "System");
+        }
+
         public async Task<bool> MarkAsReadAsync(int notificationId, int userId)
         {
             try
