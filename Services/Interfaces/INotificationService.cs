@@ -9,6 +9,8 @@ namespace Berca_Backend.Services
         Task<List<NotificationDto>> GetUserNotificationsAsync(int userId, bool? isRead = null, int page = 1, int pageSize = 20);
         Task<NotificationSummaryDto> GetNotificationSummaryAsync(int userId);
         Task<NotificationDto> CreateNotificationAsync(CreateNotificationRequest request, string? createdBy = null);
+        Task<NotificationDto> CreateNotificationAsync(CreateNotificationDto request, string? createdBy = null);
+        Task<NotificationDto> CreateSystemNotificationAsync(CreateNotificationDto request, string? createdBy = null);
         Task<bool> MarkAsReadAsync(int notificationId, int userId);
         Task<bool> MarkAllAsReadAsync(int userId);
         Task<bool> DeleteNotificationAsync(int notificationId, int userId);

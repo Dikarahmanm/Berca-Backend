@@ -1,5 +1,6 @@
 using Berca_Backend.Services.Interfaces;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.EntityFrameworkCore;
 
 namespace Berca_Backend.Services
 {
@@ -61,75 +62,200 @@ namespace Berca_Backend.Services
 
         private async Task PerformExpiryCheck()
         {
-            _logger.LogInformation("🔍 Starting daily expiry check at {Time}", DateTime.UtcNow);
+            _logger.LogInformation("🔍 Starting daily expiry check at {Time} (Jakarta: {JakartaTime})", 
+                DateTime.UtcNow, ConvertToJakartaTime(DateTime.UtcNow));
 
             try
             {
                 using var scope = _serviceProvider.CreateScope();
-                var expiryService = scope.ServiceProvider.GetService<IExpiryManagementService>();
+                var expiryService = scope.ServiceProvider.GetRequiredService<IExpiryManagementService>();
                 var notificationService = scope.ServiceProvider.GetService<INotificationService>();
-                var timezoneService = scope.ServiceProvider.GetService<ITimezoneService>();
 
-                if (expiryService == null)
-                {
-                    _logger.LogWarning("⚠️ IExpiryManagementService not found - skipping expiry check");
-                    return;
-                }
+                var startTime = DateTime.UtcNow;
 
-                if (notificationService == null)
-                {
-                    _logger.LogWarning("⚠️ INotificationService not found - notifications will be skipped");
-                }
-
-                if (timezoneService == null)
-                {
-                    _logger.LogWarning("⚠️ ITimezoneService not found - using UTC time");
-                }
-
-                var jakartaTime = timezoneService?.Now ?? DateTime.UtcNow;
-                _logger.LogInformation("🕕 Performing expiry check for Jakarta date: {JakartaDate}", jakartaTime.ToString("yyyy-MM-dd"));
-
-                // 1. Update expiry statuses for all batches
-                var statusUpdates = await expiryService.UpdateExpiryStatusesAsync();
-                _logger.LogInformation("📊 Updated expiry status for {Count} batches", statusUpdates);
-
-                // 2. Mark newly expired batches
-                var newlyExpired = await expiryService.MarkBatchesAsExpiredAsync();
-                _logger.LogInformation("⚠️ Marked {Count} batches as newly expired", newlyExpired);
-
-                // 3. Perform comprehensive daily expiry check
+                // Perform comprehensive daily expiry check
                 var checkResult = await expiryService.PerformDailyExpiryCheckAsync();
-                _logger.LogInformation("✅ Daily expiry check completed: {NewlyExpired} newly expired, {Notifications} notifications created", 
-                    checkResult.NewlyExpiredBatches, checkResult.NotificationsCreated);
+                
+                var duration = DateTime.UtcNow - startTime;
 
-                // 4. Create notifications if service available
-                if (notificationService != null)
+                // Log detailed results
+                _logger.LogInformation("✅ Daily expiry check completed in {Duration}ms", duration.TotalMilliseconds);
+                _logger.LogInformation("📊 Check Results:");
+                _logger.LogInformation("   • Newly expired batches: {Count}", checkResult.NewlyExpiredBatches);
+                _logger.LogInformation("   • Notifications created: {Count}", checkResult.NotificationsCreated);
+                _logger.LogInformation("   • Statuses updated: {Count}", checkResult.StatusesUpdated);
+                _logger.LogInformation("   • Value at risk: Rp {Value:N0}", checkResult.ValueAtRisk);
+                _logger.LogInformation("   • New value lost: Rp {Value:N0}", checkResult.NewValueLost);
+                _logger.LogInformation("   • Critical items: {Count}", checkResult.CriticalItems.Count);
+
+                // Send daily summary notification if there are critical items
+                if (notificationService != null && (checkResult.CriticalItems.Any() || checkResult.NewlyExpiredBatches > 0))
                 {
-                    var notificationCount = await expiryService.CreateExpiryNotificationsAsync();
-                    _logger.LogInformation("📬 Created {Count} expiry notifications", notificationCount);
-
-                    // 5. Create daily summary for managers
-                    if (checkResult.CriticalItems.Any())
-                    {
-                        await notificationService.BroadcastDailyExpirySummaryAsync(
-                            checkResult.CriticalItems.Count(i => i.ExpiryStatus == Models.ExpiryStatus.Warning || i.ExpiryStatus == Models.ExpiryStatus.Critical),
-                            checkResult.NewlyExpiredBatches,
-                            checkResult.ValueAtRisk,
-                            checkResult.NewValueLost
-                        );
-                        _logger.LogInformation("📊 Broadcasted daily expiry summary to managers");
-                    }
+                    await SendDailySummaryNotification(checkResult, notificationService);
                 }
 
-                // 6. Log summary
-                _logger.LogInformation("🎯 Expiry check summary - Newly expired: {NewlyExpired}, Value at risk: {ValueAtRisk:C}, Value lost: {ValueLost:C}",
-                    checkResult.NewlyExpiredBatches, checkResult.ValueAtRisk, checkResult.NewValueLost);
+                // Additional branch-specific checks for multi-branch system
+                await PerformBranchSpecificChecks(expiryService, notificationService);
+
+                _logger.LogInformation("🎯 Daily expiry check process completed successfully");
 
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "❌ Error during daily expiry check");
+                
+                // Send error notification to system admins
+                try
+                {
+                    using var scope = _serviceProvider.CreateScope();
+                    var notificationService = scope.ServiceProvider.GetService<INotificationService>();
+                    
+                    if (notificationService != null)
+                    {
+                        await notificationService.CreateSystemMaintenanceNotificationAsync(
+                            DateTime.UtcNow, 
+                            $"Daily Expiry Check Failed: {ex.Message}");
+                    }
+                }
+                catch (Exception notificationEx)
+                {
+                    _logger.LogError(notificationEx, "Failed to send error notification");
+                }
+                
                 throw;
+            }
+        }
+
+        /// <summary>
+        /// Send daily summary notification to administrators
+        /// </summary>
+        private async Task SendDailySummaryNotification(
+            Interfaces.ExpiryCheckResultDto checkResult, 
+            INotificationService notificationService)
+        {
+            try
+            {
+                var jakartaTime = ConvertToJakartaTime(DateTime.UtcNow);
+                
+                var summaryMessage = $"""
+                    📅 Daily Expiry Summary - {jakartaTime}
+                    
+                    🔴 Critical Items: {checkResult.CriticalItems.Count}
+                    ⚠️ Newly Expired: {checkResult.NewlyExpiredBatches} batches
+                    📨 Notifications Sent: {checkResult.NotificationsCreated}
+                    💰 Value at Risk: Rp {checkResult.ValueAtRisk:N0}
+                    📉 New Value Lost: Rp {checkResult.NewValueLost:N0}
+                    
+                    {(checkResult.CriticalItems.Any() ? "⚡ Immediate attention required for critical items!" : "✅ No immediate action required")}
+                    """;
+
+                await notificationService.BroadcastDailyExpirySummaryAsync(
+                    checkResult.CriticalItems.Count,
+                    checkResult.NewlyExpiredBatches,
+                    checkResult.ValueAtRisk,
+                    checkResult.NewValueLost);
+
+                _logger.LogInformation("📬 Daily summary notification sent to administrators");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to send daily summary notification");
+            }
+        }
+
+        /// <summary>
+        /// Perform branch-specific checks for multi-branch operations
+        /// </summary>
+        private async Task PerformBranchSpecificChecks(
+            IExpiryManagementService expiryService,
+            INotificationService? notificationService)
+        {
+            try
+            {
+                using var scope = _serviceProvider.CreateScope();
+                var context = scope.ServiceProvider.GetRequiredService<Data.AppDbContext>();
+                
+                var branches = await context.Branches
+                    .Where(b => b.IsActive)
+                    .ToListAsync();
+
+                _logger.LogInformation("🏢 Performing branch-specific checks for {BranchCount} branches", branches.Count);
+
+                foreach (var branch in branches)
+                {
+                    try
+                    {
+                        await PerformBranchExpiryCheck(branch.Id, branch.BranchName, expiryService, notificationService);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Error performing expiry check for branch {BranchName} (ID: {BranchId})", 
+                            branch.BranchName, branch.Id);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error during branch-specific checks");
+            }
+        }
+
+        /// <summary>
+        /// Perform expiry check for a specific branch
+        /// </summary>
+        private async Task PerformBranchExpiryCheck(
+            int branchId, 
+            string branchName, 
+            IExpiryManagementService expiryService,
+            INotificationService? notificationService)
+        {
+            try
+            {
+                // Get branch-specific analytics
+                var analytics = await expiryService.GetExpiryAnalyticsAsync(branchId);
+                
+                // Get products requiring immediate attention
+                var criticalProducts = await expiryService.GetProductsRequiringNotificationAsync(branchId);
+                var urgentProducts = criticalProducts.Where(p => p.DaysUntilExpiry <= 3).ToList();
+
+                if (urgentProducts.Any() && notificationService != null)
+                {
+                    _logger.LogWarning("⚠️ Branch {BranchName}: {Count} products require urgent attention", 
+                        branchName, urgentProducts.Count);
+
+                    // Create branch-specific urgent notification
+                    var urgentMessage = $"""
+                        🚨 Urgent: Branch {branchName}
+                        
+                        {urgentProducts.Count} products require immediate attention:
+                        
+                        {string.Join("\n", urgentProducts.Take(5).Select(p => 
+                            $"• {p.ProductName} (Batch: {p.BatchNumber}) - {p.DaysUntilExpiry} days left"))}
+                        
+                        {(urgentProducts.Count > 5 ? $"... and {urgentProducts.Count - 5} more items" : "")}
+                        
+                        Total value at risk: Rp {urgentProducts.Sum(p => p.ValueAtRisk):N0}
+                        """;
+
+                    // Create notifications for each urgent product
+                    foreach (var urgentProduct in urgentProducts.Take(5)) // Limit to top 5 to avoid spam
+                    {
+                        await notificationService.CreateExpiryUrgentNotificationAsync(
+                            urgentProduct.ProductId,
+                            urgentProduct.ProductName,
+                            urgentProduct.BatchNumber,
+                            urgentProduct.ExpiryDate,
+                            urgentProduct.CurrentStock,
+                            branchId);
+                    }
+                }
+
+                _logger.LogInformation("✅ Branch {BranchName}: Analytics - {ExpiringCount} expiring, {ExpiredCount} expired, Rp {ValueAtRisk:N0} at risk", 
+                    branchName, analytics.ExpiringIn7Days, analytics.ExpiredProducts, analytics.ValueAtRisk);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error checking branch {BranchName} (ID: {BranchId})", branchName, branchId);
             }
         }
 
@@ -169,6 +295,15 @@ namespace Berca_Backend.Services
         {
             _logger.LogInformation("🛑 ExpiryCheckBackgroundService is stopping");
             await base.StopAsync(stoppingToken);
+        }
+
+        /// <summary>
+        /// Manual trigger for daily expiry check (for testing or emergency runs)
+        /// </summary>
+        public async Task TriggerManualCheck()
+        {
+            _logger.LogInformation("🔄 Manual expiry check triggered");
+            await PerformExpiryCheck();
         }
 
         public override void Dispose()

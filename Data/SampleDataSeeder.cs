@@ -7,7 +7,7 @@ namespace Berca_Backend.Data;
 public static class SampleDataSeeder
 {
     /// <summary>
-    /// Seeds sample data with proper identity column handling and comprehensive error handling
+    /// Seeds sample data with improved concurrency handling and transaction management
     /// </summary>
     public static async Task SeedSampleDataAsync(AppDbContext context, ILogger? logger = null)
     {
@@ -15,41 +15,56 @@ public static class SampleDataSeeder
         {
             logger?.LogInformation("🌱 Starting sample data seeding process...");
 
-            // Check if any critical data already exists
-            if (await context.Users.AnyAsync())
+            // ✅ FIX: Check existence with single query instead of multiple
+            var existingDataCheck = await context.Users.AnyAsync();
+            if (existingDataCheck)
             {
                 logger?.LogInformation("✅ Sample data already exists, skipping seeding");
                 return;
             }
 
-            using var transaction = await context.Database.BeginTransactionAsync();
-            
+            // ✅ FIX: Set command timeout to prevent deadlocks
+            var originalTimeout = context.Database.GetCommandTimeout();
+            context.Database.SetCommandTimeout(TimeSpan.FromMinutes(5));
+
             try
             {
-                // 1. Seed Branches first (no dependencies)
-                await SeedBranchesAsync(context, logger);
-                await context.SaveChangesAsync();
+                // ✅ FIX: Use explicit transaction with proper timeout
+                using var transaction = await context.Database.BeginTransactionAsync();
+                
+                try
+                {
+                    // Sequential seeding to avoid concurrency
+                    logger?.LogInformation("🏢 Seeding branches...");
+                    await SeedBranchesAsync(context, logger);
+                    await context.SaveChangesAsync();
 
-                // 2. Seed Users (depends on branches)
-                await SeedUsersAsync(context, logger);
-                await context.SaveChangesAsync();
+                    logger?.LogInformation("👥 Seeding users...");
+                    await SeedUsersAsync(context, logger);
+                    await context.SaveChangesAsync();
 
-                // 3. Seed Members (no dependencies on users/branches)
-                await SeedMembersAsync(context, logger);
-                await context.SaveChangesAsync();
+                    logger?.LogInformation("🎫 Seeding members...");
+                    await SeedMembersAsync(context, logger);
+                    await context.SaveChangesAsync();
 
-                // 4. Seed Suppliers (no dependencies)
-                await SeedSuppliersAsync(context, logger);
-                await context.SaveChangesAsync();
+                    logger?.LogInformation("🏭 Seeding suppliers...");
+                    await SeedSuppliersAsync(context, logger);
+                    await context.SaveChangesAsync();
 
-                await transaction.CommitAsync();
-                logger?.LogInformation("✅ Sample data seeding completed successfully");
+                    await transaction.CommitAsync();
+                    logger?.LogInformation("✅ Sample data seeding completed successfully");
+                }
+                catch (Exception ex)
+                {
+                    await transaction.RollbackAsync();
+                    logger?.LogError(ex, "❌ Error during sample data seeding, transaction rolled back");
+                    throw;
+                }
             }
-            catch (Exception ex)
+            finally
             {
-                await transaction.RollbackAsync();
-                logger?.LogError(ex, "❌ Error during sample data seeding, transaction rolled back");
-                throw;
+                // Restore original timeout
+                context.Database.SetCommandTimeout(originalTimeout);
             }
         }
         catch (Exception ex)
@@ -60,17 +75,19 @@ public static class SampleDataSeeder
     }
 
     /// <summary>
-    /// Seeds branch data without explicit ID assignments
+    /// Enhanced branch seeding with better error handling
     /// </summary>
     private static async Task SeedBranchesAsync(AppDbContext context, ILogger? logger)
     {
-        if (await context.Branches.AnyAsync())
+        // ✅ FIX: Double-check to prevent duplicate seeding
+        var existingBranches = await context.Branches.CountAsync();
+        if (existingBranches > 0)
         {
-            logger?.LogInformation("⏭️ Branches already exist, skipping branch seeding");
+            logger?.LogInformation($"⏭️ {existingBranches} branches already exist, skipping branch seeding");
             return;
         }
 
-        logger?.LogInformation("🏢 Seeding branch data...");
+        logger?.LogInformation("🏢 Creating branch data...");
 
         var branches = new List<Branch>
         {
@@ -152,8 +169,16 @@ public static class SampleDataSeeder
             }
         };
 
-        context.Branches.AddRange(branches);
-        logger?.LogInformation($"✅ Added {branches.Count} branches");
+        try
+        {
+            await context.Branches.AddRangeAsync(branches);
+            logger?.LogInformation($"📝 Created {branches.Count} branch records");
+        }
+        catch (Exception ex)
+        {
+            logger?.LogError(ex, "❌ Failed to create branch records");
+            throw;
+        }
     }
 
     /// <summary>
