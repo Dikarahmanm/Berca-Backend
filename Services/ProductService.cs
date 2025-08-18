@@ -1126,7 +1126,7 @@ namespace Berca_Backend.Services
 
                 // Apply filters
                 if (filter.CategoryId.HasValue)
-                    query = query.Where(b => b.Product.CategoryId == filter.CategoryId);
+                    query = query.Where(b => b.Product != null && b.Product.CategoryId == filter.CategoryId);
 
                 if (filter.BranchId.HasValue)
                     query = query.Where(b => b.BranchId == filter.BranchId);
@@ -1143,8 +1143,8 @@ namespace Berca_Backend.Services
                 if (!string.IsNullOrEmpty(filter.SearchTerm))
                 {
                     var searchTerm = filter.SearchTerm.ToLower();
-                    query = query.Where(b => b.Product.Name.ToLower().Contains(searchTerm) ||
-                                           b.Product.Barcode.ToLower().Contains(searchTerm) ||
+                    query = query.Where(b => (b.Product != null && b.Product.Name.ToLower().Contains(searchTerm)) ||
+                                           (b.Product != null && b.Product.Barcode.ToLower().Contains(searchTerm)) ||
                                            b.BatchNumber.ToLower().Contains(searchTerm));
                 }
 
@@ -1157,13 +1157,13 @@ namespace Berca_Backend.Services
                 return batches.Select(batch => new ExpiringProductDto
                 {
                     ProductId = batch.ProductId,
-                    ProductName = batch.Product.Name,
-                    ProductBarcode = batch.Product.Barcode,
-                    CategoryName = batch.Product.Category.Name,
-                    CategoryColor = batch.Product.Category.Color,
+                    ProductName = batch.Product?.Name ?? "Unknown Product",
+                    ProductBarcode = batch.Product?.Barcode ?? "",
+                    CategoryName = batch.Product?.Category?.Name ?? "Unknown Category",
+                    CategoryColor = batch.Product?.Category?.Color ?? "#000000",
                     BatchId = batch.Id,
                     BatchNumber = batch.BatchNumber,
-                    ExpiryDate = batch.ExpiryDate.Value,
+                    ExpiryDate = batch.ExpiryDate ?? DateTime.MaxValue,
                     DaysUntilExpiry = batch.DaysUntilExpiry ?? 0,
                     ExpiryStatus = batch.ExpiryStatus,
                     CurrentStock = batch.CurrentStock,
@@ -1173,7 +1173,7 @@ namespace Berca_Backend.Services
                     UrgencyLevel = GetExpiryUrgency(batch.DaysUntilExpiry ?? 0),
                     CreatedAt = batch.CreatedAt,
                     BranchId = batch.BranchId,
-                    BranchName = batch.Branch?.BranchName,
+                    BranchName = batch.Branch?.BranchName ?? "All Branches",
                     SupplierName = batch.SupplierName,
                     IsBlocked = batch.IsBlocked
                 }).ToList();
@@ -1198,7 +1198,7 @@ namespace Berca_Backend.Services
 
                 // Apply filters
                 if (filter.CategoryId.HasValue)
-                    query = query.Where(b => b.Product.CategoryId == filter.CategoryId);
+                    query = query.Where(b => b.Product != null && b.Product.CategoryId == filter.CategoryId);
 
                 if (filter.BranchId.HasValue)
                     query = query.Where(b => b.BranchId == filter.BranchId);
@@ -1215,8 +1215,8 @@ namespace Berca_Backend.Services
                 if (!string.IsNullOrEmpty(filter.SearchTerm))
                 {
                     var searchTerm = filter.SearchTerm.ToLower();
-                    query = query.Where(b => b.Product.Name.ToLower().Contains(searchTerm) ||
-                                           b.Product.Barcode.ToLower().Contains(searchTerm) ||
+                    query = query.Where(b => (b.Product != null && b.Product.Name.ToLower().Contains(searchTerm)) ||
+                                           (b.Product != null && b.Product.Barcode.ToLower().Contains(searchTerm)) ||
                                            b.BatchNumber.ToLower().Contains(searchTerm));
                 }
 
@@ -1229,21 +1229,21 @@ namespace Berca_Backend.Services
                 return batches.Select(batch => new ExpiredProductDto
                 {
                     ProductId = batch.ProductId,
-                    ProductName = batch.Product.Name,
-                    ProductBarcode = batch.Product.Barcode,
-                    CategoryName = batch.Product.Category.Name,
+                    ProductName = batch.Product?.Name ?? "Unknown Product",
+                    ProductBarcode = batch.Product?.Barcode ?? "",
+                    CategoryName = batch.Product?.Category?.Name ?? "Unknown Category",
                     BatchId = batch.Id,
                     BatchNumber = batch.BatchNumber,
-                    ExpiryDate = batch.ExpiryDate.Value,
+                    ExpiryDate = batch.ExpiryDate ?? DateTime.MaxValue,
                     DaysExpired = Math.Abs(batch.DaysUntilExpiry ?? 0),
                     CurrentStock = batch.CurrentStock,
                     ValueLost = batch.CurrentStock * batch.CostPerUnit,
                     CostPerUnit = batch.CostPerUnit,
-                    ExpiredAt = batch.ExpiryDate.Value,
+                    ExpiredAt = batch.ExpiryDate ?? DateTime.MaxValue,
                     RequiresDisposal = !batch.IsDisposed,
                     DisposalUrgency = GetDisposalUrgency(Math.Abs(batch.DaysUntilExpiry ?? 0)),
                     BranchId = batch.BranchId,
-                    BranchName = batch.Branch?.BranchName,
+                    BranchName = batch.Branch?.BranchName ?? "All Branches",
                     IsDisposed = batch.IsDisposed,
                     DisposalDate = batch.DisposalDate,
                     DisposalMethod = batch.DisposalMethod,
