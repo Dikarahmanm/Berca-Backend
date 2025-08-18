@@ -763,6 +763,609 @@ namespace Berca_Backend.Services
             }
         }
 
+        // ==================== PAYMENT TRACKING INTEGRATION ==================== //
+
+        public async Task<SupplierPaymentHistoryDto> GetSupplierPaymentHistoryAsync(int supplierId, DateTime? fromDate = null, DateTime? toDate = null)
+        {
+            try
+            {
+                var supplier = await _context.Suppliers.FindAsync(supplierId);
+                if (supplier == null)
+                    throw new InvalidOperationException($"Supplier with ID {supplierId} not found.");
+
+                var startDate = fromDate ?? DateTime.UtcNow.AddMonths(-12);
+                var endDate = toDate ?? DateTime.UtcNow;
+
+                // Get factures for the supplier within date range
+                var factures = await _context.Factures
+                    .Include(f => f.Payments)
+                    .Where(f => f.SupplierId == supplierId && 
+                               f.InvoiceDate >= startDate && 
+                               f.InvoiceDate <= endDate)
+                    .ToListAsync();
+
+                var totalFactures = factures.Count;
+                var paidFactures = factures.Count(f => f.Status == FactureStatus.Paid);
+                var pendingFactures = factures.Count(f => f.Status != FactureStatus.Paid && f.Status != FactureStatus.Cancelled);
+                var overdueFactures = factures.Count(f => f.IsOverdue);
+
+                var totalInvoiced = factures.Sum(f => f.TotalAmount);
+                var totalPaid = factures.Sum(f => f.PaidAmount);
+                var totalOutstanding = totalInvoiced - totalPaid;
+
+                // Calculate average payment days
+                var completedPayments = factures
+                    .Where(f => f.Status == FactureStatus.Paid && f.Payments.Any())
+                    .SelectMany(f => f.Payments.Where(p => p.Status == PaymentStatus.Confirmed))
+                    .ToList();
+
+                var averagePaymentDays = completedPayments.Any()
+                    ? completedPayments.Average(p => (p.PaymentDate - p.Facture!.InvoiceDate).Days)
+                    : 0;
+
+                // Get recent payments
+                var recentPayments = factures
+                    .SelectMany(f => f.Payments.Where(p => p.Status == PaymentStatus.Confirmed))
+                    .OrderByDescending(p => p.PaymentDate)
+                    .Take(10)
+                    .Select(p => new FacturePaymentSummaryDto
+                    {
+                        FactureId = p.FactureId,
+                        InternalReferenceNumber = p.Facture!.InternalReferenceNumber,
+                        SupplierInvoiceNumber = p.Facture.SupplierInvoiceNumber,
+                        PaymentDate = p.PaymentDate,
+                        Amount = p.Amount,
+                        AmountDisplay = p.Amount.ToString("C", new CultureInfo("id-ID")),
+                        PaymentMethod = p.PaymentMethod.ToString(),
+                        Status = p.Status.ToString(),
+                        OurPaymentReference = p.OurPaymentReference ?? ""
+                    })
+                    .ToList();
+
+                // Get pending factures
+                var pendingFacturesData = factures
+                    .Where(f => f.Status != FactureStatus.Paid && f.Status != FactureStatus.Cancelled)
+                    .OrderBy(f => f.DueDate)
+                    .Take(10)
+                    .Select(f => new FactureSummaryDto
+                    {
+                        TotalFactures = 1,
+                        TotalOutstanding = f.OutstandingAmount,
+                        TotalOutstandingDisplay = f.OutstandingAmountDisplay
+                    })
+                    .ToList();
+
+                return new SupplierPaymentHistoryDto
+                {
+                    SupplierId = supplierId,
+                    SupplierName = supplier.CompanyName,
+                    SupplierCode = supplier.SupplierCode,
+                    FromDate = startDate,
+                    ToDate = endDate,
+                    TotalFactures = totalFactures,
+                    PaidFactures = paidFactures,
+                    PendingFacturesCount = pendingFactures,
+                    OverdueFactures = overdueFactures,
+                    TotalInvoiced = totalInvoiced,
+                    TotalPaid = totalPaid,
+                    TotalOutstanding = totalOutstanding,
+                    AveragePaymentDays = (decimal)averagePaymentDays,
+                    LastPaymentDate = completedPayments.LastOrDefault()?.PaymentDate,
+                    OldestUnpaidDate = factures.Where(f => f.OutstandingAmount > 0).Min(f => (DateTime?)f.InvoiceDate),
+                    TotalInvoicedDisplay = totalInvoiced.ToString("C", new CultureInfo("id-ID")),
+                    TotalPaidDisplay = totalPaid.ToString("C", new CultureInfo("id-ID")),
+                    TotalOutstandingDisplay = totalOutstanding.ToString("C", new CultureInfo("id-ID")),
+                    RecentPayments = recentPayments,
+                    PendingFactures = pendingFacturesData
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error retrieving payment history for supplier {SupplierId}", supplierId);
+                throw;
+            }
+        }
+
+        public async Task<List<SupplierOutstandingDto>> GetSupplierOutstandingBalancesAsync(int? branchId = null, bool includeOverdueOnly = false)
+        {
+            try
+            {
+                var query = _context.Suppliers
+                    .Include(s => s.Factures.Where(f => f.OutstandingAmount > 0))
+                    .Where(s => s.IsActive)
+                    .AsQueryable();
+
+                if (branchId.HasValue)
+                {
+                    query = query.Where(s => s.BranchId == branchId.Value || s.BranchId == null);
+                }
+
+                var suppliers = await query.ToListAsync();
+
+                var result = new List<SupplierOutstandingDto>();
+
+                foreach (var supplier in suppliers)
+                {
+                    var outstandingFactures = supplier.Factures.Where(f => f.OutstandingAmount > 0).ToList();
+                    var overdueFactures = outstandingFactures.Where(f => f.IsOverdue).ToList();
+
+                    if (includeOverdueOnly && !overdueFactures.Any())
+                        continue;
+
+                    var totalOutstanding = outstandingFactures.Sum(f => f.OutstandingAmount);
+                    var overdueAmount = overdueFactures.Sum(f => f.OutstandingAmount);
+                    var creditUtilization = supplier.CreditLimit > 0 ? (totalOutstanding / supplier.CreditLimit) * 100 : 0;
+
+                    var oldestUnpaid = outstandingFactures.Min(f => (DateTime?)f.InvoiceDate);
+                    var daysOldestUnpaid = oldestUnpaid.HasValue ? (DateTime.UtcNow.Date - oldestUnpaid.Value.Date).Days : 0;
+
+                    var riskLevel = "Low";
+                    if (creditUtilization > 90 || daysOldestUnpaid > 90) riskLevel = "High";
+                    else if (creditUtilization > 70 || daysOldestUnpaid > 60) riskLevel = "Medium";
+
+                    result.Add(new SupplierOutstandingDto
+                    {
+                        SupplierId = supplier.Id,
+                        SupplierName = supplier.CompanyName,
+                        SupplierCode = supplier.SupplierCode,
+                        OutstandingFactures = outstandingFactures.Count,
+                        OverdueFactures = overdueFactures.Count,
+                        TotalOutstanding = totalOutstanding,
+                        OverdueAmount = overdueAmount,
+                        CreditLimit = supplier.CreditLimit,
+                        CreditUtilization = creditUtilization,
+                        OldestUnpaidDate = oldestUnpaid,
+                        DaysOldestUnpaid = daysOldestUnpaid,
+                        TotalOutstandingDisplay = totalOutstanding.ToString("C", new CultureInfo("id-ID")),
+                        OverdueAmountDisplay = overdueAmount.ToString("C", new CultureInfo("id-ID")),
+                        CreditLimitDisplay = supplier.CreditLimit.ToString("C", new CultureInfo("id-ID")),
+                        CreditUtilizationDisplay = $"{creditUtilization:F1}%",
+                        IsCreditLimitExceeded = totalOutstanding > supplier.CreditLimit,
+                        HasOverduePayments = overdueFactures.Any(),
+                        RiskLevel = riskLevel
+                    });
+                }
+
+                return result.OrderByDescending(r => r.TotalOutstanding).ToList();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error retrieving supplier outstanding balances for branch {BranchId}", branchId);
+                throw;
+            }
+        }
+
+        public async Task<SupplierCreditStatusDto> UpdateSupplierCreditStatusAsync(int supplierId)
+        {
+            try
+            {
+                var supplier = await _context.Suppliers
+                    .Include(s => s.Factures.Where(f => f.InvoiceDate >= DateTime.UtcNow.AddMonths(-12)))
+                    .ThenInclude(f => f.Payments)
+                    .FirstOrDefaultAsync(s => s.Id == supplierId);
+
+                if (supplier == null)
+                    throw new InvalidOperationException($"Supplier with ID {supplierId} not found.");
+
+                var factures = supplier.Factures.ToList();
+                var currentOutstanding = factures.Sum(f => f.OutstandingAmount);
+                var availableCredit = Math.Max(0, supplier.CreditLimit - currentOutstanding);
+                var creditUtilization = supplier.CreditLimit > 0 ? (currentOutstanding / supplier.CreditLimit) * 100 : 0;
+
+                // Calculate payment performance
+                var completedPayments = factures
+                    .Where(f => f.Status == FactureStatus.Paid && f.Payments.Any())
+                    .SelectMany(f => f.Payments.Where(p => p.Status == PaymentStatus.Confirmed))
+                    .ToList();
+
+                var averagePaymentDays = completedPayments.Any()
+                    ? (decimal)completedPayments.Average(p => (p.PaymentDate - p.Facture!.InvoiceDate).Days)
+                    : 0;
+
+                var paymentDelayIncidents = completedPayments.Count(p => (p.PaymentDate - p.Facture!.DueDate).Days > 0);
+                var overdueFactures = factures.Where(f => f.IsOverdue).ToList();
+                var totalOverdue = overdueFactures.Sum(f => f.OutstandingAmount);
+                var daysOldestOverdue = overdueFactures.Any() 
+                    ? overdueFactures.Max(f => f.DaysOverdue)
+                    : 0;
+
+                // Determine credit rating
+                var creditRating = "Excellent";
+                var riskLevel = "Low";
+                var riskFactors = new List<string>();
+                var recommendations = new List<string>();
+
+                if (creditUtilization > 90)
+                {
+                    creditRating = "Poor";
+                    riskLevel = "High";
+                    riskFactors.Add("Credit utilization exceeds 90%");
+                    recommendations.Add("Request payment for outstanding invoices");
+                    recommendations.Add("Consider reducing credit limit");
+                }
+                else if (creditUtilization > 70)
+                {
+                    creditRating = averagePaymentDays > supplier.PaymentTerms + 7 ? "Poor" : "Fair";
+                    riskLevel = "Medium";
+                    riskFactors.Add("Credit utilization above 70%");
+                    recommendations.Add("Monitor payment performance closely");
+                }
+
+                if (averagePaymentDays > supplier.PaymentTerms + 14)
+                {
+                    creditRating = "Poor";
+                    riskLevel = "High";
+                    riskFactors.Add($"Average payment delay: {averagePaymentDays - supplier.PaymentTerms:F0} days");
+                    recommendations.Add("Review payment terms with supplier");
+                }
+
+                if (overdueFactures.Any())
+                {
+                    riskFactors.Add($"{overdueFactures.Count} overdue invoices");
+                    recommendations.Add("Follow up on overdue payments immediately");
+                }
+
+                if (paymentDelayIncidents > factures.Count * 0.3)
+                {
+                    riskFactors.Add("Frequent payment delays");
+                    recommendations.Add("Consider stricter payment terms");
+                }
+
+                return new SupplierCreditStatusDto
+                {
+                    SupplierId = supplierId,
+                    SupplierName = supplier.CompanyName,
+                    CreditLimit = supplier.CreditLimit,
+                    CurrentOutstanding = currentOutstanding,
+                    AvailableCredit = availableCredit,
+                    CreditUtilization = creditUtilization,
+                    CreditRating = creditRating,
+                    RiskLevel = riskLevel,
+                    AveragePaymentDays = averagePaymentDays,
+                    PaymentDelayIncidents = paymentDelayIncidents,
+                    LastPaymentDate = completedPayments.LastOrDefault()?.PaymentDate,
+                    HasOverduePayments = overdueFactures.Any(),
+                    TotalOverdue = totalOverdue,
+                    DaysOldestOverdue = daysOldestOverdue,
+                    AssessmentDate = _timezoneService.UtcToLocal(DateTime.UtcNow),
+                    CreditLimitDisplay = supplier.CreditLimit.ToString("C", new CultureInfo("id-ID")),
+                    CurrentOutstandingDisplay = currentOutstanding.ToString("C", new CultureInfo("id-ID")),
+                    AvailableCreditsDisplay = availableCredit.ToString("C", new CultureInfo("id-ID")),
+                    CreditUtilizationDisplay = $"{creditUtilization:F1}%",
+                    TotalOverdueDisplay = totalOverdue.ToString("C", new CultureInfo("id-ID")),
+                    RiskFactors = riskFactors,
+                    Recommendations = recommendations
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error updating credit status for supplier {SupplierId}", supplierId);
+                throw;
+            }
+        }
+
+        public async Task<SupplierPaymentAnalyticsDto> GetSupplierPaymentAnalyticsAsync(int supplierId, int monthsBack = 12)
+        {
+            try
+            {
+                var supplier = await _context.Suppliers.FindAsync(supplierId);
+                if (supplier == null)
+                    throw new InvalidOperationException($"Supplier with ID {supplierId} not found.");
+
+                var analysisFromDate = DateTime.UtcNow.AddMonths(-monthsBack);
+                var analysisToDate = DateTime.UtcNow;
+
+                var factures = await _context.Factures
+                    .Include(f => f.Payments)
+                    .Where(f => f.SupplierId == supplierId && 
+                               f.InvoiceDate >= analysisFromDate && 
+                               f.InvoiceDate <= analysisToDate)
+                    .ToListAsync();
+
+                var totalFactures = factures.Count;
+                var onTimePayments = 0;
+                var latePayments = 0;
+                var paymentDays = new List<double>();
+
+                foreach (var facture in factures.Where(f => f.Status == FactureStatus.Paid))
+                {
+                    var firstPayment = facture.Payments
+                        .Where(p => p.Status == PaymentStatus.Confirmed)
+                        .OrderBy(p => p.PaymentDate)
+                        .FirstOrDefault();
+
+                    if (firstPayment != null)
+                    {
+                        var daysToPay = (firstPayment.PaymentDate - facture.InvoiceDate).Days;
+                        paymentDays.Add(daysToPay);
+
+                        if (daysToPay <= supplier.PaymentTerms)
+                            onTimePayments++;
+                        else
+                            latePayments++;
+                    }
+                }
+
+                var onTimePaymentRate = totalFactures > 0 ? (decimal)onTimePayments / totalFactures * 100 : 0;
+                var averagePaymentDays = paymentDays.Any() ? (decimal)paymentDays.Average() : 0;
+                var medianPaymentDays = paymentDays.Any() ? (decimal)paymentDays.OrderBy(d => d).Skip(paymentDays.Count / 2).First() : 0;
+
+                var totalVolumeInvoiced = factures.Sum(f => f.TotalAmount);
+                var totalVolumePaid = factures.Sum(f => f.PaidAmount);
+                var largestInvoice = factures.Any() ? factures.Max(f => f.TotalAmount) : 0;
+                var smallestInvoice = factures.Any() ? factures.Min(f => f.TotalAmount) : 0;
+                var averageInvoiceAmount = factures.Any() ? factures.Average(f => f.TotalAmount) : 0;
+
+                // Calculate payment compliance score (0-100)
+                var paymentComplianceScore = (onTimePaymentRate * 0.4m) + 
+                                           ((averagePaymentDays <= supplier.PaymentTerms ? 100 : Math.Max(0, 100 - ((averagePaymentDays - supplier.PaymentTerms) * 2))) * 0.6m);
+
+                // Determine payment trend
+                var paymentTrend = "Stable";
+                var recentMonths = factures.Where(f => f.InvoiceDate >= DateTime.UtcNow.AddMonths(-3)).ToList();
+                var olderMonths = factures.Where(f => f.InvoiceDate < DateTime.UtcNow.AddMonths(-3) && f.InvoiceDate >= DateTime.UtcNow.AddMonths(-6)).ToList();
+
+                if (recentMonths.Any() && olderMonths.Any())
+                {
+                    var recentAvg = recentMonths.Where(f => f.Status == FactureStatus.Paid)
+                        .SelectMany(f => f.Payments.Where(p => p.Status == PaymentStatus.Confirmed))
+                        .Average(p => (p.PaymentDate - p.Facture!.InvoiceDate).Days);
+                    
+                    var olderAvg = olderMonths.Where(f => f.Status == FactureStatus.Paid)
+                        .SelectMany(f => f.Payments.Where(p => p.Status == PaymentStatus.Confirmed))
+                        .Average(p => (p.PaymentDate - p.Facture!.InvoiceDate).Days);
+
+                    if (recentAvg < olderAvg - 2) paymentTrend = "Improving";
+                    else if (recentAvg > olderAvg + 2) paymentTrend = "Declining";
+                }
+
+                // Generate monthly performance
+                var monthlyPerformance = new List<MonthlyPaymentPerformanceDto>();
+                for (int i = monthsBack - 1; i >= 0; i--)
+                {
+                    var monthStart = DateTime.UtcNow.AddMonths(-i).Date.AddDays(1 - DateTime.UtcNow.AddMonths(-i).Day);
+                    var monthEnd = monthStart.AddMonths(1).AddDays(-1);
+                    
+                    var monthFactures = factures.Where(f => f.InvoiceDate >= monthStart && f.InvoiceDate <= monthEnd).ToList();
+                    var monthOnTime = 0;
+                    var monthLate = 0;
+                    var monthPaymentDays = new List<double>();
+
+                    foreach (var facture in monthFactures.Where(f => f.Status == FactureStatus.Paid))
+                    {
+                        var payment = facture.Payments.Where(p => p.Status == PaymentStatus.Confirmed)
+                            .OrderBy(p => p.PaymentDate).FirstOrDefault();
+                        if (payment != null)
+                        {
+                            var days = (payment.PaymentDate - facture.InvoiceDate).Days;
+                            monthPaymentDays.Add(days);
+                            if (days <= supplier.PaymentTerms) monthOnTime++; else monthLate++;
+                        }
+                    }
+
+                    monthlyPerformance.Add(new MonthlyPaymentPerformanceDto
+                    {
+                        Year = monthStart.Year,
+                        Month = monthStart.Month,
+                        MonthName = monthStart.ToString("MMMM yyyy", new CultureInfo("id-ID")),
+                        TotalFactures = monthFactures.Count,
+                        OnTimePayments = monthOnTime,
+                        LatePayments = monthLate,
+                        OnTimeRate = monthFactures.Count > 0 ? (decimal)monthOnTime / monthFactures.Count * 100 : 0,
+                        AveragePaymentDays = monthPaymentDays.Any() ? (decimal)monthPaymentDays.Average() : 0,
+                        TotalInvoiced = monthFactures.Sum(f => f.TotalAmount),
+                        TotalPaid = monthFactures.Sum(f => f.PaidAmount),
+                        TotalInvoicedDisplay = monthFactures.Sum(f => f.TotalAmount).ToString("C", new CultureInfo("id-ID")),
+                        TotalPaidDisplay = monthFactures.Sum(f => f.PaidAmount).ToString("C", new CultureInfo("id-ID"))
+                    });
+                }
+
+                return new SupplierPaymentAnalyticsDto
+                {
+                    SupplierId = supplierId,
+                    SupplierName = supplier.CompanyName,
+                    AnalysisFromDate = analysisFromDate,
+                    AnalysisToDate = analysisToDate,
+                    TotalFactures = totalFactures,
+                    OnTimePayments = onTimePayments,
+                    LatePayments = latePayments,
+                    OnTimePaymentRate = onTimePaymentRate,
+                    AveragePaymentDays = averagePaymentDays,
+                    MedianPaymentDays = medianPaymentDays,
+                    TotalVolumeInvoiced = totalVolumeInvoiced,
+                    TotalVolumePaid = totalVolumePaid,
+                    LargestInvoice = largestInvoice,
+                    SmallestInvoice = smallestInvoice,
+                    AverageInvoiceAmount = averageInvoiceAmount,
+                    PaymentTermDays = supplier.PaymentTerms,
+                    PaymentComplianceScore = paymentComplianceScore,
+                    PaymentTrend = paymentTrend,
+                    TotalVolumeInvoicedDisplay = totalVolumeInvoiced.ToString("C", new CultureInfo("id-ID")),
+                    TotalVolumePaidDisplay = totalVolumePaid.ToString("C", new CultureInfo("id-ID")),
+                    LargestInvoiceDisplay = largestInvoice.ToString("C", new CultureInfo("id-ID")),
+                    AverageInvoiceAmountDisplay = averageInvoiceAmount.ToString("C", new CultureInfo("id-ID")),
+                    MonthlyPerformance = monthlyPerformance
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error retrieving payment analytics for supplier {SupplierId}", supplierId);
+                throw;
+            }
+        }
+
+        public async Task<List<SupplierCreditWarningDto>> GetSuppliersWithCreditWarningsAsync(int? branchId = null, decimal warningThreshold = 80)
+        {
+            try
+            {
+                var query = _context.Suppliers
+                    .Include(s => s.Factures.Where(f => f.OutstandingAmount > 0))
+                    .Where(s => s.IsActive && s.CreditLimit > 0)
+                    .AsQueryable();
+
+                if (branchId.HasValue)
+                {
+                    query = query.Where(s => s.BranchId == branchId.Value || s.BranchId == null);
+                }
+
+                var suppliers = await query.ToListAsync();
+                var warnings = new List<SupplierCreditWarningDto>();
+
+                foreach (var supplier in suppliers)
+                {
+                    var currentOutstanding = supplier.Factures.Sum(f => f.OutstandingAmount);
+                    var creditUtilization = (currentOutstanding / supplier.CreditLimit) * 100;
+
+                    if (creditUtilization >= warningThreshold)
+                    {
+                        var warningLevel = "Warning";
+                        var excessAmount = 0m;
+                        var requiresImmediateAction = false;
+                        var recommendedActions = new List<string>();
+
+                        if (creditUtilization >= 100)
+                        {
+                            warningLevel = "Exceeded";
+                            excessAmount = currentOutstanding - supplier.CreditLimit;
+                            requiresImmediateAction = true;
+                            recommendedActions.Add("Stop accepting new orders");
+                            recommendedActions.Add("Request immediate payment");
+                            recommendedActions.Add("Consider legal action if needed");
+                        }
+                        else if (creditUtilization >= 95)
+                        {
+                            warningLevel = "Critical";
+                            requiresImmediateAction = true;
+                            recommendedActions.Add("Contact supplier immediately");
+                            recommendedActions.Add("Request payment plan");
+                            recommendedActions.Add("Hold new orders pending payment");
+                        }
+                        else
+                        {
+                            recommendedActions.Add("Monitor closely");
+                            recommendedActions.Add("Follow up on outstanding invoices");
+                        }
+
+                        warnings.Add(new SupplierCreditWarningDto
+                        {
+                            SupplierId = supplier.Id,
+                            SupplierName = supplier.CompanyName,
+                            SupplierCode = supplier.SupplierCode,
+                            CreditLimit = supplier.CreditLimit,
+                            CurrentOutstanding = currentOutstanding,
+                            CreditUtilization = creditUtilization,
+                            WarningThreshold = warningThreshold,
+                            ExcessAmount = excessAmount,
+                            WarningLevel = warningLevel,
+                            LastUpdated = _timezoneService.UtcToLocal(DateTime.UtcNow),
+                            CreditLimitDisplay = supplier.CreditLimit.ToString("C", new CultureInfo("id-ID")),
+                            CurrentOutstandingDisplay = currentOutstanding.ToString("C", new CultureInfo("id-ID")),
+                            CreditUtilizationDisplay = $"{creditUtilization:F1}%",
+                            ExcessAmountDisplay = excessAmount.ToString("C", new CultureInfo("id-ID")),
+                            RequiresImmediateAction = requiresImmediateAction,
+                            RecommendedActions = recommendedActions
+                        });
+                    }
+                }
+
+                return warnings.OrderByDescending(w => w.CreditUtilization).ToList();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error retrieving credit warnings for branch {BranchId}", branchId);
+                throw;
+            }
+        }
+
+        public async Task<SupplierPaymentScheduleDto> GetSupplierPaymentScheduleAsync(int supplierId, int daysAhead = 30)
+        {
+            try
+            {
+                var supplier = await _context.Suppliers.FindAsync(supplierId);
+                if (supplier == null)
+                    throw new InvalidOperationException($"Supplier with ID {supplierId} not found.");
+
+                var scheduleToDate = DateTime.UtcNow.AddDays(daysAhead);
+                
+                var factures = await _context.Factures
+                    .Include(f => f.Payments)
+                    .Where(f => f.SupplierId == supplierId && 
+                               f.OutstandingAmount > 0 &&
+                               (f.DueDate <= scheduleToDate || f.IsOverdue))
+                    .OrderBy(f => f.DueDate)
+                    .ToListAsync();
+
+                var upcomingPayments = factures
+                    .Where(f => !f.IsOverdue)
+                    .Select(f => new UpcomingPaymentDto
+                    {
+                        FactureId = f.Id,
+                        InternalReferenceNumber = f.InternalReferenceNumber,
+                        SupplierInvoiceNumber = f.SupplierInvoiceNumber,
+                        DueDate = f.DueDate,
+                        Amount = f.OutstandingAmount,
+                        DaysUntilDue = f.DaysUntilDue,
+                        Priority = f.PriorityDisplay,
+                        AmountDisplay = f.OutstandingAmountDisplay,
+                        IsDueToday = f.DaysUntilDue == 0,
+                        IsDueSoon = f.DaysUntilDue <= 7,
+                        HasScheduledPayment = f.Payments.Any(p => p.Status == PaymentStatus.Scheduled),
+                        ScheduledPaymentDate = f.Payments.Where(p => p.Status == PaymentStatus.Scheduled)
+                                                        .OrderBy(p => p.PaymentDate)
+                                                        .FirstOrDefault()?.PaymentDate
+                    })
+                    .ToList();
+
+                var overduePayments = factures
+                    .Where(f => f.IsOverdue)
+                    .Select(f => new OverduePaymentDto
+                    {
+                        FactureId = f.Id,
+                        InternalReferenceNumber = f.InternalReferenceNumber,
+                        SupplierInvoiceNumber = f.SupplierInvoiceNumber,
+                        DueDate = f.DueDate,
+                        Amount = f.OutstandingAmount,
+                        DaysOverdue = f.DaysOverdue,
+                        AmountDisplay = f.OutstandingAmountDisplay,
+                        UrgencyLevel = f.DaysOverdue > 30 ? "Critical" : f.DaysOverdue > 7 ? "High" : "Medium",
+                        RequiresImmediateAction = f.DaysOverdue > 7
+                    })
+                    .ToList();
+
+                var totalUpcoming = upcomingPayments.Sum(p => p.Amount);
+                var totalOverdue = overduePayments.Sum(p => p.Amount);
+                var amountDueToday = upcomingPayments.Where(p => p.IsDueToday).Sum(p => p.Amount);
+                var amountDueThisWeek = upcomingPayments.Where(p => p.DaysUntilDue <= 7).Sum(p => p.Amount);
+
+                return new SupplierPaymentScheduleDto
+                {
+                    SupplierId = supplierId,
+                    SupplierName = supplier.CompanyName,
+                    ScheduleFromDate = DateTime.UtcNow.Date,
+                    ScheduleToDate = scheduleToDate,
+                    TotalUpcomingPayments = upcomingPayments.Count,
+                    TotalUpcomingAmount = totalUpcoming,
+                    OverduePaymentsCount = overduePayments.Count,
+                    OverdueAmount = totalOverdue,
+                    PaymentsDueToday = upcomingPayments.Count(p => p.IsDueToday),
+                    AmountDueToday = amountDueToday,
+                    PaymentsDueThisWeek = upcomingPayments.Count(p => p.DaysUntilDue <= 7),
+                    AmountDueThisWeek = amountDueThisWeek,
+                    TotalUpcomingAmountDisplay = totalUpcoming.ToString("C", new CultureInfo("id-ID")),
+                    OverdueAmountDisplay = totalOverdue.ToString("C", new CultureInfo("id-ID")),
+                    AmountDueTodayDisplay = amountDueToday.ToString("C", new CultureInfo("id-ID")),
+                    AmountDueThisWeekDisplay = amountDueThisWeek.ToString("C", new CultureInfo("id-ID")),
+                    UpcomingPayments = upcomingPayments,
+                    OverduePayments = overduePayments
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error retrieving payment schedule for supplier {SupplierId}", supplierId);
+                throw;
+            }
+        }
+
         // ==================== HELPER METHODS ==================== //
 
         private static List<int>? GetAccessibleBranchIds(User? user)

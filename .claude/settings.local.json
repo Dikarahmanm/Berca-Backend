@@ -12,7 +12,9 @@
       "Bash(sqlcmd:*)",
       "Bash(dotnet run:*)",
       "Bash(del:*)",
-      "Bash(dotnet ef migrations:*)"
+      "Bash(dotnet ef migrations:*)",
+      "Bash(rm:*)",
+      "Bash(dotnet ef dbcontext script:*)"
     ],
     "deny": [],
     "ask": [],

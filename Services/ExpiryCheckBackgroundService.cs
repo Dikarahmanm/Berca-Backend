@@ -12,7 +12,6 @@ namespace Berca_Backend.Services
     {
         private readonly IServiceProvider _serviceProvider;
         private readonly ILogger<ExpiryCheckBackgroundService> _logger;
-        private Timer? _timer;
 
         public ExpiryCheckBackgroundService(
             IServiceProvider serviceProvider,
@@ -169,13 +168,11 @@ namespace Berca_Backend.Services
         public override async Task StopAsync(CancellationToken stoppingToken)
         {
             _logger.LogInformation("🛑 ExpiryCheckBackgroundService is stopping");
-            _timer?.Dispose();
             await base.StopAsync(stoppingToken);
         }
 
         public override void Dispose()
         {
-            _timer?.Dispose();
             base.Dispose();
         }
     }
