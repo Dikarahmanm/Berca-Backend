@@ -390,6 +390,9 @@ builder.Services.AddScoped<IInventoryTransferService, InventoryTransferService>(
 builder.Services.AddScoped<ISupplierService, SupplierService>();
 builder.Services.AddScoped<IFactureService, FactureService>();
 
+// ✅ Add Member Credit Background Service
+builder.Services.AddMemberCreditBackgroundService();
+
 // ✅ Add Swagger
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>
