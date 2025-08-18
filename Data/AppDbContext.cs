@@ -42,6 +42,10 @@ namespace Berca_Backend.Data
         public DbSet<FactureItem> FactureItems { get; set; }
         public DbSet<FacturePayment> FacturePayments { get; set; }
         
+        // ==================== MEMBER CREDIT SYSTEM DBSETS ==================== //
+        public DbSet<MemberCreditTransaction> MemberCreditTransactions { get; set; }
+        public DbSet<MemberPaymentReminder> MemberPaymentReminders { get; set; }
+        
         protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
         {
             base.OnConfiguring(optionsBuilder);
@@ -1952,6 +1956,130 @@ namespace Berca_Backend.Data
 
                 entity.HasIndex(fp => new { fp.Status, fp.PaymentDate })
                       .HasDatabaseName("IX_FacturePayments_Status_PaymentDate");
+            });
+
+            // ==================== MEMBER CREDIT TRANSACTION CONFIGURATION ==================== //
+            modelBuilder.Entity<MemberCreditTransaction>(entity =>
+            {
+                entity.HasKey(mct => mct.Id);
+                entity.Property(mct => mct.Id).ValueGeneratedOnAdd();
+
+                entity.Property(mct => mct.Amount)
+                    .HasColumnType("decimal(18,2)")
+                    .IsRequired();
+
+                entity.Property(mct => mct.Description)
+                    .IsRequired()
+                    .HasMaxLength(500);
+
+                entity.Property(mct => mct.ReferenceNumber)
+                    .HasMaxLength(100);
+
+                entity.Property(mct => mct.Notes)
+                    .HasMaxLength(1000);
+
+                // Relationships
+                entity.HasOne(mct => mct.Member)
+                    .WithMany(m => m.CreditTransactions)
+                    .HasForeignKey(mct => mct.MemberId)
+                    .OnDelete(DeleteBehavior.Cascade);
+
+                entity.HasOne(mct => mct.CreatedByUser)
+                    .WithMany()
+                    .HasForeignKey(mct => mct.CreatedBy)
+                    .OnDelete(DeleteBehavior.Restrict);
+
+                entity.HasOne(mct => mct.Branch)
+                    .WithMany()
+                    .HasForeignKey(mct => mct.BranchId)
+                    .OnDelete(DeleteBehavior.SetNull);
+
+                // Indexes for performance
+                entity.HasIndex(mct => mct.MemberId)
+                    .HasDatabaseName("IX_MemberCreditTransactions_MemberId");
+
+                entity.HasIndex(mct => mct.TransactionDate)
+                    .HasDatabaseName("IX_MemberCreditTransactions_TransactionDate");
+
+                entity.HasIndex(mct => mct.Type)
+                    .HasDatabaseName("IX_MemberCreditTransactions_Type");
+
+                entity.HasIndex(mct => mct.Status)
+                    .HasDatabaseName("IX_MemberCreditTransactions_Status");
+
+                entity.HasIndex(mct => mct.DueDate)
+                    .HasDatabaseName("IX_MemberCreditTransactions_DueDate");
+
+                entity.HasIndex(mct => new { mct.MemberId, mct.Type, mct.Status })
+                    .HasDatabaseName("IX_MemberCreditTransactions_Member_Type_Status");
+
+                entity.HasIndex(mct => new { mct.Type, mct.DueDate })
+                    .HasDatabaseName("IX_MemberCreditTransactions_Type_DueDate");
+            });
+
+            // ==================== MEMBER PAYMENT REMINDER CONFIGURATION ==================== //
+            modelBuilder.Entity<MemberPaymentReminder>(entity =>
+            {
+                entity.HasKey(mpr => mpr.Id);
+                entity.Property(mpr => mpr.Id).ValueGeneratedOnAdd();
+
+                entity.Property(mpr => mpr.DueAmount)
+                    .HasColumnType("decimal(18,2)")
+                    .IsRequired();
+
+                entity.Property(mpr => mpr.ResponseAmount)
+                    .HasColumnType("decimal(18,2)");
+
+                entity.Property(mpr => mpr.Message)
+                    .IsRequired()
+                    .HasMaxLength(1000);
+
+                entity.Property(mpr => mpr.ContactMethod)
+                    .HasMaxLength(100);
+
+                entity.Property(mpr => mpr.Notes)
+                    .HasMaxLength(500);
+
+                // Relationships
+                entity.HasOne(mpr => mpr.Member)
+                    .WithMany(m => m.PaymentReminders)
+                    .HasForeignKey(mpr => mpr.MemberId)
+                    .OnDelete(DeleteBehavior.Cascade);
+
+                entity.HasOne(mpr => mpr.CreatedByUser)
+                    .WithMany()
+                    .HasForeignKey(mpr => mpr.CreatedBy)
+                    .OnDelete(DeleteBehavior.Restrict);
+
+                entity.HasOne(mpr => mpr.Branch)
+                    .WithMany()
+                    .HasForeignKey(mpr => mpr.BranchId)
+                    .OnDelete(DeleteBehavior.SetNull);
+
+                // Indexes for collections and reminder management
+                entity.HasIndex(mpr => mpr.MemberId)
+                    .HasDatabaseName("IX_MemberPaymentReminders_MemberId");
+
+                entity.HasIndex(mpr => mpr.ReminderDate)
+                    .HasDatabaseName("IX_MemberPaymentReminders_ReminderDate");
+
+                entity.HasIndex(mpr => mpr.NextReminderDate)
+                    .HasDatabaseName("IX_MemberPaymentReminders_NextReminderDate");
+
+                entity.HasIndex(mpr => mpr.Status)
+                    .HasDatabaseName("IX_MemberPaymentReminders_Status");
+
+                entity.HasIndex(mpr => mpr.ReminderType)
+                    .HasDatabaseName("IX_MemberPaymentReminders_ReminderType");
+
+                entity.HasIndex(mpr => mpr.Priority)
+                    .HasDatabaseName("IX_MemberPaymentReminders_Priority");
+
+                entity.HasIndex(mpr => new { mpr.MemberId, mpr.Status })
+                    .HasDatabaseName("IX_MemberPaymentReminders_Member_Status");
+
+                entity.HasIndex(mpr => new { mpr.NextReminderDate, mpr.Status })
+                    .HasDatabaseName("IX_MemberPaymentReminders_NextReminder_Status");
             });
         }
     }
