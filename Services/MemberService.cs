@@ -1169,7 +1169,7 @@ namespace Berca_Backend.Services
             return "Low";
         }
 
-        private string GetRecommendedAction(int daysOverdue, int remindersSent)
+        private static string GetRecommendedAction(int daysOverdue, int remindersSent)
         {
             return daysOverdue switch
             {
@@ -1182,7 +1182,7 @@ namespace Berca_Backend.Services
             };
         }
 
-        private string GetCollectionPriority(int daysOverdue, decimal debtAmount)
+        private static string GetCollectionPriority(int daysOverdue, decimal debtAmount)
         {
             if (daysOverdue > 90 || debtAmount > 5000000) return "Critical";
             if (daysOverdue > 60 || debtAmount > 2000000) return "High";
