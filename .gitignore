@@ -371,3 +371,4 @@ FodyWeavers.xsd
 /AddSuppliersTableManual.sql
 /CreateSuppliersTableOnly.sql
 /facture_tables.sql
+/swagger.json

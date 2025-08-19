@@ -92,9 +92,73 @@ builder.Services.AddAuthorization(options =>
     options.AddPolicy("Global.Access", policy =>
         policy.RequireRole("Admin"));
 
-    // Multi-branch management - Admin + HeadManager
-    options.AddPolicy("MultiBranch.Access", policy =>
+    // ===== MEMBER CREDIT SYSTEM POLICIES ===== //
+
+    // Credit granting operations - High-level approval required
+    options.AddPolicy("Membership.GrantCredit", policy =>
+        policy.RequireRole("Admin", "HeadManager", "BranchManager"));
+
+    // Payment recording operations - Operational staff can record payments
+    options.AddPolicy("Membership.RecordPayment", policy =>
+        policy.RequireRole("Admin", "HeadManager", "BranchManager", "Manager", "User"));
+
+    // Credit status updates - Management approval required
+    options.AddPolicy("Membership.UpdateCredit", policy =>
+        policy.RequireRole("Admin", "HeadManager", "BranchManager"));
+
+    // Collections management - Staff can assist with collections
+    options.AddPolicy("Membership.Collections", policy =>
+        policy.RequireRole("Admin", "HeadManager", "BranchManager", "Manager"));
+
+    // Credit analytics and reporting - Management and staff can view
+    options.AddPolicy("Membership.Analytics", policy =>
+        policy.RequireRole("Admin", "HeadManager", "BranchManager", "Manager"));
+
+    // Credit eligibility checking - Operational staff can check eligibility
+    options.AddPolicy("Membership.CheckEligibility", policy =>
+        policy.RequireRole("Admin", "HeadManager", "BranchManager", "Manager", "User"));
+
+    // Payment reminders - Management can send reminders
+    options.AddPolicy("Membership.SendReminders", policy =>
+        policy.RequireRole("Admin", "HeadManager", "BranchManager", "Manager"));
+
+    // Credit history access - All authorized users can view history
+    options.AddPolicy("Membership.CreditHistory", policy =>
+        policy.RequireRole("Admin", "HeadManager", "BranchManager", "Manager", "User"));
+
+    // Bulk credit operations - Admin/HeadManager only for safety
+    options.AddPolicy("Membership.BulkCredit", policy =>
         policy.RequireRole("Admin", "HeadManager"));
+
+    // ===== EXPIRY MANAGEMENT SYSTEM POLICIES ===== //
+
+    // Expiry data access - All operational staff can view expiry data
+    options.AddPolicy("Expiry.Read", policy =>
+        policy.RequireRole("Admin", "HeadManager", "BranchManager", "Manager", "User"));
+
+    // Batch management - Operational staff can manage batches
+    options.AddPolicy("Expiry.Write", policy =>
+        policy.RequireRole("Admin", "HeadManager", "BranchManager", "Manager", "User"));
+
+    // Disposal operations - Management approval required for disposal
+    options.AddPolicy("Expiry.Dispose", policy =>
+        policy.RequireRole("Admin", "HeadManager", "BranchManager", "Manager"));
+
+    // FIFO operations - Operational staff can process FIFO sales
+    options.AddPolicy("Expiry.FIFO", policy =>
+        policy.RequireRole("Admin", "HeadManager", "BranchManager", "Manager", "User"));
+
+    // Expiry analytics - Management can view analytics
+    options.AddPolicy("Expiry.Analytics", policy =>
+        policy.RequireRole("Admin", "HeadManager", "BranchManager", "Manager"));
+
+    // Expiry notifications - Staff can manage notifications
+    options.AddPolicy("Expiry.Notifications", policy =>
+        policy.RequireRole("Admin", "HeadManager", "BranchManager", "Manager", "User"));
+
+    // Daily expiry checks - Automated background service access
+    options.AddPolicy("Expiry.BackgroundTasks", policy =>
+        policy.RequireRole("Admin", "HeadManager", "BranchManager", "Manager"));
 
     // ===== BRANCH MANAGEMENT POLICIES ===== //
 
@@ -389,6 +453,9 @@ builder.Services.AddScoped<IConsolidatedReportService, ConsolidatedReportService
 builder.Services.AddScoped<IInventoryTransferService, InventoryTransferService>();
 builder.Services.AddScoped<ISupplierService, SupplierService>();
 builder.Services.AddScoped<IFactureService, FactureService>();
+
+// ✅ Add ExpiryManagement service
+builder.Services.AddScoped<Berca_Backend.Services.Interfaces.IExpiryManagementService, Berca_Backend.Services.ExpiryManagementService>();
 
 // ✅ Add Member Credit Background Service
 builder.Services.AddMemberCreditBackgroundService();

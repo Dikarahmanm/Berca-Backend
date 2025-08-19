@@ -32,7 +32,7 @@ namespace Berca_Backend.Controllers
         /// <param name="memberId">Member ID</param>
         /// <param name="request">Credit grant request</param>
         [HttpPost("{memberId}/credit/grant")]
-        [Authorize(Roles = "Manager,Cashier")]
+        [Authorize(Policy = "Membership.GrantCredit")]
         public async Task<IActionResult> GrantCredit(int memberId, [FromBody] GrantCreditDto request)
         {
             try
@@ -85,7 +85,7 @@ namespace Berca_Backend.Controllers
         /// <param name="memberId">Member ID</param>
         /// <param name="request">Payment record request</param>
         [HttpPost("{memberId}/credit/payment")]
-        [Authorize(Roles = "Manager,Cashier")]
+        [Authorize(Policy = "Membership.RecordPayment")]
         public async Task<IActionResult> RecordPayment(int memberId, [FromBody] RecordPaymentDto request)
         {
             try
@@ -129,7 +129,7 @@ namespace Berca_Backend.Controllers
         /// <param name="memberId">Member ID</param>
         /// <param name="amount">Requested credit amount</param>
         [HttpGet("{memberId}/credit/eligibility")]
-        [Authorize(Roles = "Manager,Cashier")]
+        [Authorize(Policy = "Membership.CheckEligibility")]
         public async Task<IActionResult> CheckCreditEligibility(int memberId, [FromQuery] decimal amount)
         {
             try
@@ -151,7 +151,7 @@ namespace Berca_Backend.Controllers
         /// </summary>
         /// <param name="memberId">Member ID</param>
         [HttpGet("{memberId}/credit/summary")]
-        [Authorize(Roles = "Manager,Cashier,Viewer")]
+        [Authorize(Policy = "Membership.CreditHistory")]
         public async Task<IActionResult> GetCreditSummary(int memberId)
         {
             try
@@ -172,7 +172,7 @@ namespace Berca_Backend.Controllers
         /// <param name="memberId">Member ID</param>
         /// <param name="days">Number of days to look back (default 90)</param>
         [HttpGet("{memberId}/credit/history")]
-        [Authorize(Roles = "Manager,Cashier,Viewer")]
+        [Authorize(Policy = "Membership.CreditHistory")]
         public async Task<IActionResult> GetCreditHistory(int memberId, [FromQuery] int days = 90)
         {
             try
@@ -194,7 +194,7 @@ namespace Berca_Backend.Controllers
         /// </summary>
         /// <param name="branchId">Optional branch filter</param>
         [HttpGet("collections/overdue")]
-        [Authorize(Roles = "Manager,Cashier")]
+        [Authorize(Policy = "Membership.Collections")]
         public async Task<IActionResult> GetOverdueMembers([FromQuery] int? branchId = null)
         {
             try
@@ -214,7 +214,7 @@ namespace Berca_Backend.Controllers
         /// </summary>
         /// <param name="threshold">Credit utilization threshold percentage (default 80%)</param>
         [HttpGet("collections/approaching-limit")]
-        [Authorize(Roles = "Manager,Cashier")]
+        [Authorize(Policy = "Membership.Collections")]
         public async Task<IActionResult> GetMembersApproachingLimit([FromQuery] decimal threshold = 80)
         {
             try
@@ -234,7 +234,7 @@ namespace Berca_Backend.Controllers
         /// </summary>
         /// <param name="memberId">Member ID</param>
         [HttpPut("{memberId}/credit/status")]
-        [Authorize(Roles = "Manager")]
+        [Authorize(Policy = "Membership.UpdateCredit")]
         public async Task<IActionResult> UpdateCreditStatus(int memberId)
         {
             try
@@ -268,7 +268,7 @@ namespace Berca_Backend.Controllers
         /// </summary>
         /// <param name="memberId">Member ID</param>
         [HttpPut("{memberId}/credit/limit")]
-        [Authorize(Roles = "Manager")]
+        [Authorize(Policy = "Membership.UpdateCredit")]
         public async Task<IActionResult> UpdateCreditLimit(int memberId)
         {
             try
@@ -299,7 +299,7 @@ namespace Berca_Backend.Controllers
         /// </summary>
         /// <param name="reminderDate">Date to check reminders for (default today)</param>
         [HttpGet("reminders")]
-        [Authorize(Roles = "Manager,Cashier")]
+        [Authorize(Policy = "Membership.SendReminders")]
         public async Task<IActionResult> GetPaymentReminders([FromQuery] DateTime? reminderDate = null)
         {
             try
@@ -319,7 +319,7 @@ namespace Berca_Backend.Controllers
         /// </summary>
         /// <param name="memberId">Member ID</param>
         [HttpPost("{memberId}/reminders/send")]
-        [Authorize(Roles = "Manager,Cashier")]
+        [Authorize(Policy = "Membership.SendReminders")]
         public async Task<IActionResult> SendPaymentReminder(int memberId)
         {
             try
@@ -351,7 +351,7 @@ namespace Berca_Backend.Controllers
         /// <param name="startDate">Start date for analysis (default 30 days ago)</param>
         /// <param name="endDate">End date for analysis (default today)</param>
         [HttpGet("analytics")]
-        [Authorize(Roles = "Manager")]
+        [Authorize(Policy = "Membership.Analytics")]
         public async Task<IActionResult> GetCreditAnalytics(
             [FromQuery] int? branchId = null,
             [FromQuery] DateTime? startDate = null,
@@ -378,7 +378,7 @@ namespace Berca_Backend.Controllers
         /// </summary>
         /// <param name="memberId">Member ID</param>
         [HttpGet("{memberId}/credit/score")]
-        [Authorize(Roles = "Manager,Cashier,Viewer")]
+        [Authorize(Policy = "Membership.CreditHistory")]
         public async Task<IActionResult> GetCreditScore(int memberId)
         {
             try
@@ -416,7 +416,7 @@ namespace Berca_Backend.Controllers
         /// </summary>
         /// <param name="branchId">Optional branch filter</param>
         [HttpPost("reminders/bulk-send")]
-        [Authorize(Roles = "Manager")]
+        [Authorize(Policy = "Membership.BulkCredit")]
         public async Task<IActionResult> SendBulkPaymentReminders([FromQuery] int? branchId = null)
         {
             try
@@ -468,7 +468,7 @@ namespace Berca_Backend.Controllers
         /// Update credit status for all members (maintenance operation)
         /// </summary>
         [HttpPost("maintenance/update-all-status")]
-        [Authorize(Roles = "Manager")]
+        [Authorize(Policy = "Membership.BulkCredit")]
         public async Task<IActionResult> UpdateAllCreditStatuses()
         {
             try
