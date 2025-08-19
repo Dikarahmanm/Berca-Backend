@@ -46,6 +46,11 @@ namespace Berca_Backend.Data
         public DbSet<MemberCreditTransaction> MemberCreditTransactions { get; set; }
         public DbSet<MemberPaymentReminder> MemberPaymentReminders { get; set; }
         
+        // ==================== PUSH NOTIFICATION SYSTEM DBSETS ==================== //
+        public DbSet<PushSubscription> PushSubscriptions { get; set; }
+        public DbSet<NotificationTemplate> NotificationTemplates { get; set; }
+        public DbSet<PushNotificationLog> PushNotificationLogs { get; set; }
+        
         protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
         {
             base.OnConfiguring(optionsBuilder);
