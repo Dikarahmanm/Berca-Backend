@@ -78,6 +78,9 @@ namespace Berca_Backend.Services
                 // Task 4: Generate risk alerts for high-risk members
                 await GenerateRiskAlerts(memberService, cancellationToken);
 
+                // Task 5: Send daily credit summary notification
+                await SendDailyCreditSummary(memberService, cancellationToken);
+
                 _logger.LogInformation("Completed daily credit management tasks for {Date}", today);
             }
         }
@@ -91,6 +94,9 @@ namespace Berca_Backend.Services
             {
                 _logger.LogInformation("Starting credit status updates");
 
+                using var scope = _serviceProvider.CreateScope();
+                var notificationService = scope.ServiceProvider.GetService<INotificationService>();
+
                 // Get analytics to determine how many members need processing
                 var analytics = await memberService.GetCreditAnalyticsAsync();
                 var totalMembers = analytics.TotalMembersWithCredit;
@@ -103,6 +109,7 @@ namespace Berca_Backend.Services
                 
                 int updatedCount = 0;
                 int errorCount = 0;
+                int notificationsCreated = 0;
 
                 foreach (var member in overdueMembers)
                 {
@@ -114,6 +121,21 @@ namespace Berca_Backend.Services
                         if (success)
                         {
                             updatedCount++;
+
+                            // CREATE NOTIFICATION for overdue member
+                            if (notificationService != null)
+                            {
+                                var notificationSent = await notificationService.CreateMemberDebtOverdueNotificationAsync(
+                                    member.MemberId,
+                                    member.MemberName,
+                                    member.TotalDebt,
+                                    member.DaysOverdue);
+                                
+                                if (notificationSent)
+                                {
+                                    notificationsCreated++;
+                                }
+                            }
                         }
                         else
                         {
@@ -130,8 +152,8 @@ namespace Berca_Backend.Services
                     await Task.Delay(100, cancellationToken);
                 }
 
-                _logger.LogInformation("Credit status update completed: {Updated} updated, {Errors} errors", 
-                    updatedCount, errorCount);
+                _logger.LogInformation("Credit status update completed: {Updated} updated, {Errors} errors, {Notifications} notifications created", 
+                    updatedCount, errorCount, notificationsCreated);
             }
             catch (Exception ex)
             {
@@ -255,6 +277,51 @@ namespace Berca_Backend.Services
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error in risk alert generation task");
+            }
+        }
+
+        /// <summary>
+        /// Send daily credit summary notification to managers
+        /// </summary>
+        private async Task SendDailyCreditSummary(IMemberService memberService, CancellationToken cancellationToken)
+        {
+            try
+            {
+                _logger.LogInformation("Sending daily credit summary notification");
+
+                using var scope = _serviceProvider.CreateScope();
+                var notificationService = scope.ServiceProvider.GetService<INotificationService>();
+
+                if (notificationService != null)
+                {
+                    var overdueMembers = await memberService.GetOverdueMembersAsync();
+                    var totalOverdueAmount = overdueMembers.Sum(m => m.TotalDebt);
+                    
+                    // Calculate new defaulters (simplified - in production you'd track this properly)
+                    var newDefaultersToday = overdueMembers.Count(m => m.DaysOverdue <= 1);
+
+                    var success = await notificationService.BroadcastDailyCreditSummaryAsync(
+                        overdueMembers.Count,
+                        totalOverdueAmount,
+                        newDefaultersToday);
+
+                    if (success)
+                    {
+                        _logger.LogInformation("Daily credit summary notification sent successfully");
+                    }
+                    else
+                    {
+                        _logger.LogWarning("Failed to send daily credit summary notification");
+                    }
+                }
+                else
+                {
+                    _logger.LogWarning("NotificationService not available for daily credit summary");
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error sending daily credit summary notification");
             }
         }
 

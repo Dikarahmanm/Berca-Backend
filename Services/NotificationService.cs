@@ -964,5 +964,423 @@ namespace Berca_Backend.Services
                 throw;
             }
         }
+
+        // ==================== MEMBER CREDIT NOTIFICATION IMPLEMENTATIONS ==================== //
+
+        public async Task<bool> CreateMemberDebtOverdueNotificationAsync(int memberId, string memberName, decimal overdueAmount, int daysOverdue)
+        {
+            try
+            {
+                var urgencyLevel = daysOverdue switch
+                {
+                    <= 7 => "⚠️",
+                    <= 30 => "🔶",
+                    _ => "🔴"
+                };
+
+                var formattedAmount = overdueAmount.ToString("C0", new System.Globalization.CultureInfo("id-ID"));
+                var priority = daysOverdue > 30 ? NotificationPriority.Critical : NotificationPriority.High;
+
+                var notification = new Notification
+                {
+                    Type = MemberCreditNotificationTypes.MEMBER_DEBT_OVERDUE,
+                    Title = $"{urgencyLevel} Hutang Member Terlambat",
+                    Message = $"{memberName} memiliki tunggakan {formattedAmount} yang sudah terlambat {daysOverdue} hari. Segera lakukan penagihan.",
+                    Priority = priority,
+                    IsRead = false,
+                    CreatedAt = _timezoneService.Now,
+                    CreatedBy = "System",
+                    UserId = null, // Broadcast to managers
+                    ActionUrl = $"/dashboard/member-credit/{memberId}",
+                    ActionText = "Lihat Detail",
+                    RelatedEntity = "Member",
+                    RelatedEntityId = memberId
+                };
+
+                _context.Notifications.Add(notification);
+                await _context.SaveChangesAsync();
+
+                // Broadcast to relevant roles
+                await BroadcastToRoleAsync("Admin", notification.Type, notification.Title, notification.Message, notification.ActionUrl);
+                await BroadcastToRoleAsync("Manager", notification.Type, notification.Title, notification.Message, notification.ActionUrl);
+
+                _logger.LogWarning("Created overdue debt notification for member {MemberName}: {Amount}, {Days} days", memberName, formattedAmount, daysOverdue);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to create overdue debt notification for member {MemberId}", memberId);
+                return false;
+            }
+        }
+
+        public async Task<bool> CreateMemberCreditLimitWarningNotificationAsync(int memberId, string memberName, decimal currentDebt, decimal creditLimit)
+        {
+            try
+            {
+                var utilizationPercentage = (currentDebt / creditLimit) * 100;
+                var formattedDebt = currentDebt.ToString("C0", new System.Globalization.CultureInfo("id-ID"));
+                var formattedLimit = creditLimit.ToString("C0", new System.Globalization.CultureInfo("id-ID"));
+
+                var notification = new Notification
+                {
+                    Type = MemberCreditNotificationTypes.MEMBER_CREDIT_LIMIT_WARNING,
+                    Title = "⚠️ Batas Kredit Member Mendekati Limit",
+                    Message = $"{memberName} telah menggunakan {utilizationPercentage:F1}% dari batas kredit ({formattedDebt} dari {formattedLimit}). Perhatikan pembayaran selanjutnya.",
+                    Priority = NotificationPriority.Normal,
+                    IsRead = false,
+                    CreatedAt = _timezoneService.Now,
+                    CreatedBy = "System",
+                    UserId = null, // Broadcast to staff
+                    ActionUrl = $"/dashboard/member-credit/{memberId}",
+                    ActionText = "Lihat Detail",
+                    RelatedEntity = "Member",
+                    RelatedEntityId = memberId
+                };
+
+                _context.Notifications.Add(notification);
+                await _context.SaveChangesAsync();
+
+                // Broadcast to relevant roles
+                await BroadcastToRoleAsync("Admin", notification.Type, notification.Title, notification.Message, notification.ActionUrl);
+                await BroadcastToRoleAsync("Manager", notification.Type, notification.Title, notification.Message, notification.ActionUrl);
+                await BroadcastToRoleAsync("User", notification.Type, notification.Title, notification.Message, notification.ActionUrl);
+
+                _logger.LogInformation("Created credit limit warning for member {MemberName}: {Utilization:F1}% utilized", memberName, utilizationPercentage);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to create credit limit warning for member {MemberId}", memberId);
+                return false;
+            }
+        }
+
+        public async Task<bool> CreatePaymentReceivedNotificationAsync(int memberId, string memberName, decimal paymentAmount)
+        {
+            try
+            {
+                var formattedAmount = paymentAmount.ToString("C0", new System.Globalization.CultureInfo("id-ID"));
+
+                var notification = new Notification
+                {
+                    Type = MemberCreditNotificationTypes.PAYMENT_RECEIVED,
+                    Title = "✅ Pembayaran Diterima",
+                    Message = $"Pembayaran sebesar {formattedAmount} dari {memberName} telah diterima dan diproses.",
+                    Priority = NotificationPriority.Normal,
+                    IsRead = false,
+                    CreatedAt = _timezoneService.Now,
+                    CreatedBy = "System",
+                    UserId = null, // Broadcast to managers
+                    ActionUrl = $"/dashboard/member-credit/{memberId}",
+                    ActionText = "Lihat Detail",
+                    RelatedEntity = "Member",
+                    RelatedEntityId = memberId
+                };
+
+                _context.Notifications.Add(notification);
+                await _context.SaveChangesAsync();
+
+                _logger.LogInformation("Created payment received notification for member {MemberName}: {Amount}", memberName, formattedAmount);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to create payment received notification for member {MemberId}", memberId);
+                return false;
+            }
+        }
+
+        public async Task<bool> CreateCreditStatusChangeNotificationAsync(int memberId, string memberName, string oldStatus, string newStatus)
+        {
+            try
+            {
+                var statusIcon = newStatus switch
+                {
+                    "Good" => "✅",
+                    "Warning" => "⚠️",
+                    "Overdue" => "🔶",
+                    "Suspended" => "🔴",
+                    "Blacklisted" => "❌",
+                    _ => "ℹ️"
+                };
+
+                var notification = new Notification
+                {
+                    Type = MemberCreditNotificationTypes.CREDIT_STATUS_CHANGE,
+                    Title = $"{statusIcon} Status Kredit Member Berubah",
+                    Message = $"Status kredit {memberName} telah berubah dari '{oldStatus}' menjadi '{newStatus}'. Silakan tinjau akun member ini.",
+                    Priority = newStatus == "Suspended" || newStatus == "Blacklisted" ? NotificationPriority.High : NotificationPriority.Normal,
+                    IsRead = false,
+                    CreatedAt = _timezoneService.Now,
+                    CreatedBy = "System",
+                    UserId = null, // Broadcast to managers
+                    ActionUrl = $"/dashboard/member-credit/{memberId}",
+                    ActionText = "Lihat Detail",
+                    RelatedEntity = "Member",
+                    RelatedEntityId = memberId
+                };
+
+                _context.Notifications.Add(notification);
+                await _context.SaveChangesAsync();
+
+                // Broadcast to relevant roles
+                await BroadcastToRoleAsync("Admin", notification.Type, notification.Title, notification.Message, notification.ActionUrl);
+                await BroadcastToRoleAsync("Manager", notification.Type, notification.Title, notification.Message, notification.ActionUrl);
+
+                _logger.LogInformation("Created credit status change notification for member {MemberName}: {OldStatus} -> {NewStatus}", memberName, oldStatus, newStatus);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to create credit status change notification for member {MemberId}", memberId);
+                return false;
+            }
+        }
+
+        public async Task<bool> BroadcastDailyCreditSummaryAsync(int overdueMembers, decimal totalOverdueAmount, int newDefaulters)
+        {
+            try
+            {
+                var formattedAmount = totalOverdueAmount.ToString("C0", new System.Globalization.CultureInfo("id-ID"));
+                var today = _timezoneService.Today.ToString("dd MMM yyyy");
+
+                var summaryMessage = $"""
+                    📅 Ringkasan Kredit Harian - {today}
+                    
+                    🔴 Member dengan tunggakan: {overdueMembers}
+                    💰 Total tunggakan: {formattedAmount}
+                    ⚡ Penunggak baru hari ini: {newDefaulters}
+                    
+                    {(overdueMembers > 0 ? "⚡ Perlu tindakan penagihan!" : "✅ Tidak ada tunggakan baru")}
+                    """;
+
+                var notification = new Notification
+                {
+                    Type = MemberCreditNotificationTypes.DAILY_CREDIT_SUMMARY,
+                    Title = "📊 Ringkasan Kredit Harian",
+                    Message = summaryMessage,
+                    Priority = overdueMembers > 0 || newDefaulters > 0 ? NotificationPriority.High : NotificationPriority.Normal,
+                    IsRead = false,
+                    CreatedAt = _timezoneService.Now,
+                    CreatedBy = "System",
+                    UserId = null, // Broadcast to managers
+                    ActionUrl = "/dashboard/member-credit",
+                    ActionText = "Lihat Detail",
+                    RelatedEntity = "CreditSummary",
+                    RelatedEntityId = null
+                };
+
+                _context.Notifications.Add(notification);
+                await _context.SaveChangesAsync();
+
+                // Broadcast to relevant roles
+                await BroadcastToRoleAsync("Admin", notification.Type, notification.Title, notification.Message, notification.ActionUrl);
+                await BroadcastToRoleAsync("Manager", notification.Type, notification.Title, notification.Message, notification.ActionUrl);
+
+                _logger.LogInformation("Broadcasted daily credit summary: {OverdueMembers} overdue, {TotalAmount} total", overdueMembers, formattedAmount);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to broadcast daily credit summary");
+                return false;
+            }
+        }
+
+        // ==================== SUPPLIER & FACTURE NOTIFICATION IMPLEMENTATIONS ==================== //
+
+        public async Task<bool> CreateFactureDueTodayNotificationAsync(string factureNumber, string supplierName, decimal amount)
+        {
+            try
+            {
+                var formattedAmount = amount.ToString("C0", new System.Globalization.CultureInfo("id-ID"));
+
+                var notification = new Notification
+                {
+                    Type = SupplierNotificationTypes.FACTURE_DUE_TODAY,
+                    Title = "💰 Pembayaran Supplier Jatuh Tempo Hari Ini",
+                    Message = $"Facture {factureNumber} dari {supplierName} senilai {formattedAmount} jatuh tempo hari ini. Segera proses pembayaran.",
+                    Priority = NotificationPriority.High,
+                    IsRead = false,
+                    CreatedAt = _timezoneService.Now,
+                    CreatedBy = "System",
+                    UserId = null, // Broadcast to managers
+                    ActionUrl = $"/dashboard/facture?search={factureNumber}",
+                    ActionText = "Proses Pembayaran",
+                    RelatedEntity = "Facture",
+                    RelatedEntityId = null
+                };
+
+                _context.Notifications.Add(notification);
+                await _context.SaveChangesAsync();
+
+                // Broadcast to relevant roles
+                await BroadcastToRoleAsync("Admin", notification.Type, notification.Title, notification.Message, notification.ActionUrl);
+                await BroadcastToRoleAsync("Manager", notification.Type, notification.Title, notification.Message, notification.ActionUrl);
+
+                _logger.LogInformation("Created due today notification for facture {FactureNumber} from {SupplierName}", factureNumber, supplierName);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to create due today notification for facture {FactureNumber}", factureNumber);
+                return false;
+            }
+        }
+
+        public async Task<bool> CreateFactureOverdueNotificationAsync(string factureNumber, string supplierName, decimal amount, int daysOverdue)
+        {
+            try
+            {
+                var formattedAmount = amount.ToString("C0", new System.Globalization.CultureInfo("id-ID"));
+
+                var notification = new Notification
+                {
+                    Type = SupplierNotificationTypes.FACTURE_OVERDUE,
+                    Title = "🔴 OVERDUE: Pembayaran Supplier Terlambat",
+                    Message = $"Facture {factureNumber} dari {supplierName} senilai {formattedAmount} sudah terlambat {daysOverdue} hari. SEGERA bayar untuk menjaga hubungan supplier!",
+                    Priority = NotificationPriority.Critical,
+                    IsRead = false,
+                    CreatedAt = _timezoneService.Now,
+                    CreatedBy = "System",
+                    UserId = null, // Broadcast to managers
+                    ActionUrl = $"/dashboard/facture?search={factureNumber}",
+                    ActionText = "Bayar Sekarang",
+                    RelatedEntity = "Facture",
+                    RelatedEntityId = null
+                };
+
+                _context.Notifications.Add(notification);
+                await _context.SaveChangesAsync();
+
+                // Broadcast to relevant roles
+                await BroadcastToRoleAsync("Admin", notification.Type, notification.Title, notification.Message, notification.ActionUrl);
+                await BroadcastToRoleAsync("Manager", notification.Type, notification.Title, notification.Message, notification.ActionUrl);
+
+                _logger.LogError("Created overdue notification for facture {FactureNumber}: {Days} days late", factureNumber, daysOverdue);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to create overdue notification for facture {FactureNumber}", factureNumber);
+                return false;
+            }
+        }
+
+        public async Task<bool> CreateSupplierPaymentCompletedNotificationAsync(string supplierName, decimal amount, string factureNumber)
+        {
+            try
+            {
+                var formattedAmount = amount.ToString("C0", new System.Globalization.CultureInfo("id-ID"));
+
+                var notification = new Notification
+                {
+                    Type = SupplierNotificationTypes.SUPPLIER_PAYMENT_COMPLETED,
+                    Title = "✅ Pembayaran Supplier Selesai",
+                    Message = $"Pembayaran sebesar {formattedAmount} untuk {supplierName} (Facture: {factureNumber}) telah berhasil diproses.",
+                    Priority = NotificationPriority.Normal,
+                    IsRead = false,
+                    CreatedAt = _timezoneService.Now,
+                    CreatedBy = "System",
+                    UserId = null, // Broadcast to managers
+                    ActionUrl = $"/dashboard/facture?search={factureNumber}",
+                    ActionText = "Lihat Detail",
+                    RelatedEntity = "Facture",
+                    RelatedEntityId = null
+                };
+
+                _context.Notifications.Add(notification);
+                await _context.SaveChangesAsync();
+
+                _logger.LogInformation("Created payment completed notification for supplier {SupplierName}: {Amount}", supplierName, formattedAmount);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to create payment completed notification for supplier {SupplierName}", supplierName);
+                return false;
+            }
+        }
+
+        public async Task<bool> CreateFactureApprovalRequiredNotificationAsync(string factureNumber, string supplierName, decimal amount, int requestedByUserId)
+        {
+            try
+            {
+                var formattedAmount = amount.ToString("C0", new System.Globalization.CultureInfo("id-ID"));
+
+                var notification = new Notification
+                {
+                    Type = SupplierNotificationTypes.FACTURE_APPROVAL_REQUIRED,
+                    Title = "📋 Persetujuan Facture Diperlukan",
+                    Message = $"Facture {factureNumber} dari {supplierName} senilai {formattedAmount} memerlukan persetujuan sebelum pembayaran.",
+                    Priority = NotificationPriority.High,
+                    IsRead = false,
+                    CreatedAt = _timezoneService.Now,
+                    CreatedBy = "System",
+                    UserId = null, // Broadcast to managers
+                    ActionUrl = $"/dashboard/facture?search={factureNumber}",
+                    ActionText = "Review & Setujui",
+                    RelatedEntity = "Facture",
+                    RelatedEntityId = null
+                };
+
+                _context.Notifications.Add(notification);
+                await _context.SaveChangesAsync();
+
+                // Broadcast to relevant roles
+                await BroadcastToRoleAsync("Admin", notification.Type, notification.Title, notification.Message, notification.ActionUrl);
+                await BroadcastToRoleAsync("Manager", notification.Type, notification.Title, notification.Message, notification.ActionUrl);
+
+                _logger.LogInformation("Created approval required notification for facture {FactureNumber}", factureNumber);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to create approval required notification for facture {FactureNumber}", factureNumber);
+                return false;
+            }
+        }
+
+        public async Task<bool> CreateSupplierCreditWarningNotificationAsync(string supplierName, decimal currentOutstanding, decimal creditLimit)
+        {
+            try
+            {
+                var utilizationPercentage = (currentOutstanding / creditLimit) * 100;
+                var formattedOutstanding = currentOutstanding.ToString("C0", new System.Globalization.CultureInfo("id-ID"));
+                var formattedLimit = creditLimit.ToString("C0", new System.Globalization.CultureInfo("id-ID"));
+
+                var notification = new Notification
+                {
+                    Type = SupplierNotificationTypes.SUPPLIER_CREDIT_WARNING,
+                    Title = "⚠️ Batas Kredit Supplier Mendekati Limit",
+                    Message = $"Outstanding dengan {supplierName} telah mencapai {utilizationPercentage:F1}% dari batas kredit ({formattedOutstanding} dari {formattedLimit}). Perhatikan pembayaran yang tertunda.",
+                    Priority = NotificationPriority.Normal,
+                    IsRead = false,
+                    CreatedAt = _timezoneService.Now,
+                    CreatedBy = "System",
+                    UserId = null, // Broadcast to managers
+                    ActionUrl = $"/dashboard/suppliers?search={supplierName}",
+                    ActionText = "Lihat Detail",
+                    RelatedEntity = "Supplier",
+                    RelatedEntityId = null
+                };
+
+                _context.Notifications.Add(notification);
+                await _context.SaveChangesAsync();
+
+                // Broadcast to relevant roles
+                await BroadcastToRoleAsync("Admin", notification.Type, notification.Title, notification.Message, notification.ActionUrl);
+                await BroadcastToRoleAsync("Manager", notification.Type, notification.Title, notification.Message, notification.ActionUrl);
+
+                _logger.LogInformation("Created credit warning for supplier {SupplierName}: {Utilization:F1}% utilized", supplierName, utilizationPercentage);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to create credit warning for supplier {SupplierName}", supplierName);
+                return false;
+            }
+        }
     }
 }

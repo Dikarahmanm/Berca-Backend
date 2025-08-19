@@ -460,6 +460,9 @@ builder.Services.AddScoped<Berca_Backend.Services.Interfaces.IExpiryManagementSe
 // ✅ Add Member Credit Background Service
 builder.Services.AddMemberCreditBackgroundService();
 
+// ✅ Add Facture Background Service
+builder.Services.AddFactureBackgroundService();
+
 // ✅ Add Swagger
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>
