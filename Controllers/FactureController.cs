@@ -614,10 +614,37 @@ namespace Berca_Backend.Controllers
 
                 return Ok(summary);
             }
+            catch (InvalidOperationException ex) when (ex.Message.Contains("Translation of member") || ex.Message.Contains("LINQ"))
+            {
+                _logger.LogError(ex, "LINQ translation error in facture summary - this should not happen after fixes");
+                return StatusCode(500, new { 
+                    message = "Database query translation error. Please contact system administrator.",
+                    error = "LINQ_TRANSLATION_ERROR"
+                });
+            }
+            catch (Microsoft.EntityFrameworkCore.DbUpdateException ex)
+            {
+                _logger.LogError(ex, "Database error retrieving facture summary");
+                return StatusCode(500, new { 
+                    message = "Database error occurred while retrieving summary.",
+                    error = "DATABASE_ERROR"
+                });
+            }
+            catch (TimeoutException ex)
+            {
+                _logger.LogError(ex, "Timeout error retrieving facture summary");
+                return StatusCode(500, new { 
+                    message = "Request timed out. Please try again.",
+                    error = "TIMEOUT_ERROR"
+                });
+            }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error retrieving facture summary");
-                return StatusCode(500, new { message = "An error occurred while retrieving summary." });
+                _logger.LogError(ex, "Unexpected error retrieving facture summary");
+                return StatusCode(500, new { 
+                    message = "An unexpected error occurred while retrieving summary.",
+                    error = "GENERAL_ERROR"
+                });
             }
         }
 

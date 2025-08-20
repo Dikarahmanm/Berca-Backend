@@ -559,6 +559,9 @@ builder.Services.AddScoped<IReportService, ReportService>();
 builder.Services.AddScoped<IBusinessIntelligenceService, BusinessIntelligenceService>();
 builder.Services.AddScoped<IExportService, ExportService>();
 
+// ✅ Add Business Rules Service for centralized business logic
+builder.Services.AddScoped<IBusinessRulesService, BusinessRulesService>();
+
 // ✅ Add Swagger
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>
