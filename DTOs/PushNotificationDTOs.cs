@@ -218,4 +218,35 @@ namespace Berca_Backend.DTOs
         public List<string> TargetRoles { get; set; } = new();
         public int? BranchId { get; set; }
     }
+
+    /// <summary>
+    /// DTO for failed notification retry processing
+    /// </summary>
+    public class FailedNotificationDto
+    {
+        public int Id { get; set; }
+        public int UserId { get; set; }
+        public string UserName { get; set; } = string.Empty;
+        public string Title { get; set; } = string.Empty;
+        public string Message { get; set; } = string.Empty;
+        public string? OriginalPayload { get; set; }
+        public int AttemptCount { get; set; }
+        public string? LastError { get; set; }
+        public DateTime CreatedAt { get; set; }
+        public DateTime NextRetryAt { get; set; }
+        public NotificationPriority Priority { get; set; }
+        
+        // Display properties for Indonesian context
+        public string CreatedAtDisplay => CreatedAt.ToString("dd/MM/yyyy HH:mm:ss");
+        public string NextRetryAtDisplay => NextRetryAt.ToString("dd/MM/yyyy HH:mm:ss");
+        public string PriorityDisplay => Priority switch
+        {
+            NotificationPriority.Critical => "Kritis",
+            NotificationPriority.High => "Tinggi",
+            NotificationPriority.Normal => "Normal",
+            NotificationPriority.Low => "Rendah",
+            _ => "Normal"
+        };
+        public bool CanRetry => AttemptCount < 3 && NextRetryAt <= DateTime.UtcNow;
+    }
 }

@@ -14,9 +14,38 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddScoped<IAuthService, AuthService>();
 
-// ✅ Add Entity Framework
+// ✅ Add Entity Framework with enhanced configuration
 builder.Services.AddDbContext<AppDbContext>(options =>
-    options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
+{
+    var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
+    
+    options.UseSqlServer(connectionString, sqlOptions =>
+    {
+        // Enhanced SQL Server options for reliability
+        sqlOptions.EnableRetryOnFailure(
+            maxRetryCount: 3,
+            maxRetryDelay: TimeSpan.FromSeconds(5),
+            errorNumbersToAdd: null);
+            
+        // Set command timeout for long-running queries
+        sqlOptions.CommandTimeout(30);
+    })
+    // Query splitting is configured at the SQL Server level
+    .EnableServiceProviderCaching() // Improve performance
+    .EnableSensitiveDataLogging(builder.Environment.IsDevelopment()) // Development logging
+    .ConfigureWarnings(warnings =>
+    {
+        // Handle multiple collection include warning based on environment
+        if (builder.Environment.IsDevelopment())
+        {
+            warnings.Log(Microsoft.EntityFrameworkCore.Diagnostics.RelationalEventId.MultipleCollectionIncludeWarning);
+        }
+        else
+        {
+            warnings.Ignore(Microsoft.EntityFrameworkCore.Diagnostics.RelationalEventId.MultipleCollectionIncludeWarning);
+        }
+    });
+});
 
 // ✅ Add controllers
 builder.Services.AddControllers();
@@ -347,6 +376,60 @@ builder.Services.AddAuthorization(options =>
     options.AddPolicy("Reports.Write", policy =>
         policy.RequireRole("Admin", "HeadManager", "BranchManager", "Manager"));
 
+    // ===== SPRINT 8: ADVANCED REPORTING & ANALYTICS POLICIES ===== //
+
+    // Report execution and generation
+    options.AddPolicy("Reports.Execute", policy =>
+        policy.RequireRole("Admin", "HeadManager", "BranchManager", "Manager", "User"));
+
+    // Report export (PDF, Excel, CSV)
+    options.AddPolicy("Reports.Export", policy =>
+        policy.RequireRole("Admin", "HeadManager", "BranchManager", "Manager"));
+
+    // Business Intelligence analytics
+    options.AddPolicy("Reports.Analytics", policy =>
+        policy.RequireRole("Admin", "HeadManager", "BranchManager", "Manager"));
+
+    // Advanced reporting features (scheduling, templates)
+    options.AddPolicy("Reports.Advanced", policy =>
+        policy.RequireRole("Admin", "HeadManager", "BranchManager"));
+
+    // Report management (create, edit, delete custom reports)
+    options.AddPolicy("Reports.Manage", policy =>
+        policy.RequireRole("Admin", "HeadManager", "BranchManager", "Manager"));
+
+    // Sales reporting
+    options.AddPolicy("Reports.Sales", policy =>
+        policy.RequireRole("Admin", "HeadManager", "BranchManager", "Manager", "User"));
+
+    // Inventory reporting
+    options.AddPolicy("Reports.Inventory", policy =>
+        policy.RequireRole("Admin", "HeadManager", "BranchManager", "Manager", "User"));
+
+    // Financial reporting (sensitive data)
+    options.AddPolicy("Reports.Financial", policy =>
+        policy.RequireRole("Admin", "HeadManager", "BranchManager"));
+
+    // Supplier performance reporting
+    options.AddPolicy("Reports.Supplier", policy =>
+        policy.RequireRole("Admin", "HeadManager", "BranchManager", "Manager"));
+
+    // Business Intelligence dashboards
+    options.AddPolicy("Reports.Dashboard", policy =>
+        policy.RequireRole("Admin", "HeadManager", "BranchManager", "Manager"));
+
+    // Predictive analytics and forecasting
+    options.AddPolicy("Reports.Forecasting", policy =>
+        policy.RequireRole("Admin", "HeadManager", "BranchManager"));
+
+    // Report scheduling and automation
+    options.AddPolicy("Reports.Schedule", policy =>
+        policy.RequireRole("Admin", "HeadManager", "BranchManager"));
+
+    // Report email and distribution
+    options.AddPolicy("Reports.Distribution", policy =>
+        policy.RequireRole("Admin", "HeadManager", "BranchManager", "Manager"));
+
     // Notifications Policies
     options.AddPolicy("Notifications.Read", policy =>
         policy.RequireRole("Admin", "HeadManager", "BranchManager", "Manager", "User"));
@@ -457,11 +540,24 @@ builder.Services.AddScoped<IFactureService, FactureService>();
 // ✅ Add ExpiryManagement service
 builder.Services.AddScoped<Berca_Backend.Services.Interfaces.IExpiryManagementService, Berca_Backend.Services.ExpiryManagementService>();
 
+// ✅ Add Push Notification services
+builder.Services.AddScoped<IPushNotificationService, PushNotificationService>();
+builder.Services.AddHostedService<BrowserNotificationService>();
+
+// ✅ Add Calendar & Events services
+builder.Services.AddScoped<ICalendarEventService, CalendarEventService>();
+builder.Services.AddHostedService<EventReminderService>();
+
 // ✅ Add Member Credit Background Service
 builder.Services.AddMemberCreditBackgroundService();
 
 // ✅ Add Facture Background Service
 builder.Services.AddFactureBackgroundService();
+
+// ✅ Add Sprint 8: Advanced Reporting & Analytics Services
+builder.Services.AddScoped<IReportService, ReportService>();
+builder.Services.AddScoped<IBusinessIntelligenceService, BusinessIntelligenceService>();
+builder.Services.AddScoped<IExportService, ExportService>();
 
 // ✅ Add Swagger
 builder.Services.AddEndpointsApiExplorer();

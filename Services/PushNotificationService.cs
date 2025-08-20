@@ -21,9 +21,12 @@ namespace Berca_Backend.Services
         private readonly AppDbContext _context;
         private readonly ILogger<PushNotificationService> _logger;
         private readonly IConfiguration _configuration;
-        private readonly WebPushClient _webPushClient;
-        private readonly VapidDetails _vapidDetails;
+        private readonly WebPushClient? _webPushClient;
+        private readonly VapidDetails? _vapidDetails;
         private readonly CultureInfo _indonesianCulture;
+        private readonly bool _isConfigured;
+
+        public bool IsConfigured => _isConfigured;
 
         public PushNotificationService(
             AppDbContext context,
@@ -35,20 +38,51 @@ namespace Berca_Backend.Services
             _configuration = configuration;
             _indonesianCulture = new CultureInfo("id-ID");
 
-            // Initialize VAPID details from configuration
-            _vapidDetails = new VapidDetails(
-                subject: _configuration["PushNotification:Subject"] ?? "mailto:admin@tokoeniwan.com",
-                publicKey: _configuration["PushNotification:PublicKey"] ?? throw new ArgumentNullException("PushNotification:PublicKey"),
-                privateKey: _configuration["PushNotification:PrivateKey"] ?? throw new ArgumentNullException("PushNotification:PrivateKey")
-            );
+            // Check if push notification is configured
+            var publicKey = _configuration["PushNotification:PublicKey"];
+            var privateKey = _configuration["PushNotification:PrivateKey"];
+            
+            if (string.IsNullOrEmpty(publicKey) || string.IsNullOrEmpty(privateKey))
+            {
+                _logger.LogWarning("Push notification configuration not found. Push notifications will be disabled.");
+                _isConfigured = false;
+                _vapidDetails = null;
+                _webPushClient = null;
+                return;
+            }
 
-            _webPushClient = new WebPushClient();
+            try
+            {
+                // Initialize VAPID details from configuration
+                _vapidDetails = new VapidDetails(
+                    subject: _configuration["PushNotification:Subject"] ?? "mailto:admin@tokoeniwan.com",
+                    publicKey: publicKey,
+                    privateKey: privateKey
+                );
+
+                _webPushClient = new WebPushClient();
+                _isConfigured = true;
+                _logger.LogInformation("Push notification service configured successfully");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to configure push notification service");
+                _isConfigured = false;
+                _vapidDetails = null;
+                _webPushClient = null;
+            }
         }
 
         // ==================== SUBSCRIPTION MANAGEMENT ==================== //
 
         public async Task<bool> SubscribeUserAsync(int userId, PushSubscriptionDto subscription)
         {
+            if (!_isConfigured)
+            {
+                _logger.LogWarning("Push notification service not configured. Skipping subscription for user {UserId}", userId);
+                return false;
+            }
+
             try
             {
                 if (!ValidateSubscription(subscription))
@@ -212,6 +246,27 @@ namespace Berca_Backend.Services
 
         public async Task<PushNotificationResult> SendNotificationAsync(int userId, NotificationPayload payload, string? deviceId = null)
         {
+            if (!_isConfigured)
+            {
+                _logger.LogWarning("Push notification service not configured. Skipping notification to user {UserId}", userId);
+                return new PushNotificationResult 
+                { 
+                    Success = false, 
+                    TotalSent = 0, 
+                    SuccessCount = 0, 
+                    FailureCount = 0,
+                    Errors = new List<PushDeliveryError> 
+                    { 
+                        new PushDeliveryError 
+                        { 
+                            UserId = userId, 
+                            ErrorMessage = "Push notification service not configured", 
+                            IsRetryable = false 
+                        } 
+                    }
+                };
+            }
+
             var result = new PushNotificationResult();
 
             try
@@ -335,6 +390,27 @@ namespace Berca_Backend.Services
 
         public async Task<PushNotificationResult> SendToRolesAsync(List<string> roles, NotificationPayload payload, int? branchId = null)
         {
+            if (!_isConfigured)
+            {
+                _logger.LogWarning("Push notification service not configured. Skipping role-based notification to roles: {Roles}", string.Join(", ", roles));
+                return new PushNotificationResult 
+                { 
+                    Success = false, 
+                    TotalSent = 0, 
+                    SuccessCount = 0, 
+                    FailureCount = 0,
+                    Errors = new List<PushDeliveryError> 
+                    { 
+                        new PushDeliveryError 
+                        { 
+                            UserId = 0, 
+                            ErrorMessage = "Push notification service not configured", 
+                            IsRetryable = false 
+                        } 
+                    }
+                };
+            }
+
             try
             {
                 var query = _context.Users
@@ -370,6 +446,11 @@ namespace Berca_Backend.Services
         private async Task<(bool Success, string? ErrorMessage, int? StatusCode, bool IsRetryable)> SendToSubscriptionAsync(
             Models.PushSubscription subscription, NotificationPayload payload)
         {
+            if (_webPushClient == null || _vapidDetails == null)
+            {
+                return (false, "Push notification service not properly configured", null, false);
+            }
+
             try
             {
                 var pushSubscription = new global::WebPush.PushSubscription(
@@ -614,14 +695,120 @@ namespace Berca_Backend.Services
             throw new NotImplementedException("Analytics not yet implemented");
         }
 
-        public Task<List<int>> GetFailedNotificationsForRetryAsync(TimeSpan maxAge)
+        public async Task<List<int>> GetFailedNotificationsForRetryAsync(TimeSpan maxAge)
         {
-            throw new NotImplementedException("Retry mechanism not yet implemented");
+            try
+            {
+                var cutoffTime = DateTime.UtcNow.Subtract(maxAge);
+                
+                var failedLogIds = await _context.PushNotificationLogs
+                    .Where(log => 
+                        !log.DeliverySuccess && 
+                        log.SentAt >= cutoffTime)
+                    .OrderBy(log => log.SentAt)
+                    .Take(50) // Process max 50 failed notifications per batch
+                    .Select(log => log.Id)
+                    .ToListAsync();
+
+                _logger.LogInformation("Retrieved {Count} failed notification IDs for retry", failedLogIds.Count);
+                
+                return failedLogIds;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error retrieving failed notifications for retry");
+                return new List<int>();
+            }
         }
 
-        public Task<bool> RetryFailedNotificationAsync(int logId)
+        public async Task<bool> RetryFailedNotificationAsync(int logId)
         {
-            throw new NotImplementedException("Retry mechanism not yet implemented");
+            if (!_isConfigured)
+            {
+                _logger.LogWarning("Push notification service not configured. Cannot retry notification {LogId}", logId);
+                return false;
+            }
+
+            try
+            {
+                // Get original notification log with subscription info
+                var notificationLog = await _context.PushNotificationLogs
+                    .Include(log => log.PushSubscription)
+                    .ThenInclude(sub => sub.User)
+                    .FirstOrDefaultAsync(log => log.Id == logId);
+
+                if (notificationLog == null)
+                {
+                    _logger.LogWarning("Notification log {LogId} not found for retry", logId);
+                    return false;
+                }
+
+                if (notificationLog.DeliverySuccess)
+                {
+                    _logger.LogInformation("Notification {LogId} already delivered successfully", logId);
+                    return true;
+                }
+
+                var subscription = notificationLog.PushSubscription;
+                if (subscription == null || !subscription.IsActive)
+                {
+                    _logger.LogWarning("Subscription for notification {LogId} is inactive or not found", logId);
+                    return false;
+                }
+
+                // Recreate notification payload from logged data
+                var payload = new NotificationPayload
+                {
+                    Title = notificationLog.Title,
+                    Body = notificationLog.Body,
+                    Icon = "/icons/icon-192x192.png",
+                    Badge = "/icons/badge-72x72.png",
+                    Priority = notificationLog.Priority,
+                    Tag = "retry",
+                    Data = new Dictionary<string, object>
+                    {
+                        { "retryId", logId },
+                        { "originalSentAt", notificationLog.SentAt.ToString("O") },
+                        { "retryAttempt", DateTime.UtcNow.ToString("O") }
+                    }
+                };
+
+                // Attempt to send notification
+                var deliveryResult = await SendToSubscriptionAsync(subscription, payload);
+
+                if (deliveryResult.Success)
+                {
+                    // Update the original log to mark as successful
+                    notificationLog.DeliverySuccess = true;
+                    notificationLog.ErrorMessage = null;
+                    notificationLog.ResponseStatusCode = 200;
+                    
+                    await _context.SaveChangesAsync();
+                    
+                    _logger.LogInformation("Successfully retried notification {LogId} for user {UserId}", 
+                        logId, subscription.UserId);
+                    
+                    return true;
+                }
+                else
+                {
+                    // Update error message but don't change delivery status (for potential future retries)
+                    notificationLog.ErrorMessage = $"Retry failed: {deliveryResult.ErrorMessage}";
+                    notificationLog.ResponseStatusCode = deliveryResult.StatusCode;
+                    
+                    await _context.SaveChangesAsync();
+                    
+                    _logger.LogWarning("Failed to retry notification {LogId} for user {UserId}: {Error}", 
+                        logId, subscription.UserId, deliveryResult.ErrorMessage);
+                    
+                    return false;
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error retrying notification {LogId}", logId);
+                return false;
+            }
         }
 
         public Task<int> CleanupExpiredDataAsync(TimeSpan olderThan)

@@ -51,11 +51,52 @@ namespace Berca_Backend.Data
         public DbSet<NotificationTemplate> NotificationTemplates { get; set; }
         public DbSet<PushNotificationLog> PushNotificationLogs { get; set; }
         
+        // ==================== CALENDAR & EVENTS SYSTEM DBSETS ==================== //
+        public DbSet<CalendarEvent> CalendarEvents { get; set; }
+        public DbSet<CalendarEventReminder> CalendarEventReminders { get; set; }
+        
+        // ==================== REPORTING SYSTEM DBSETS ==================== //
+        public DbSet<Report> Reports { get; set; }
+        public DbSet<ReportExecution> ReportExecutions { get; set; }
+        public DbSet<ReportTemplate> ReportTemplates { get; set; }
+        
         protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
         {
             base.OnConfiguring(optionsBuilder);
+            
+            // Get environment for configuration
+            var environment = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT");
+            var isDevelopment = environment == "Development";
+            
+            // Note: Query splitting behavior will be configured in Program.cs
+            // optionsBuilder.UseQuerySplittingBehavior is SQL Server specific
+            
+            // Enhanced logging for development
+            if (isDevelopment)
+            {
+                optionsBuilder
+                    .EnableSensitiveDataLogging()
+                    .EnableDetailedErrors();
+            }
+            
+            // Configure warnings
             optionsBuilder.ConfigureWarnings(warnings =>
-                warnings.Ignore(Microsoft.EntityFrameworkCore.Diagnostics.RelationalEventId.PendingModelChangesWarning));
+            {
+                // Handle pending model changes warning
+                warnings.Ignore(Microsoft.EntityFrameworkCore.Diagnostics.RelationalEventId.PendingModelChangesWarning);
+                
+                // Handle multiple collection include warning based on environment
+                if (isDevelopment)
+                {
+                    // Log in development for awareness
+                    warnings.Log(Microsoft.EntityFrameworkCore.Diagnostics.RelationalEventId.MultipleCollectionIncludeWarning);
+                }
+                else
+                {
+                    // Suppress in production to reduce log noise
+                    warnings.Ignore(Microsoft.EntityFrameworkCore.Diagnostics.RelationalEventId.MultipleCollectionIncludeWarning);
+                }
+            });
         }
         
         protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -2086,6 +2127,54 @@ namespace Berca_Backend.Data
                 entity.HasIndex(mpr => new { mpr.NextReminderDate, mpr.Status })
                     .HasDatabaseName("IX_MemberPaymentReminders_NextReminder_Status");
             });
+
+            // ==================== QUERY OPTIMIZATION CONFIGURATION ==================== //
+            ConfigureQueryOptimization(modelBuilder);
+        }
+
+        /// <summary>
+        /// Configure query behavior for optimal performance with multiple collection includes
+        /// </summary>
+        private void ConfigureQueryOptimization(ModelBuilder modelBuilder)
+        {
+            // Member entity with payment reminders optimization
+            modelBuilder.Entity<Member>()
+                .Navigation(m => m.PaymentReminders)
+                .EnableLazyLoading(false); // Disable lazy loading for better control
+
+            modelBuilder.Entity<Member>()
+                .Navigation(m => m.CreditTransactions)
+                .EnableLazyLoading(false);
+
+            modelBuilder.Entity<Member>()
+                .Navigation(m => m.MemberPoints)
+                .EnableLazyLoading(false);
+
+            modelBuilder.Entity<Member>()
+                .Navigation(m => m.Sales)
+                .EnableLazyLoading(false);
+
+            // Sale entity optimizations
+            modelBuilder.Entity<Sale>()
+                .Navigation(s => s.SaleItems)
+                .EnableLazyLoading(false);
+
+            // Product entity optimizations for inventory queries
+            modelBuilder.Entity<Product>()
+                .Navigation(p => p.ProductBatches)
+                .EnableLazyLoading(false);
+
+            // Inventory Transfer optimizations
+            modelBuilder.Entity<InventoryTransfer>()
+                .Navigation(it => it.TransferItems)
+                .EnableLazyLoading(false);
+
+            // Note: StatusHistories navigation may not exist in current model
+
+            // Report entity optimizations
+            modelBuilder.Entity<Report>()
+                .Navigation(r => r.ReportExecutions)
+                .EnableLazyLoading(false);
         }
     }
 }

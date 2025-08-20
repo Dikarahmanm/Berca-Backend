@@ -1,5 +1,6 @@
 using Berca_Backend.Services;
 using Berca_Backend.Models;
+using Berca_Backend.DTOs;
 
 namespace Berca_Backend.Services
 {
@@ -248,11 +249,35 @@ namespace Berca_Backend.Services
         {
             try
             {
-                _logger.LogInformation("Starting risk alert generation");
+                _logger.LogDebug("Starting risk alert generation");
 
-                // Get high-risk members (those overdue or approaching limits)
-                var overdueMembers = await memberService.GetOverdueMembersAsync();
-                var nearLimitMembers = await memberService.GetMembersApproachingLimitAsync(90); // 90% utilization
+                // Use safer threshold approach with enhanced error handling
+                const decimal criticalThreshold = 90.0m; // 90% credit utilization
+                const decimal warningThreshold = 75.0m;  // 75% credit utilization
+
+                // Get high-risk members with fallback error handling
+                List<MemberDebtDto> overdueMembers;
+                List<MemberDebtDto> nearLimitMembers;
+
+                try
+                {
+                    overdueMembers = await memberService.GetOverdueMembersAsync();
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to get overdue members. Using empty list.");
+                    overdueMembers = new List<MemberDebtDto>();
+                }
+
+                try
+                {
+                    nearLimitMembers = await memberService.GetMembersApproachingLimitAsync(criticalThreshold);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to get members approaching limit at {Threshold}%. Using empty list.", criticalThreshold);
+                    nearLimitMembers = new List<MemberDebtDto>();
+                }
 
                 var highRiskCount = overdueMembers.Count(m => m.IsHighRisk);
                 var criticalCount = overdueMembers.Count(m => m.RequiresUrgentAction);
@@ -262,6 +287,10 @@ namespace Berca_Backend.Services
                 {
                     _logger.LogWarning("Risk Alert Summary: {HighRisk} high-risk members, {Critical} critical cases, {NearLimit} approaching limit", 
                         highRiskCount, criticalCount, nearLimitCount);
+
+                    // Generate alerts for the most critical cases (limit to avoid spam)
+                    await GenerateAlertNotifications(overdueMembers.Where(m => m.RequiresUrgentAction).Take(5).ToList(), "Critical Overdue");
+                    await GenerateAlertNotifications(nearLimitMembers.Take(5).ToList(), "Approaching Credit Limit");
 
                     // In a real implementation, you might:
                     // - Send emails to managers
@@ -322,6 +351,35 @@ namespace Berca_Backend.Services
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error sending daily credit summary notification");
+            }
+        }
+
+        /// <summary>
+        /// Generate alert notifications for high-risk members
+        /// </summary>
+        private async Task GenerateAlertNotifications(List<MemberDebtDto> members, string alertType)
+        {
+            try
+            {
+                if (members.Count == 0) return;
+
+                _logger.LogInformation("Generating {AlertType} notifications for {Count} members", alertType, members.Count);
+
+                // In a real implementation, this would:
+                // - Create system notifications
+                // - Send emails to managers
+                // - Update dashboard alerts
+                // - Log to audit trail
+
+                foreach (var member in members)
+                {
+                    _logger.LogWarning("{AlertType} Alert: Member {MemberName} ({MemberNumber}) - Debt: {TotalDebt:C}, Days Overdue: {DaysOverdue}", 
+                        alertType, member.MemberName, member.MemberNumber, member.TotalDebt, member.DaysOverdue);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error generating {AlertType} notifications", alertType);
             }
         }
 

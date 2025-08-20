@@ -122,19 +122,19 @@ namespace Berca_Backend.Services
                         var payload = new NotificationPayload
                         {
                             Title = "⚠️ PRODUK KADALUARSA HARI INI!",
-                            Body = $"{item.Product?.Name ?? "Unknown Product"} batch akan kadaluarsa hari ini. Qty: {item.Batch.CurrentStock}",
+                            Body = $"{item.Product?.Name ?? "Unknown Product"} batch akan kadaluarsa hari ini. Qty: {item.Batch?.CurrentStock ?? 0}",
                             Icon = "/icons/warning-icon.png",
                             Badge = "/icons/badge-critical.png",
-                            Tag = $"expiry-critical-{item.Product?.Id ?? 0}-{item.Batch.Id}",
+                            Tag = $"expiry-critical-{item.Product?.Id ?? 0}-{item.Batch?.Id ?? 0}",
                             RequireInteraction = true,
                             Priority = NotificationPriority.Critical,
                             Data = new Dictionary<string, object>
                             {
                                 { "type", "product-expiry-critical" },
                                 { "productId", item.Product?.Id ?? 0 },
-                                { "batchId", item.Batch.Id },
-                                { "expiryDate", item.Batch.ExpiryDate!.Value.ToString("yyyy-MM-dd") },
-                                { "quantity", item.Batch.CurrentStock }
+                                { "batchId", item.Batch?.Id ?? 0 },
+                                { "expiryDate", (item.Batch?.ExpiryDate ?? DateTime.MinValue).ToString("yyyy-MM-dd") },
+                                { "quantity", item.Batch?.CurrentStock ?? 0 }
                             },
                             Actions = new List<NotificationActionDto>
                             {
@@ -151,18 +151,18 @@ namespace Berca_Backend.Services
                         if (result.Success)
                         {
                             _logger.LogInformation("Critical expiry notification sent for product {ProductName} batch {BatchId}", 
-                                item.Product?.Name ?? "Unknown Product", item.Batch.Id);
+                                item.Product?.Name ?? "Unknown Product", item.Batch?.Id ?? 0);
                         }
                         else
                         {
                             _logger.LogWarning("Failed to send critical expiry notification for product {ProductId} batch {BatchId}", 
-                                item.Product.Id, item.Batch.Id);
+                                item.Product?.Id ?? 0, item.Batch?.Id ?? 0);
                         }
                     }
                     catch (Exception ex)
                     {
                         _logger.LogError(ex, "Error sending critical notification for product {ProductId} batch {BatchId}", 
-                            item.Product?.Id ?? 0, item.Batch.Id);
+                            item.Product?.Id ?? 0, item.Batch?.Id ?? 0);
                     }
 
                     // Small delay to prevent overwhelming
@@ -481,24 +481,53 @@ namespace Berca_Backend.Services
         {
             try
             {
+                _logger.LogDebug("Starting failed notification retry process");
+
                 var failedNotifications = await pushService.GetFailedNotificationsForRetryAsync(_retryInterval);
                 
-                foreach (var logId in failedNotifications.Take(10)) // Limit retries
+                if (!failedNotifications.Any())
+                {
+                    _logger.LogDebug("No failed notifications found for retry");
+                    return;
+                }
+
+                _logger.LogInformation("Processing {Count} failed notifications for retry", failedNotifications.Count);
+
+                var successCount = 0;
+                var batchSize = Math.Min(failedNotifications.Count, 10); // Limit retries per batch
+                
+                foreach (var logId in failedNotifications.Take(batchSize))
                 {
                     if (cancellationToken.IsCancellationRequested) break;
 
-                    var retrySuccess = await pushService.RetryFailedNotificationAsync(logId);
-                    if (retrySuccess)
+                    try
                     {
-                        _logger.LogInformation("Successfully retried notification {LogId}", logId);
+                        var retrySuccess = await pushService.RetryFailedNotificationAsync(logId);
+                        if (retrySuccess)
+                        {
+                            successCount++;
+                            _logger.LogInformation("Successfully retried notification {LogId}", logId);
+                        }
+                        else
+                        {
+                            _logger.LogWarning("Failed to retry notification {LogId}", logId);
+                        }
+                    }
+                    catch (Exception retryEx)
+                    {
+                        _logger.LogError(retryEx, "Exception while retrying notification {LogId}", logId);
                     }
 
-                    await Task.Delay(100, cancellationToken);
+                    // Add delay between retry attempts to avoid overwhelming the service
+                    await Task.Delay(200, cancellationToken);
                 }
+
+                _logger.LogInformation("Completed retry process: {SuccessCount}/{TotalCount} notifications retried successfully", 
+                    successCount, batchSize);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error retrying failed notifications");
+                _logger.LogError(ex, "Error in retry failed notifications process");
             }
         }
 
