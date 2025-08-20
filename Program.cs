@@ -437,6 +437,43 @@ builder.Services.AddAuthorization(options =>
     options.AddPolicy("Notifications.Write", policy =>
         policy.RequireRole("Admin", "HeadManager", "BranchManager", "Manager"));
 
+    // Calendar & Events Policies
+    options.AddPolicy("Calendar.Read", policy =>
+        policy.RequireRole("Admin", "HeadManager", "BranchManager", "Manager", "User"));
+
+    options.AddPolicy("Calendar.Write", policy =>
+        policy.RequireRole("Admin", "HeadManager", "BranchManager", "Manager", "User"));
+
+    options.AddPolicy("Calendar.Delete", policy =>
+        policy.RequireRole("Admin", "HeadManager", "BranchManager", "Manager"));
+
+    options.AddPolicy("Calendar.Manage", policy =>
+        policy.RequireRole("Admin", "HeadManager", "BranchManager", "Manager"));
+
+    // User Management - Additional Policies
+    options.AddPolicy("User.Create", policy =>
+        policy.RequireRole("Admin", "HeadManager", "BranchManager", "Manager", "User"));
+
+    options.AddPolicy("User.Update", policy =>
+        policy.RequireRole("Admin", "HeadManager", "BranchManager", "Manager", "User"));
+
+    options.AddPolicy("User.Delete", policy =>
+        policy.RequireRole("Admin", "HeadManager", "BranchManager", "Manager"));
+
+    options.AddPolicy("User.View", policy =>
+        policy.RequireRole("Admin", "HeadManager", "BranchManager", "Manager", "User"));
+
+    // Manager Operations
+    options.AddPolicy("Manager.Manage", policy =>
+        policy.RequireRole("Admin", "HeadManager", "BranchManager", "Manager"));
+
+    options.AddPolicy("Manager.View", policy =>
+        policy.RequireRole("Admin", "HeadManager", "BranchManager", "Manager", "User"));
+
+    // MultiBranch Operations
+    options.AddPolicy("MultiBranch.Access", policy =>
+        policy.RequireRole("Admin", "HeadManager"));
+
     // Admin-only policies
     options.AddPolicy("Admin", policy =>
         policy.RequireRole("Admin"));

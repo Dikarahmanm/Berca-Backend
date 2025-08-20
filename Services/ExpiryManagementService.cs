@@ -35,6 +35,16 @@ namespace Berca_Backend.Services
                 if (product == null)
                     throw new ArgumentException("Product not found");
 
+                // Validate branch exists if BranchId is specified
+                if (request.BranchId.HasValue)
+                {
+                    var branchExists = await _context.Branches
+                        .AnyAsync(b => b.Id == request.BranchId.Value && b.IsActive);
+                    
+                    if (!branchExists)
+                        throw new ArgumentException($"Branch with ID {request.BranchId} does not exist or is inactive");
+                }
+
                 // Validate expiry requirements
                 if (product.Category?.RequiresExpiryDate == true && !request.ExpiryDate.HasValue)
                     throw new ArgumentException("Expiry date is required for this product category");

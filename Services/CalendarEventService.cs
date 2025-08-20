@@ -234,6 +234,23 @@ namespace Berca_Backend.Services
 
         public async Task<CalendarEventDto> CreateEventAsync(CreateCalendarEventDto createDto, int createdBy)
         {
+            // ✅ CRITICAL - Validate user exists before creating event
+            var user = await _context.Users.FirstOrDefaultAsync(u => u.Id == createdBy);
+            if (user == null)
+            {
+                throw new InvalidOperationException($"User with ID {createdBy} not found. Cannot create calendar event.");
+            }
+
+            // ✅ CRITICAL - Validate branch exists if specified
+            if (createDto.BranchId.HasValue)
+            {
+                var branch = await _context.Branches.FirstOrDefaultAsync(b => b.Id == createDto.BranchId.Value && b.IsActive);
+                if (branch == null)
+                {
+                    throw new InvalidOperationException($"Branch with ID {createDto.BranchId.Value} not found or is inactive.");
+                }
+            }
+
             var validationErrors = await ValidateEventDataAsync(createDto);
             if (validationErrors.Any())
             {
@@ -259,12 +276,32 @@ namespace Berca_Backend.Services
                 RecurrencePattern = createDto.RecurrencePattern,
                 Notes = createDto.Notes,
                 CreatedBy = createdBy,
+                UpdatedBy = createdBy,  // Set initial UpdatedBy to same as CreatedBy
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow
             };
 
             _context.CalendarEvents.Add(eventEntity);
-            await _context.SaveChangesAsync();
+            
+            try
+            {
+                await _context.SaveChangesAsync();
+                
+                _logger.LogInformation("Calendar event '{Title}' created successfully by user {UserId}", 
+                    createDto.Title, createdBy);
+            }
+            catch (Microsoft.EntityFrameworkCore.DbUpdateException ex)
+            {
+                _logger.LogError(ex, "Database error creating calendar event '{Title}' by user {UserId}", 
+                    createDto.Title, createdBy);
+                
+                if (ex.InnerException?.Message?.Contains("FOREIGN KEY constraint") == true)
+                {
+                    throw new InvalidOperationException("Foreign key constraint error. User or branch reference is invalid.", ex);
+                }
+                
+                throw new InvalidOperationException("Database error occurred while creating calendar event.", ex);
+            }
 
             // Create reminders if needed
             if (eventEntity.HasReminder && eventEntity.ReminderMinutes.HasValue)
