@@ -253,7 +253,6 @@ namespace Berca_Backend.Services
 
                 // Use safer threshold approach with enhanced error handling
                 const decimal criticalThreshold = 90.0m; // 90% credit utilization
-                const decimal warningThreshold = 75.0m;  // 75% credit utilization
 
                 // Get high-risk members with fallback error handling
                 List<MemberDebtDto> overdueMembers;
@@ -289,8 +288,8 @@ namespace Berca_Backend.Services
                         highRiskCount, criticalCount, nearLimitCount);
 
                     // Generate alerts for the most critical cases (limit to avoid spam)
-                    await GenerateAlertNotifications(overdueMembers.Where(m => m.RequiresUrgentAction).Take(5).ToList(), "Critical Overdue");
-                    await GenerateAlertNotifications(nearLimitMembers.Take(5).ToList(), "Approaching Credit Limit");
+                    GenerateAlertNotifications(overdueMembers.Where(m => m.RequiresUrgentAction).Take(5).ToList(), "Critical Overdue");
+                    GenerateAlertNotifications(nearLimitMembers.Take(5).ToList(), "Approaching Credit Limit");
 
                     // In a real implementation, you might:
                     // - Send emails to managers
@@ -357,7 +356,7 @@ namespace Berca_Backend.Services
         /// <summary>
         /// Generate alert notifications for high-risk members
         /// </summary>
-        private async Task GenerateAlertNotifications(List<MemberDebtDto> members, string alertType)
+        private void GenerateAlertNotifications(List<MemberDebtDto> members, string alertType)
         {
             try
             {

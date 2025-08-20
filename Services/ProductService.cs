@@ -1119,8 +1119,8 @@ namespace Berca_Backend.Services
             {
                 var currentDate = _timezoneService.Today;
                 var query = _context.ProductBatches
-                    .Include(b => b.Product)
-                    .ThenInclude(p => p.Category!)
+                    .Include(b => b.Product!)
+                        .ThenInclude(p => p.Category)
                     .Include(b => b.Branch)
                     .Where(b => b.ExpiryDate.HasValue && b.CurrentStock > 0 && !b.IsDisposed);
 
@@ -1191,8 +1191,8 @@ namespace Berca_Backend.Services
             {
                 var today = _timezoneService.Today;
                 var query = _context.ProductBatches
-                    .Include(b => b.Product)
-                    .ThenInclude(p => p.Category!)
+                    .Include(b => b.Product!)
+                        .ThenInclude(p => p.Category)
                     .Include(b => b.Branch)
                     .Where(b => b.ExpiryDate.HasValue && b.ExpiryDate.Value.Date < today);
 

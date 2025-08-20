@@ -167,8 +167,8 @@ namespace Berca_Backend.Services
         public async Task<List<ExpiringProductDto>> GetExpiringProductsAsync(ExpiringProductsFilterDto filter)
         {
             var query = _context.ProductBatches
-                .Include(b => b.Product)
-                .ThenInclude(p => p.Category!)
+                .Include(b => b.Product!)
+                    .ThenInclude(p => p.Category)
                 .Include(b => b.Branch)
                 .Where(b => b.ExpiryDate.HasValue && b.CurrentStock > 0 && !b.IsDisposed);
 
@@ -258,8 +258,8 @@ namespace Berca_Backend.Services
         {
             var today = DateTime.UtcNow.Date;
             var query = _context.ProductBatches
-                .Include(b => b.Product)
-                .ThenInclude(p => p.Category!)
+                .Include(b => b.Product!)
+                    .ThenInclude(p => p.Category)
                 .Include(b => b.Branch)
                 .Where(b => b.ExpiryDate.HasValue && b.ExpiryDate.Value.Date < today);
 
@@ -598,8 +598,8 @@ namespace Berca_Backend.Services
         public async Task<ExpiryAnalyticsDto> GetExpiryAnalyticsAsync(int? branchId = null, DateTime? startDate = null, DateTime? endDate = null)
         {
             var query = _context.ProductBatches
-                .Include(b => b.Product)
-                .ThenInclude(p => p.Category!)
+                .Include(b => b.Product!)
+                    .ThenInclude(p => p.Category)
                 .Include(b => b.Branch)
                 .Where(b => b.ExpiryDate.HasValue);
 
@@ -644,8 +644,8 @@ namespace Berca_Backend.Services
         public async Task<List<CategoryExpiryStatsDto>> GetCategoryExpiryStatsAsync(int? branchId = null)
         {
             var query = _context.ProductBatches
-                .Include(b => b.Product)
-                .ThenInclude(p => p.Category!)
+                .Include(b => b.Product!)
+                    .ThenInclude(p => p.Category)
                 .Where(b => b.ExpiryDate.HasValue);
 
             if (branchId.HasValue)
@@ -706,8 +706,8 @@ namespace Berca_Backend.Services
         public async Task<WastageMetricsDto> GetWastageMetricsAsync(int? branchId = null, DateTime? startDate = null, DateTime? endDate = null)
         {
             var query = _context.ProductBatches
-                .Include(b => b.Product)
-                .ThenInclude(p => p.Category!)
+                .Include(b => b.Product!)
+                    .ThenInclude(p => p.Category)
                 .Where(b => b.ExpiryDate.HasValue);
 
             if (branchId.HasValue)
