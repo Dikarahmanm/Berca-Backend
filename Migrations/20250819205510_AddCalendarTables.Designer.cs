@@ -4,6 +4,7 @@ using Berca_Backend.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -11,9 +12,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace Berca_Backend.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20250819205510_AddCalendarTables")]
+    partial class AddCalendarTables
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -2791,182 +2794,6 @@ namespace Berca_Backend.Migrations
                     b.ToTable("PushSubscriptions");
                 });
 
-            modelBuilder.Entity("Berca_Backend.Models.Report", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("int");
-
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
-
-                    b.Property<int?>("BranchId")
-                        .HasColumnType("int");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<int>("CreatedBy")
-                        .HasColumnType("int");
-
-                    b.Property<int>("CreatedByUserId")
-                        .HasColumnType("int");
-
-                    b.Property<string>("Description")
-                        .HasMaxLength(500)
-                        .HasColumnType("nvarchar(500)");
-
-                    b.Property<bool>("IsActive")
-                        .HasColumnType("bit");
-
-                    b.Property<bool>("IsScheduled")
-                        .HasColumnType("bit");
-
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
-
-                    b.Property<string>("Parameters")
-                        .IsRequired()
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<string>("ReportType")
-                        .IsRequired()
-                        .HasMaxLength(50)
-                        .HasColumnType("nvarchar(50)");
-
-                    b.Property<string>("ScheduleExpression")
-                        .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
-
-                    b.Property<DateTime>("UpdatedAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<int?>("UpdatedBy")
-                        .HasColumnType("int");
-
-                    b.Property<int?>("UpdatedByUserId")
-                        .HasColumnType("int");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("BranchId");
-
-                    b.HasIndex("CreatedByUserId");
-
-                    b.HasIndex("UpdatedByUserId");
-
-                    b.ToTable("Reports");
-                });
-
-            modelBuilder.Entity("Berca_Backend.Models.ReportExecution", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("int");
-
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
-
-                    b.Property<DateTime?>("CompletedAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<string>("ErrorMessage")
-                        .HasMaxLength(1000)
-                        .HasColumnType("nvarchar(1000)");
-
-                    b.Property<int?>("ExecutedBy")
-                        .HasColumnType("int");
-
-                    b.Property<int?>("ExecutedByUserId")
-                        .HasColumnType("int");
-
-                    b.Property<string>("ExecutionType")
-                        .IsRequired()
-                        .HasMaxLength(50)
-                        .HasColumnType("nvarchar(50)");
-
-                    b.Property<long?>("FileSizeBytes")
-                        .HasColumnType("bigint");
-
-                    b.Property<string>("OutputPath")
-                        .HasMaxLength(500)
-                        .HasColumnType("nvarchar(500)");
-
-                    b.Property<string>("Parameters")
-                        .IsRequired()
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<int>("ReportId")
-                        .HasColumnType("int");
-
-                    b.Property<DateTime>("StartedAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<string>("Status")
-                        .IsRequired()
-                        .HasMaxLength(20)
-                        .HasColumnType("nvarchar(20)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("ExecutedByUserId");
-
-                    b.HasIndex("ReportId");
-
-                    b.ToTable("ReportExecutions");
-                });
-
-            modelBuilder.Entity("Berca_Backend.Models.ReportTemplate", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("int");
-
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
-
-                    b.Property<string>("Category")
-                        .IsRequired()
-                        .HasMaxLength(50)
-                        .HasColumnType("nvarchar(50)");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<int>("CreatedBy")
-                        .HasColumnType("int");
-
-                    b.Property<int>("CreatedByUserId")
-                        .HasColumnType("int");
-
-                    b.Property<string>("Description")
-                        .HasMaxLength(500)
-                        .HasColumnType("nvarchar(500)");
-
-                    b.Property<bool>("IsActive")
-                        .HasColumnType("bit");
-
-                    b.Property<bool>("IsDefault")
-                        .HasColumnType("bit");
-
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
-
-                    b.Property<string>("TemplateContent")
-                        .IsRequired()
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<DateTime>("UpdatedAt")
-                        .HasColumnType("datetime2");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("CreatedByUserId");
-
-                    b.ToTable("ReportTemplates");
-                });
-
             modelBuilder.Entity("Berca_Backend.Models.Sale", b =>
                 {
                     b.Property<int>("Id")
@@ -3899,57 +3726,6 @@ namespace Berca_Backend.Migrations
                     b.Navigation("User");
                 });
 
-            modelBuilder.Entity("Berca_Backend.Models.Report", b =>
-                {
-                    b.HasOne("Berca_Backend.Models.Branch", "Branch")
-                        .WithMany()
-                        .HasForeignKey("BranchId");
-
-                    b.HasOne("Berca_Backend.Models.User", "CreatedByUser")
-                        .WithMany()
-                        .HasForeignKey("CreatedByUserId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.HasOne("Berca_Backend.Models.User", "UpdatedByUser")
-                        .WithMany()
-                        .HasForeignKey("UpdatedByUserId");
-
-                    b.Navigation("Branch");
-
-                    b.Navigation("CreatedByUser");
-
-                    b.Navigation("UpdatedByUser");
-                });
-
-            modelBuilder.Entity("Berca_Backend.Models.ReportExecution", b =>
-                {
-                    b.HasOne("Berca_Backend.Models.User", "ExecutedByUser")
-                        .WithMany()
-                        .HasForeignKey("ExecutedByUserId");
-
-                    b.HasOne("Berca_Backend.Models.Report", "Report")
-                        .WithMany("ReportExecutions")
-                        .HasForeignKey("ReportId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("ExecutedByUser");
-
-                    b.Navigation("Report");
-                });
-
-            modelBuilder.Entity("Berca_Backend.Models.ReportTemplate", b =>
-                {
-                    b.HasOne("Berca_Backend.Models.User", "CreatedByUser")
-                        .WithMany()
-                        .HasForeignKey("CreatedByUserId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("CreatedByUser");
-                });
-
             modelBuilder.Entity("Berca_Backend.Models.Sale", b =>
                 {
                     b.HasOne("Berca_Backend.Models.User", "Cashier")
@@ -4081,11 +3857,6 @@ namespace Berca_Backend.Migrations
                     b.Navigation("ProductBatches");
 
                     b.Navigation("SaleItems");
-                });
-
-            modelBuilder.Entity("Berca_Backend.Models.Report", b =>
-                {
-                    b.Navigation("ReportExecutions");
                 });
 
             modelBuilder.Entity("Berca_Backend.Models.Sale", b =>

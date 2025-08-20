@@ -13,14 +13,16 @@
 	  </None>
     <PackageReference Include="BCrypt.Net-Next" Version="4.0.3" />
     <PackageReference Include="ClosedXML" Version="0.105.0" />
-    <PackageReference Include="EPPlus" Version="8.0.8" />
-    <PackageReference Include="iText7" Version="8.0.6" />
+    <PackageReference Include="EPPlus" Version="7.2.2" />
+    <PackageReference Include="iText7" Version="8.0.2" />
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="9.0.6" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="9.0.6">
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
     <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="9.0.6" />
+    <PackageReference Include="Microsoft.Extensions.Caching.Memory" Version="9.0.6" />
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
     <PackageReference Include="Swashbuckle.AspNetCore" Version="9.0.1" />
     <PackageReference Include="WebPush" Version="1.0.12" />
   </ItemGroup>

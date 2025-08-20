@@ -859,7 +859,9 @@ namespace Berca_Backend.Services
         {
             try
             {
+                // Optimized: Use split query for better performance
                 var member = await _context.Members
+                    .AsSplitQuery() // Explicit split query for this method
                     .Include(m => m.CreditTransactions.OrderByDescending(t => t.TransactionDate).Take(10))
                     .Include(m => m.PaymentReminders.OrderByDescending(r => r.ReminderDate).Take(5))
                     .FirstOrDefaultAsync(m => m.Id == memberId);
@@ -932,6 +934,7 @@ namespace Berca_Backend.Services
         {
             try
             {
+                // First: Get overdue members without payment reminders to avoid cartesian explosion
                 var query = _context.Members
                     .Where(m => m.CurrentDebt > 0 && 
                                m.NextPaymentDueDate.HasValue && 
@@ -943,10 +946,53 @@ namespace Berca_Backend.Services
                     query = query.Where(m => m.CreditTransactions.Any(t => t.BranchId == branchId));
                 }
 
+                // Get base member data without payment reminders
                 var overdueMembers = await query
-                    .Include(m => m.PaymentReminders)
                     .OrderByDescending(m => m.NextPaymentDueDate)
-                    .Select(m => new MemberDebtDto
+                    .Select(m => new
+                    {
+                        m.Id,
+                        m.Name,
+                        m.MemberNumber,
+                        m.Phone,
+                        m.Email,
+                        m.Tier,
+                        m.CurrentDebt,
+                        m.DaysOverdue,
+                        m.LastPaymentDate,
+                        m.NextPaymentDueDate,
+                        m.CreditStatus,
+                        m.CreditLimit,
+                        m.AvailableCredit,
+                        m.CreditScore
+                    })
+                    .ToListAsync();
+
+                if (!overdueMembers.Any()) 
+                    return new List<MemberDebtDto>();
+
+                // Second: Get payment reminder aggregates separately 
+                var memberIds = overdueMembers.Select(m => m.Id).ToList();
+                var reminderAggregates = await _context.MemberPaymentReminders
+                    .Where(pr => memberIds.Contains(pr.MemberId))
+                    .GroupBy(pr => pr.MemberId)
+                    .Select(g => new
+                    {
+                        MemberId = g.Key,
+                        RemindersSent = g.Count(),
+                        LastReminderDate = g.OrderByDescending(pr => pr.ReminderDate)
+                                          .Select(pr => pr.ReminderDate)
+                                          .FirstOrDefault()
+                    })
+                    .ToListAsync();
+
+                // Third: Combine the results
+                var result = overdueMembers.Select(m =>
+                {
+                    var reminder = reminderAggregates.FirstOrDefault(r => r.MemberId == m.Id);
+                    var reminderCount = reminder?.RemindersSent ?? 0;
+                    
+                    return new MemberDebtDto
                     {
                         MemberId = m.Id,
                         MemberName = m.Name,
@@ -961,9 +1007,9 @@ namespace Berca_Backend.Services
                         NextDueDate = m.NextPaymentDueDate,
                         Status = m.CreditStatus,
                         StatusDescription = m.CreditStatus.ToString(),
-                        RemindersSent = m.PaymentReminders.Count,
-                        LastReminderDate = m.PaymentReminders.OrderByDescending(r => r.ReminderDate).FirstOrDefault().ReminderDate,
-                        RecommendedAction = GetRecommendedAction(m.DaysOverdue, m.PaymentReminders.Count),
+                        RemindersSent = reminderCount,
+                        LastReminderDate = reminder?.LastReminderDate,
+                        RecommendedAction = GetRecommendedAction(m.DaysOverdue, reminderCount),
                         CollectionPriority = GetCollectionPriority(m.DaysOverdue, m.CurrentDebt),
                         CreditLimit = m.CreditLimit,
                         AvailableCredit = m.AvailableCredit,
@@ -972,10 +1018,10 @@ namespace Berca_Backend.Services
                         RequiresUrgentAction = m.DaysOverdue > 60,
                         FormattedTotalDebt = $"IDR {m.CurrentDebt:N0}",
                         FormattedOverdueAmount = $"IDR {m.CurrentDebt:N0}"
-                    })
-                    .ToListAsync();
+                    };
+                }).ToList();
 
-                return overdueMembers;
+                return result;
             }
             catch (Exception ex)
             {
@@ -988,36 +1034,47 @@ namespace Berca_Backend.Services
         {
             try
             {
-                var members = await _context.Members
+                // First: Get data from database with raw calculation (avoiding computed properties)
+                var membersData = await _context.Members
                     .Where(m => m.CreditLimit > 0 && 
                                m.CurrentDebt > 0 && 
                                (m.CurrentDebt / m.CreditLimit * 100) >= thresholdPercentage)
-                    .OrderByDescending(m => m.CreditUtilization)
-                    .Select(m => new MemberDebtDto
+                    .Select(m => new
                     {
-                        MemberId = m.Id,
-                        MemberName = m.Name,
-                        MemberNumber = m.MemberNumber,
-                        Phone = m.Phone,
-                        Email = m.Email,
-                        Tier = m.Tier,
-                        TotalDebt = m.CurrentDebt,
-                        DaysOverdue = m.DaysOverdue,
-                        Status = m.CreditStatus,
-                        CreditLimit = m.CreditLimit,
-                        AvailableCredit = m.AvailableCredit,
-                        CreditScore = m.CreditScore,
-                        RecommendedAction = m.CreditUtilization > 90 ? "Immediate attention - near credit limit" : "Monitor closely",
-                        FormattedTotalDebt = $"IDR {m.CurrentDebt:N0}"
+                        Member = m,
+                        UtilizationPercentage = (m.CurrentDebt / m.CreditLimit) * 100
                     })
                     .ToListAsync();
 
+                // Second: Order by utilization and map to DTOs (client-side)
+                var members = membersData
+                    .OrderByDescending(x => x.UtilizationPercentage)
+                    .Select(x => new MemberDebtDto
+                    {
+                        MemberId = x.Member.Id,
+                        MemberName = x.Member.Name,
+                        MemberNumber = x.Member.MemberNumber,
+                        Phone = x.Member.Phone,
+                        Email = x.Member.Email,
+                        Tier = x.Member.Tier,
+                        TotalDebt = x.Member.CurrentDebt,
+                        DaysOverdue = x.Member.DaysOverdue,
+                        Status = x.Member.CreditStatus,
+                        CreditLimit = x.Member.CreditLimit,
+                        AvailableCredit = x.Member.AvailableCredit,
+                        CreditScore = x.Member.CreditScore,
+                        RecommendedAction = x.UtilizationPercentage > 90 ? "Immediate attention - near credit limit" : "Monitor closely",
+                        FormattedTotalDebt = $"IDR {x.Member.CurrentDebt:N0}"
+                    })
+                    .ToList();
+
+                _logger.LogInformation("Retrieved {Count} members approaching credit limit threshold {Threshold}%", members.Count, thresholdPercentage);
                 return members;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error getting members approaching limit");
-                throw;
+                _logger.LogError(ex, "Error getting members approaching limit with threshold {Threshold}%", thresholdPercentage);
+                return new List<MemberDebtDto>();
             }
         }
 

@@ -41,7 +41,7 @@ namespace Berca_Backend.Services
                 {
                     query = query.Where(p => p.Name.Contains(search) ||
                                            p.Barcode.Contains(search) ||
-                                           p.Category.Name.Contains(search));
+                                           (p.Category != null && p.Category.Name != null && p.Category.Name.Contains(search)));
                 }
 
                 if (categoryId.HasValue)
@@ -70,8 +70,8 @@ namespace Berca_Backend.Services
                         BuyPrice = p.BuyPrice,
                         SellPrice = p.SellPrice,
                         CategoryId = p.CategoryId,
-                        CategoryName = p.Category.Name,
-                        CategoryColor = p.Category.Color,
+                        CategoryName = p.Category != null ? p.Category.Name : "Unknown Category",
+                        CategoryColor = p.Category != null ? p.Category.Color : "#000000",
                         IsActive = p.IsActive,
                         CreatedAt = p.CreatedAt,
                         UpdatedAt = p.UpdatedAt,
@@ -112,8 +112,8 @@ namespace Berca_Backend.Services
                         BuyPrice = p.BuyPrice,
                         SellPrice = p.SellPrice,
                         CategoryId = p.CategoryId,
-                        CategoryName = p.Category.Name,
-                        CategoryColor = p.Category.Color,
+                        CategoryName = p.Category != null ? p.Category.Name : "Unknown Category",
+                        CategoryColor = p.Category != null ? p.Category.Color : "#000000",
                         IsActive = p.IsActive,
                         CreatedAt = p.CreatedAt,
                         UpdatedAt = p.UpdatedAt,
@@ -144,8 +144,8 @@ namespace Berca_Backend.Services
                         BuyPrice = p.BuyPrice,
                         SellPrice = p.SellPrice,
                         CategoryId = p.CategoryId,
-                        CategoryName = p.Category.Name,
-                        CategoryColor = p.Category.Color,
+                        CategoryName = p.Category != null ? p.Category.Name : "Unknown Category",
+                        CategoryColor = p.Category != null ? p.Category.Color : "#000000",
                         IsActive = p.IsActive,
                         CreatedAt = p.CreatedAt,
                         UpdatedAt = p.UpdatedAt,
@@ -453,8 +453,8 @@ namespace Berca_Backend.Services
                         BuyPrice = p.BuyPrice,
                         SellPrice = p.SellPrice,
                         CategoryId = p.CategoryId,
-                        CategoryName = p.Category.Name,
-                        CategoryColor = p.Category.Color,
+                        CategoryName = p.Category != null ? p.Category.Name : "Unknown Category",
+                        CategoryColor = p.Category != null ? p.Category.Color : "#000000",
                         IsActive = p.IsActive,
                         CreatedAt = p.CreatedAt,
                         UpdatedAt = p.UpdatedAt,
@@ -1120,7 +1120,7 @@ namespace Berca_Backend.Services
                 var currentDate = _timezoneService.Today;
                 var query = _context.ProductBatches
                     .Include(b => b.Product)
-                    .ThenInclude(p => p.Category)
+                    .ThenInclude(p => p.Category!)
                     .Include(b => b.Branch)
                     .Where(b => b.ExpiryDate.HasValue && b.CurrentStock > 0 && !b.IsDisposed);
 
@@ -1134,7 +1134,7 @@ namespace Berca_Backend.Services
                 if (filter.DaysUntilExpiry.HasValue)
                 {
                     var targetDate = currentDate.AddDays(filter.DaysUntilExpiry.Value);
-                    query = query.Where(b => b.ExpiryDate.Value.Date <= targetDate);
+                    query = query.Where(b => b.ExpiryDate!.Value.Date <= targetDate);
                 }
 
                 if (!filter.IncludeBlocked.GetValueOrDefault())
@@ -1192,7 +1192,7 @@ namespace Berca_Backend.Services
                 var today = _timezoneService.Today;
                 var query = _context.ProductBatches
                     .Include(b => b.Product)
-                    .ThenInclude(p => p.Category)
+                    .ThenInclude(p => p.Category!)
                     .Include(b => b.Branch)
                     .Where(b => b.ExpiryDate.HasValue && b.ExpiryDate.Value.Date < today);
 
@@ -1282,13 +1282,13 @@ namespace Berca_Backend.Services
                 }
 
                 result.CategoryId = product.CategoryId;
-                result.CategoryRequiresExpiry = product.Category.RequiresExpiryDate;
+                result.CategoryRequiresExpiry = product.Category?.RequiresExpiryDate ?? false;
 
-                if (product.Category.RequiresExpiryDate)
+                if (product.Category?.RequiresExpiryDate == true)
                 {
                     if (!expiryDate.HasValue)
                     {
-                        result.ValidationErrors.Add($"Expiry date is required for category '{product.Category.Name}'");
+                        result.ValidationErrors.Add($"Expiry date is required for category '{product.Category?.Name ?? "Unknown Category"}'");
                     }
                     else if (expiryDate.Value.Date <= _timezoneService.Today)
                     {
@@ -1487,8 +1487,8 @@ namespace Berca_Backend.Services
                         BuyPrice = p.BuyPrice,
                         SellPrice = p.SellPrice,
                         CategoryId = p.CategoryId,
-                        CategoryName = p.Category.Name,
-                        CategoryColor = p.Category.Color,
+                        CategoryName = p.Category != null ? p.Category.Name : "Unknown Category",
+                        CategoryColor = p.Category != null ? p.Category.Color : "#000000",
                         IsActive = p.IsActive,
                         CreatedAt = p.CreatedAt,
                         UpdatedAt = p.UpdatedAt,

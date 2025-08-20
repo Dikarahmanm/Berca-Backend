@@ -158,7 +158,7 @@ namespace Berca_Backend.Services
         {
             var query = _context.ProductBatches
                 .Include(b => b.Product)
-                .ThenInclude(p => p.Category)
+                .ThenInclude(p => p.Category!)
                 .Include(b => b.Branch)
                 .Where(b => b.ExpiryDate.HasValue && b.CurrentStock > 0 && !b.IsDisposed);
 
@@ -174,10 +174,10 @@ namespace Berca_Backend.Services
                 var today = DateTime.UtcNow.Date;
                 query = filter.ExpiryStatus switch
                 {
-                    ExpiryStatus.Critical => query.Where(b => b.ExpiryDate.Value.Date <= today.AddDays(3)),
-                    ExpiryStatus.Warning => query.Where(b => b.ExpiryDate.Value.Date <= today.AddDays(7) && b.ExpiryDate.Value.Date > today.AddDays(3)),
-                    ExpiryStatus.Normal => query.Where(b => b.ExpiryDate.Value.Date <= today.AddDays(30) && b.ExpiryDate.Value.Date > today.AddDays(7)),
-                    ExpiryStatus.Good => query.Where(b => b.ExpiryDate.Value.Date > today.AddDays(30)),
+                    ExpiryStatus.Critical => query.Where(b => b.ExpiryDate!.Value.Date <= today.AddDays(3)),
+                    ExpiryStatus.Warning => query.Where(b => b.ExpiryDate!.Value.Date <= today.AddDays(7) && b.ExpiryDate.Value.Date > today.AddDays(3)),
+                    ExpiryStatus.Normal => query.Where(b => b.ExpiryDate!.Value.Date <= today.AddDays(30) && b.ExpiryDate.Value.Date > today.AddDays(7)),
+                    ExpiryStatus.Good => query.Where(b => b.ExpiryDate!.Value.Date > today.AddDays(30)),
                     _ => query
                 };
             }
@@ -185,7 +185,7 @@ namespace Berca_Backend.Services
             if (filter.DaysUntilExpiry.HasValue)
             {
                 var targetDate = DateTime.UtcNow.Date.AddDays(filter.DaysUntilExpiry.Value);
-                query = query.Where(b => b.ExpiryDate.Value.Date <= targetDate);
+                query = query.Where(b => b.ExpiryDate!.Value.Date <= targetDate);
             }
 
             if (!filter.IncludeBlocked.GetValueOrDefault())
@@ -249,7 +249,7 @@ namespace Berca_Backend.Services
             var today = DateTime.UtcNow.Date;
             var query = _context.ProductBatches
                 .Include(b => b.Product)
-                .ThenInclude(p => p.Category)
+                .ThenInclude(p => p.Category!)
                 .Include(b => b.Branch)
                 .Where(b => b.ExpiryDate.HasValue && b.ExpiryDate.Value.Date < today);
 
@@ -589,7 +589,7 @@ namespace Berca_Backend.Services
         {
             var query = _context.ProductBatches
                 .Include(b => b.Product)
-                .ThenInclude(p => p.Category)
+                .ThenInclude(p => p.Category!)
                 .Include(b => b.Branch)
                 .Where(b => b.ExpiryDate.HasValue);
 
@@ -635,7 +635,7 @@ namespace Berca_Backend.Services
         {
             var query = _context.ProductBatches
                 .Include(b => b.Product)
-                .ThenInclude(p => p.Category)
+                .ThenInclude(p => p.Category!)
                 .Where(b => b.ExpiryDate.HasValue);
 
             if (branchId.HasValue)
@@ -644,7 +644,7 @@ namespace Berca_Backend.Services
             var batches = await query.ToListAsync();
 
             return batches.Where(b => b.Product?.Category != null)
-                .GroupBy(b => new { b.Product.CategoryId, b.Product!.Category!.Name, b.Product.Category.Color })
+                .GroupBy(b => new { b.Product!.CategoryId, b.Product.Category!.Name, b.Product.Category.Color })
                 .Select(g => new CategoryExpiryStatsDto
                 {
                     CategoryId = g.Key.CategoryId,
@@ -697,7 +697,7 @@ namespace Berca_Backend.Services
         {
             var query = _context.ProductBatches
                 .Include(b => b.Product)
-                .ThenInclude(p => p.Category)
+                .ThenInclude(p => p.Category!)
                 .Where(b => b.ExpiryDate.HasValue);
 
             if (branchId.HasValue)
@@ -727,7 +727,7 @@ namespace Berca_Backend.Services
                 WastagePercentage = totalValuePurchased > 0 ? ((totalValueExpired + totalValueDisposed) / totalValuePurchased) * 100 : 0,
                 RecoveryPercentage = totalValuePurchased > 0 ? (totalValueSold / totalValuePurchased) * 100 : 0,
                 CategoryBreakdown = batches.Where(b => b.Product?.Category != null)
-                    .GroupBy(b => new { b.Product.CategoryId, b.Product!.Category!.Name })
+                    .GroupBy(b => new { b.Product!.CategoryId, b.Product.Category!.Name })
                     .Select(g => new CategoryWastageDto
                     {
                         CategoryId = g.Key.CategoryId,

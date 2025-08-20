@@ -1,5 +1,6 @@
 ﻿// DTOs/MemberDTOs.cs - Sprint 2 Member DTOs (FIXED)
 using System.ComponentModel.DataAnnotations; // ✅ ADDED
+using Berca_Backend.Models; // ✅ ADDED for CreditStatus enum
 
 namespace Berca_Backend.DTOs
 {
@@ -149,6 +150,50 @@ namespace Berca_Backend.DTOs
         public decimal TotalSpent { get; set; }
         public decimal AverageTransaction { get; set; }
         public DateTime LastTransactionDate { get; set; }
+    }
+
+    // ==================== QUERY OPTIMIZATION DTOs ==================== //
+
+    /// <summary>
+    /// Optimized DTO for member queries with payment reminder information
+    /// Reduces query complexity and improves performance with split queries
+    /// </summary>
+    public class MemberWithRemindersDto
+    {
+        public int Id { get; set; }
+        public string Name { get; set; } = string.Empty;
+        public string MemberNumber { get; set; } = string.Empty;
+        public decimal CurrentDebt { get; set; }
+        public decimal CreditLimit { get; set; }
+        public DateTime? NextPaymentDueDate { get; set; }
+        public CreditStatus CreditStatus { get; set; }
+        
+        // Aggregated reminder information (avoids loading full collection)
+        public int PaymentRemindersCount { get; set; }
+        public DateTime? LastReminderDate { get; set; }
+        
+        // Computed properties
+        public decimal CreditUtilization => CreditLimit > 0 ? (CurrentDebt / CreditLimit) * 100 : 0;
+        public bool IsHighRisk => CreditUtilization >= 90;
+        public int DaysOverdue => NextPaymentDueDate.HasValue 
+            ? Math.Max(0, (DateTime.Now.Date - NextPaymentDueDate.Value.Date).Days)
+            : 0;
+        
+        // Display properties - Indonesian formatting
+        public string CurrentDebtDisplay => CurrentDebt.ToString("C", new System.Globalization.CultureInfo("id-ID"));
+        public string CreditLimitDisplay => CreditLimit.ToString("C", new System.Globalization.CultureInfo("id-ID"));
+        public string CreditUtilizationDisplay => $"{CreditUtilization:F1}%";
+        public string CreditStatusDisplay => CreditStatus switch
+        {
+            CreditStatus.Good => "Baik",
+            CreditStatus.Warning => "Peringatan",
+            CreditStatus.Overdue => "Terlambat",
+            CreditStatus.Suspended => "Ditangguhkan",
+            CreditStatus.Blacklisted => "Diblokir",
+            _ => "Tidak Diketahui"
+        };
+        public string NextPaymentDueDateDisplay => NextPaymentDueDate?.ToString("dd/MM/yyyy") ?? "N/A";
+        public string LastReminderDateDisplay => LastReminderDate?.ToString("dd/MM/yyyy HH:mm") ?? "Never";
     }
 
 
