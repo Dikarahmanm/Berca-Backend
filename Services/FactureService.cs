@@ -1054,10 +1054,12 @@ namespace Berca_Backend.Services
         {
             try
             {
+                // Use business logic instead of computed property for approval requirement
+                var approvalThreshold = 50000000m; // 50M IDR threshold from business rule
                 var query = _context.Factures
                     .Include(f => f.Supplier)
                     .Include(f => f.Branch)
-                    .Where(f => f.Status == FactureStatus.Verified && f.RequiresApproval);
+                    .Where(f => f.Status == FactureStatus.Verified && f.TotalAmount >= approvalThreshold);
 
                 // Apply branch filter
                 if (branchId.HasValue)
@@ -1418,10 +1420,16 @@ namespace Berca_Backend.Services
 
                 var totalFactures = await query.CountAsync();
                 var pendingVerification = await query.CountAsync(f => f.Status == FactureStatus.Received);
-                var pendingApproval = await query.CountAsync(f => f.Status == FactureStatus.Verified && f.RequiresApproval);
-                var overduePayments = await query.CountAsync(f => f.IsOverdue);
                 
+                // Calculate pending approval based on business logic instead of computed property
+                var approvalThreshold = 50000000m; // 50M IDR threshold from business rule
+                var pendingApproval = await query.CountAsync(f => f.Status == FactureStatus.Verified && f.TotalAmount >= approvalThreshold);
+                
+                // Calculate overdue based on date comparison instead of computed property
                 var today = DateTime.UtcNow.Date;
+                var overduePayments = await query.CountAsync(f => f.Status != FactureStatus.Paid && 
+                                                                  f.Status != FactureStatus.Cancelled &&
+                                                                  f.DueDate < today);
                 var tomorrow = today.AddDays(1);
                 var paymentsDueToday = await query.CountAsync(f => 
                     f.Status != FactureStatus.Paid && f.Status != FactureStatus.Cancelled &&
@@ -1437,7 +1445,9 @@ namespace Berca_Backend.Services
                     .SumAsync(f => f.TotalAmount - f.PaidAmount);
                 
                 var totalOverdue = await query
-                    .Where(f => f.IsOverdue)
+                    .Where(f => f.Status != FactureStatus.Paid && 
+                               f.Status != FactureStatus.Cancelled &&
+                               f.DueDate < today)
                     .SumAsync(f => f.TotalAmount - f.PaidAmount);
                 
                 var paymentsThisWeek = await query
