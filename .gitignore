@@ -372,3 +372,5 @@ FodyWeavers.xsd
 /CreateSuppliersTableOnly.sql
 /facture_tables.sql
 /swagger.json
+/.claude/settings.local.json
+/.claude/settings.local.json
