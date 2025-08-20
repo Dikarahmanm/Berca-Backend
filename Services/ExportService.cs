@@ -67,13 +67,13 @@ namespace Berca_Backend.Services
                 document.SetFont(font);
 
                 // Add header
-                await AddPdfHeaderAsync(document, reportTitle);
+                AddPdfHeader(document, reportTitle);
 
                 // Add content based on data type
-                await AddPdfContentAsync(document, data, options);
+                AddPdfContent(document, data, options);
 
                 // Add footer
-                await AddPdfFooterAsync(document);
+                AddPdfFooter(document);
 
                 document.Close();
 
@@ -91,8 +91,10 @@ namespace Berca_Backend.Services
             DetailedSalesReportDto salesReport,
             ExportRequestDto request)
         {
-            try
+            return await Task.Run<(bool Success, string? FilePath, string? ErrorMessage)>(() =>
             {
+                try
+                {
                 var fileName = $"Laporan_Penjualan_{DateTime.Now:yyyyMMdd_HHmmss}.pdf";
                 var filePath = Path.Combine(_outputDirectory, fileName);
 
@@ -169,12 +171,13 @@ namespace Berca_Backend.Services
 
                 _logger.LogInformation("Sales report PDF exported: {FilePath}", filePath);
                 return (true, filePath, null);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error exporting sales report to PDF");
-                return (false, null, $"Gagal export laporan penjualan: {ex.Message}");
-            }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Error exporting sales report to PDF");
+                    return (false, null, $"Gagal export laporan penjualan: {ex.Message}");
+                }
+            });
         }
 
         public async Task<(bool Success, string? FilePath, string? ErrorMessage)> ExportInventoryReportToPdfAsync(
@@ -361,7 +364,7 @@ namespace Berca_Backend.Services
                 worksheet.Cells["A2:E2"].Merge = true;
 
                 // Add data
-                await AddExcelContentAsync(worksheet, data, options);
+                AddExcelContent(worksheet, data, options);
 
                 // Auto-fit columns
                 worksheet.Cells.AutoFitColumns();
@@ -641,7 +644,7 @@ namespace Berca_Backend.Services
 
         // ==================== HELPER METHODS ==================== //
 
-        private async Task AddPdfHeaderAsync(Document document, string title)
+        private void AddPdfHeader(Document document, string title)
         {
             document.Add(new Paragraph(title)
                 .SetTextAlignment(TextAlignment.CENTER)
@@ -659,21 +662,21 @@ namespace Berca_Backend.Services
             document.Add(new Paragraph("\n"));
         }
 
-        private async Task AddPdfContentAsync<T>(Document document, T data, Dictionary<string, object>? options)
+        private void AddPdfContent<T>(Document document, T data, Dictionary<string, object>? options)
         {
             // Generic content addition - would be specialized based on data type
             document.Add(new Paragraph($"Data Type: {typeof(T).Name}"));
             document.Add(new Paragraph($"Data: {JsonSerializer.Serialize(data, new JsonSerializerOptions { WriteIndented = true })}"));
         }
 
-        private async Task AddPdfFooterAsync(Document document)
+        private void AddPdfFooter(Document document)
         {
             document.Add(new Paragraph($"\nHalaman dibuat oleh sistem POS Toko Eniwan")
                 .SetTextAlignment(TextAlignment.CENTER)
                 .SetFontSize(8));
         }
 
-        private async Task AddExcelContentAsync<T>(ExcelWorksheet worksheet, T data, Dictionary<string, object>? options)
+        private void AddExcelContent<T>(ExcelWorksheet worksheet, T data, Dictionary<string, object>? options)
         {
             // Generic content addition starting from row 4
             worksheet.Cells[4, 1].Value = "Data Type:";

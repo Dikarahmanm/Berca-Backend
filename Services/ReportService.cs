@@ -68,7 +68,7 @@ namespace Berca_Backend.Services
                 if (!string.IsNullOrEmpty(filters.SearchTerm))
                 {
                     query = query.Where(r => r.Name.Contains(filters.SearchTerm) ||
-                                           r.Description!.Contains(filters.SearchTerm));
+                                           (!string.IsNullOrEmpty(r.Description) && r.Description.Contains(filters.SearchTerm)));
                 }
 
                 if (filters.StartDate != default && filters.EndDate != default)
@@ -809,32 +809,32 @@ namespace Berca_Backend.Services
         // ==================== STUB IMPLEMENTATIONS ==================== //
         // These methods provide basic implementations to prevent NotImplementedException
 
-        public async Task<List<InventoryItemDto>> GetLowStockItemsAsync(int? branchId = null, int? categoryId = null)
+        public Task<List<InventoryItemDto>> GetLowStockItemsAsync(int? branchId = null, int? categoryId = null)
         {
-            return new List<InventoryItemDto>();
+            return Task.FromResult(new List<InventoryItemDto>());
         }
 
-        public async Task<List<InventoryMovementTrackingDto>> GetInventoryMovementsAsync(DateTime startDate, DateTime endDate, int? productId = null, int? branchId = null)
+        public Task<List<InventoryMovementTrackingDto>> GetInventoryMovementsAsync(DateTime startDate, DateTime endDate, int? productId = null, int? branchId = null)
         {
-            return new List<InventoryMovementTrackingDto>();
+            return Task.FromResult(new List<InventoryMovementTrackingDto>());
         }
 
-        public async Task<List<InventoryValuationDto>> GetInventoryValuationAsync(int? branchId = null)
+        public Task<List<InventoryValuationDto>> GetInventoryValuationAsync(int? branchId = null)
         {
-            return new List<InventoryValuationDto>();
+            return Task.FromResult(new List<InventoryValuationDto>());
         }
 
-        public async Task<List<CategoryInventoryBreakdownDto>> GetCategoryInventoryBreakdownAsync(int? branchId = null)
+        public Task<List<CategoryInventoryBreakdownDto>> GetCategoryInventoryBreakdownAsync(int? branchId = null)
         {
-            return new List<CategoryInventoryBreakdownDto>();
+            return Task.FromResult(new List<CategoryInventoryBreakdownDto>());
         }
 
-        public async Task<DetailedFinancialReportDto> GenerateFinancialReportAsync(DateTime startDate, DateTime endDate, int? branchId = null)
+        public Task<DetailedFinancialReportDto> GenerateFinancialReportAsync(DateTime startDate, DateTime endDate, int? branchId = null)
         {
-            return new DetailedFinancialReportDto
+            return Task.FromResult(new DetailedFinancialReportDto
             {
                 ReportPeriod = $"{startDate:dd/MM/yyyy} - {endDate:dd/MM/yyyy}"
-            };
+            });
         }
 
         public async Task<DetailedFinancialReportDto> GetProfitLossStatementAsync(DateTime startDate, DateTime endDate, int? branchId = null)
@@ -842,35 +842,35 @@ namespace Berca_Backend.Services
             return await GenerateFinancialReportAsync(startDate, endDate, branchId);
         }
 
-        public async Task<object> GetCashFlowReportAsync(DateTime startDate, DateTime endDate, int? branchId = null)
+        public Task<object> GetCashFlowReportAsync(DateTime startDate, DateTime endDate, int? branchId = null)
         {
-            return new { Message = "Cash flow report implementation pending" };
+            return Task.FromResult<object>(new { Message = "Cash flow report implementation pending" });
         }
 
-        public async Task<List<SupplierPerformanceDto>> GenerateSupplierPerformanceReportAsync(DateTime startDate, DateTime endDate, int? supplierId = null)
+        public Task<List<SupplierPerformanceDto>> GenerateSupplierPerformanceReportAsync(DateTime startDate, DateTime endDate, int? supplierId = null)
         {
-            return new List<SupplierPerformanceDto>();
+            return Task.FromResult(new List<SupplierPerformanceDto>());
         }
 
-        public async Task<object> GetSupplierPaymentAnalysisAsync(DateTime startDate, DateTime endDate, int? supplierId = null)
+        public Task<object> GetSupplierPaymentAnalysisAsync(DateTime startDate, DateTime endDate, int? supplierId = null)
         {
-            return new { Message = "Supplier payment analysis implementation pending" };
+            return Task.FromResult<object>(new { Message = "Supplier payment analysis implementation pending" });
         }
 
-        public async Task<(bool IsValid, string? ErrorMessage)> ValidateReportParametersAsync(string reportType, Dictionary<string, object> parameters)
+        public Task<(bool IsValid, string? ErrorMessage)> ValidateReportParametersAsync(string reportType, Dictionary<string, object> parameters)
         {
-            return (true, null);
+            return Task.FromResult((true, (string?)null));
         }
 
-        public async Task<List<object>> GetAvailableReportTypesAsync()
+        public Task<List<object>> GetAvailableReportTypesAsync()
         {
-            return new List<object>
+            return Task.FromResult(new List<object>
             {
                 new { Value = "Sales", Label = "Laporan Penjualan", Description = "Laporan komprehensif penjualan dan performa produk" },
                 new { Value = "Inventory", Label = "Laporan Inventori", Description = "Laporan stok, pergerakan barang, dan valuasi inventori" },
                 new { Value = "Financial", Label = "Laporan Keuangan", Description = "Laporan keuangan, laba rugi, dan arus kas" },
                 new { Value = "Supplier", Label = "Laporan Pemasok", Description = "Laporan performa dan analisis pemasok" }
-            };
+            });
         }
 
         public async Task<(bool Success, string? ErrorMessage)> ScheduleReportAsync(int reportId, string cronExpression, int scheduledBy)
@@ -898,14 +898,14 @@ namespace Berca_Backend.Services
             }
         }
 
-        public async Task<List<object>> GetReportTemplatesAsync(string? category = null)
+        public Task<List<object>> GetReportTemplatesAsync(string? category = null)
         {
-            return new List<object>
+            return Task.FromResult(new List<object>
             {
                 new { Id = 1, Name = "Standard Sales Report", Category = "Sales" },
                 new { Id = 2, Name = "Inventory Summary", Category = "Inventory" },
                 new { Id = 3, Name = "Financial Overview", Category = "Financial" }
-            };
+            });
         }
     }
 }

@@ -847,119 +847,119 @@ namespace Berca_Backend.Services
         // ==================== STUB IMPLEMENTATIONS ==================== //
         // These provide basic implementations to prevent NotImplementedException
 
-        public async Task<object> PredictStockMovementsAsync(int forecastDays = 30, int? productId = null)
+        public Task<object> PredictStockMovementsAsync(int forecastDays = 30, int? productId = null)
         {
-            return new { Message = "Stock movement prediction implementation pending" };
+            return Task.FromResult<object>(new { Message = "Stock movement prediction implementation pending" });
         }
 
-        public async Task<object> GetSlowMovingInventoryAsync(int? branchId = null, int daysThreshold = 90)
+        public Task<object> GetSlowMovingInventoryAsync(int? branchId = null, int daysThreshold = 90)
         {
-            return new { Message = "Slow moving inventory analysis implementation pending" };
+            return Task.FromResult<object>(new { Message = "Slow moving inventory analysis implementation pending" });
         }
 
-        public async Task<object> GetReorderRecommendationsAsync(int? branchId = null)
+        public Task<object> GetReorderRecommendationsAsync(int? branchId = null)
         {
-            return new { Message = "Reorder recommendations implementation pending" };
+            return Task.FromResult<object>(new { Message = "Reorder recommendations implementation pending" });
         }
 
-        public async Task<object> GetABCAnalysisAsync(int? branchId = null)
+        public Task<object> GetABCAnalysisAsync(int? branchId = null)
         {
-            return new { Message = "ABC analysis implementation pending" };
+            return Task.FromResult<object>(new { Message = "ABC analysis implementation pending" });
         }
 
-        public async Task<object> GetProfitabilityAnalysisAsync(DateTime startDate, DateTime endDate, string analysisType = "product")
+        public Task<object> GetProfitabilityAnalysisAsync(DateTime startDate, DateTime endDate, string analysisType = "product")
         {
-            return new { Message = "Profitability analysis implementation pending" };
+            return Task.FromResult<object>(new { Message = "Profitability analysis implementation pending" });
         }
 
-        public async Task<object> PredictCashFlowAsync(int forecastDays = 30, int? branchId = null)
+        public Task<object> PredictCashFlowAsync(int forecastDays = 30, int? branchId = null)
         {
-            return new { Message = "Cash flow prediction implementation pending" };
+            return Task.FromResult<object>(new { Message = "Cash flow prediction implementation pending" });
         }
 
-        public async Task<object> GetBreakEvenAnalysisAsync(int? productId = null, int? branchId = null)
+        public Task<object> GetBreakEvenAnalysisAsync(int? productId = null, int? branchId = null)
         {
-            return new { Message = "Break-even analysis implementation pending" };
+            return Task.FromResult<object>(new { Message = "Break-even analysis implementation pending" });
         }
 
-        public async Task<object> GetCostOptimizationInsightsAsync(DateTime startDate, DateTime endDate)
+        public Task<object> GetCostOptimizationInsightsAsync(DateTime startDate, DateTime endDate)
         {
-            return new { Message = "Cost optimization insights implementation pending" };
+            return Task.FromResult<object>(new { Message = "Cost optimization insights implementation pending" });
         }
 
-        public async Task<object> GetFinancialKPIDashboardAsync(DateTime startDate, DateTime endDate, int? branchId = null)
+        public Task<object> GetFinancialKPIDashboardAsync(DateTime startDate, DateTime endDate, int? branchId = null)
         {
-            return new { Message = "Financial KPI dashboard implementation pending" };
+            return Task.FromResult<object>(new { Message = "Financial KPI dashboard implementation pending" });
         }
 
-        public async Task<object> GetStaffPerformanceAnalyticsAsync(DateTime startDate, DateTime endDate, int? branchId = null)
+        public Task<object> GetStaffPerformanceAnalyticsAsync(DateTime startDate, DateTime endDate, int? branchId = null)
         {
-            return new { Message = "Staff performance analytics implementation pending" };
+            return Task.FromResult<object>(new { Message = "Staff performance analytics implementation pending" });
         }
 
-        public async Task<object> GetPeakHoursAnalysisAsync(DateTime startDate, DateTime endDate, int? branchId = null)
+        public Task<object> GetPeakHoursAnalysisAsync(DateTime startDate, DateTime endDate, int? branchId = null)
         {
-            return new { Message = "Peak hours analysis implementation pending" };
+            return Task.FromResult<object>(new { Message = "Peak hours analysis implementation pending" });
         }
 
-        public async Task<object> GetSupplierPerformanceScoringAsync(DateTime startDate, DateTime endDate, int? supplierId = null)
+        public Task<object> GetSupplierPerformanceScoringAsync(DateTime startDate, DateTime endDate, int? supplierId = null)
         {
-            return new { Message = "Supplier performance scoring implementation pending" };
+            return Task.FromResult<object>(new { Message = "Supplier performance scoring implementation pending" });
         }
 
-        public async Task<object> GetBranchComparisonAnalyticsAsync(DateTime startDate, DateTime endDate)
+        public Task<object> GetBranchComparisonAnalyticsAsync(DateTime startDate, DateTime endDate)
         {
-            return new { Message = "Branch comparison analytics implementation pending" };
+            return Task.FromResult<object>(new { Message = "Branch comparison analytics implementation pending" });
         }
 
-        public async Task<object> GetKPIMetricsAsync(DateTime startDate, DateTime endDate, int? branchId = null)
+        public Task<object> GetKPIMetricsAsync(DateTime startDate, DateTime endDate, int? branchId = null)
         {
-            return new { Message = "KPI metrics implementation pending" };
+            return Task.FromResult<object>(new { Message = "KPI metrics implementation pending" });
         }
 
-        public async Task<object> GetBusinessHealthScoreAsync(int? branchId = null)
+        public Task<object> GetBusinessHealthScoreAsync(int? branchId = null)
         {
-            return new { Message = "Business health score implementation pending" };
+            return Task.FromResult<object>(new { Message = "Business health score implementation pending" });
         }
 
-        public async Task<object> GetBusinessInsightsAsync(int? branchId = null)
+        public Task<object> GetBusinessInsightsAsync(int? branchId = null)
         {
-            return new { Message = "Business insights implementation pending" };
+            return Task.FromResult<object>(new { Message = "Business insights implementation pending" });
         }
 
-        public async Task<object> GetAnomalyAlertsAsync(DateTime startDate, DateTime endDate, int? branchId = null)
+        public Task<object> GetAnomalyAlertsAsync(DateTime startDate, DateTime endDate, int? branchId = null)
         {
-            return new { Message = "Anomaly alerts implementation pending" };
+            return Task.FromResult<object>(new { Message = "Anomaly alerts implementation pending" });
         }
 
-        public async Task<object> GetStrategicRecommendationsAsync(int? branchId = null)
+        public Task<object> GetStrategicRecommendationsAsync(int? branchId = null)
         {
-            return new { Message = "Strategic recommendations implementation pending" };
+            return Task.FromResult<object>(new { Message = "Strategic recommendations implementation pending" });
         }
 
-        public async Task<object> GetMarketOpportunityAnalysisAsync(DateTime startDate, DateTime endDate)
+        public Task<object> GetMarketOpportunityAnalysisAsync(DateTime startDate, DateTime endDate)
         {
-            return new { Message = "Market opportunity analysis implementation pending" };
+            return Task.FromResult<object>(new { Message = "Market opportunity analysis implementation pending" });
         }
 
-        public async Task<object> CalculateCustomerLifetimeValueAsync(int? customerId = null)
+        public Task<object> CalculateCustomerLifetimeValueAsync(int? customerId = null)
         {
-            return new { Message = "Customer lifetime value calculation implementation pending" };
+            return Task.FromResult<object>(new { Message = "Customer lifetime value calculation implementation pending" });
         }
 
-        public async Task<object> GetMarketBasketAnalysisAsync(DateTime startDate, DateTime endDate, int? branchId = null)
+        public Task<object> GetMarketBasketAnalysisAsync(DateTime startDate, DateTime endDate, int? branchId = null)
         {
-            return new { Message = "Market basket analysis implementation pending" };
+            return Task.FromResult<object>(new { Message = "Market basket analysis implementation pending" });
         }
 
-        public async Task<object> GetPriceElasticityAnalysisAsync(int productId, DateTime startDate, DateTime endDate)
+        public Task<object> GetPriceElasticityAnalysisAsync(int productId, DateTime startDate, DateTime endDate)
         {
-            return new { Message = "Price elasticity analysis implementation pending" };
+            return Task.FromResult<object>(new { Message = "Price elasticity analysis implementation pending" });
         }
 
-        public async Task<object> GetCohortAnalysisAsync(DateTime startDate, DateTime endDate, int? branchId = null)
+        public Task<object> GetCohortAnalysisAsync(DateTime startDate, DateTime endDate, int? branchId = null)
         {
-            return new { Message = "Cohort analysis implementation pending" };
+            return Task.FromResult<object>(new { Message = "Cohort analysis implementation pending" });
         }
     }
 }
