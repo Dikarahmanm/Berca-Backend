@@ -132,6 +132,11 @@ namespace Berca_Backend.Models
         public int CreatedBy { get; set; }
 
         /// <summary>
+        /// User who last updated this event (optional)
+        /// </summary>
+        public int? UpdatedBy { get; set; }
+
+        /// <summary>
         /// When this event was created
         /// </summary>
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
@@ -147,6 +152,11 @@ namespace Berca_Backend.Models
         /// User who created this event
         /// </summary>
         public virtual User CreatedByUser { get; set; } = null!;
+
+        /// <summary>
+        /// User who last updated this event (optional)
+        /// </summary>
+        public virtual User? UpdatedByUser { get; set; }
 
         /// <summary>
         /// Branch this event belongs to (optional)

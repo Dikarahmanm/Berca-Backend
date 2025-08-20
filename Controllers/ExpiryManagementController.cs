@@ -67,11 +67,29 @@ namespace Berca_Backend.Controllers
             }
             catch (ArgumentException ex)
             {
-                return BadRequest(new { message = ex.Message });
+                _logger.LogWarning(ex, "Invalid argument in product batch creation: BranchId={BranchId}", request?.BranchId);
+                return BadRequest(new { message = ex.Message, field = "validation" });
+            }
+            catch (Microsoft.EntityFrameworkCore.DbUpdateException ex) when (ex.InnerException?.Message?.Contains("FK_ProductBatches_Branches_BranchId") == true)
+            {
+                _logger.LogError(ex, "Foreign key constraint violation - Invalid BranchId: {BranchId}", request?.BranchId);
+                return BadRequest(new { 
+                    message = $"Invalid branch ID. Branch {request?.BranchId} does not exist.", 
+                    field = "branchId",
+                    validBranches = "Use GET /api/branch to see valid branch IDs"
+                });
+            }
+            catch (Microsoft.EntityFrameworkCore.DbUpdateException ex)
+            {
+                _logger.LogError(ex, "Database error creating product batch: {Error}", ex.InnerException?.Message);
+                return StatusCode(500, new { 
+                    message = "Database error occurred while creating product batch",
+                    error = "DATABASE_CONSTRAINT_ERROR"
+                });
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error creating product batch");
+                _logger.LogError(ex, "Unexpected error creating product batch");
                 return StatusCode(500, new { message = "Internal server error" });
             }
         }

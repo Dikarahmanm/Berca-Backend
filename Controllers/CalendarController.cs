@@ -185,7 +185,7 @@ namespace Berca_Backend.Controllers
         /// <param name="createDto">Event creation data</param>
         /// <returns>Created event details</returns>
         [HttpPost]
-        [Authorize(Policy = "User.Create")]
+        [Authorize(Policy = "Calendar.Write")]
         public async Task<IActionResult> CreateEvent([FromBody] CreateCalendarEventDto createDto)
         {
             try

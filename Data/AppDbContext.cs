@@ -2175,6 +2175,55 @@ namespace Berca_Backend.Data
             modelBuilder.Entity<Report>()
                 .Navigation(r => r.ReportExecutions)
                 .EnableLazyLoading(false);
+
+            // ==================== CALENDAR EVENT CONFIGURATION ==================== //
+            modelBuilder.Entity<CalendarEvent>(entity =>
+            {
+                entity.HasKey(e => e.Id);
+                
+                // Property configurations
+                entity.Property(e => e.Title).IsRequired().HasMaxLength(200);
+                entity.Property(e => e.Description).HasMaxLength(1000);
+                entity.Property(e => e.ActionUrl).HasMaxLength(500);
+                entity.Property(e => e.RelatedEntityType).HasMaxLength(50);
+                entity.Property(e => e.Color).HasMaxLength(7);
+                entity.Property(e => e.RecurrencePattern).HasMaxLength(500);
+                entity.Property(e => e.Notes).HasMaxLength(2000);
+                entity.Property(e => e.CreatedAt).HasDefaultValueSql("GETUTCDATE()");
+                entity.Property(e => e.UpdatedAt).HasDefaultValueSql("GETUTCDATE()");
+
+                // ✅ CORRECT - Foreign key relationships using proper property names
+                entity.HasOne(e => e.CreatedByUser)
+                      .WithMany()
+                      .HasForeignKey(e => e.CreatedBy)  // ✅ Use CreatedBy, NOT CreatedByUserId
+                      .OnDelete(DeleteBehavior.NoAction);
+
+                entity.HasOne(e => e.UpdatedByUser)
+                      .WithMany()
+                      .HasForeignKey(e => e.UpdatedBy)  // ✅ Use UpdatedBy, NOT UpdatedByUserId
+                      .OnDelete(DeleteBehavior.SetNull);
+
+                entity.HasOne(e => e.Branch)
+                      .WithMany()
+                      .HasForeignKey(e => e.BranchId)
+                      .OnDelete(DeleteBehavior.SetNull);
+
+                // Indexes for performance
+                entity.HasIndex(e => e.StartDate)
+                      .HasDatabaseName("IX_CalendarEvents_StartDate");
+                
+                entity.HasIndex(e => e.EventType)
+                      .HasDatabaseName("IX_CalendarEvents_EventType");
+                
+                entity.HasIndex(e => e.CreatedBy)
+                      .HasDatabaseName("IX_CalendarEvents_CreatedBy");
+                
+                entity.HasIndex(e => new { e.RelatedEntityType, e.RelatedEntityId })
+                      .HasDatabaseName("IX_CalendarEvents_RelatedEntity");
+                
+                entity.HasIndex(e => e.BranchId)
+                      .HasDatabaseName("IX_CalendarEvents_BranchId");
+            });
         }
     }
 }
