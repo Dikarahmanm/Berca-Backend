@@ -509,6 +509,222 @@ namespace Berca_Backend.Controllers
                 });
             }
         }
+
+        // ==================== BATCH MANAGEMENT ENDPOINTS ==================== //
+
+        /// <summary>
+        /// Get available batches for POS batch selection (sorted by FIFO)
+        /// </summary>
+        [HttpGet("products/{productId}/available-batches")]
+        [Authorize(Policy = "POS.Read")]
+        public async Task<ActionResult<ApiResponse<List<ProductBatchDto>>>> GetAvailableBatchesForSale(int productId)
+        {
+            try
+            {
+                var batches = await _posService.GetAvailableBatchesForSaleAsync(productId);
+
+                return Ok(new ApiResponse<List<ProductBatchDto>>
+                {
+                    Success = true,
+                    Data = batches,
+                    Message = $"Retrieved {batches.Count} available batches"
+                });
+            }
+            catch (ArgumentException ex)
+            {
+                _logger.LogWarning(ex, "Invalid product ID {ProductId} for available batches", productId);
+                return BadRequest(new ApiResponse<List<ProductBatchDto>>
+                {
+                    Success = false,
+                    Message = ex.Message
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting available batches for product {ProductId}", productId);
+                return StatusCode(500, new ApiResponse<List<ProductBatchDto>>
+                {
+                    Success = false,
+                    Message = "An error occurred while retrieving available batches"
+                });
+            }
+        }
+
+        /// <summary>
+        /// Generate FIFO suggestions for batch allocation
+        /// </summary>
+        [HttpGet("products/{productId}/fifo-suggestions")]
+        [Authorize(Policy = "POS.Read")]
+        public async Task<ActionResult<ApiResponse<List<BatchAllocationDto>>>> GetFifoSuggestions(
+            int productId, 
+            [FromQuery] int quantity)
+        {
+            try
+            {
+                if (quantity <= 0)
+                {
+                    return BadRequest(new ApiResponse<List<BatchAllocationDto>>
+                    {
+                        Success = false,
+                        Message = "Quantity must be greater than 0"
+                    });
+                }
+
+                var suggestions = await _posService.GenerateFifoSuggestionsAsync(productId, quantity);
+
+                return Ok(new ApiResponse<List<BatchAllocationDto>>
+                {
+                    Success = true,
+                    Data = suggestions,
+                    Message = $"Generated {suggestions.Count} FIFO suggestions"
+                });
+            }
+            catch (ArgumentException ex)
+            {
+                _logger.LogWarning(ex, "Invalid request for FIFO suggestions - Product {ProductId}, Quantity {Quantity}", productId, quantity);
+                return BadRequest(new ApiResponse<List<BatchAllocationDto>>
+                {
+                    Success = false,
+                    Message = ex.Message
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error generating FIFO suggestions for product {ProductId}", productId);
+                return StatusCode(500, new ApiResponse<List<BatchAllocationDto>>
+                {
+                    Success = false,
+                    Message = "An error occurred while generating FIFO suggestions"
+                });
+            }
+        }
+
+        /// <summary>
+        /// Create sale with complete batch allocation tracking
+        /// </summary>
+        [HttpPost("sales-with-batches")]
+        [Authorize(Policy = "POS.Write")]
+        public async Task<ActionResult<ApiResponse<SaleWithBatchesResponseDto>>> CreateSaleWithBatches([FromBody] CreateSaleWithBatchesRequest request)
+        {
+            try
+            {
+                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+                if (!int.TryParse(userIdClaim, out int cashierId))
+                {
+                    return Unauthorized(new ApiResponse<SaleWithBatchesResponseDto>
+                    {
+                        Success = false,
+                        Message = "Invalid user authentication"
+                    });
+                }
+
+                var branchIdClaim = User.FindFirst("BranchId")?.Value;
+                var branchId = int.TryParse(branchIdClaim, out var parsedBranchId) ? parsedBranchId : 1;
+
+                var sale = await _posService.CreateSaleWithBatchesAsync(request, cashierId, branchId);
+
+                return Ok(new ApiResponse<SaleWithBatchesResponseDto>
+                {
+                    Success = true,
+                    Data = sale,
+                    Message = "Sale with batch tracking created successfully"
+                });
+            }
+            catch (ArgumentException ex)
+            {
+                _logger.LogWarning(ex, "Invalid request for creating sale with batches");
+                return BadRequest(new ApiResponse<SaleWithBatchesResponseDto>
+                {
+                    Success = false,
+                    Message = ex.Message
+                });
+            }
+            catch (InvalidOperationException ex)
+            {
+                _logger.LogWarning(ex, "Business rule violation for creating sale with batches");
+                return BadRequest(new ApiResponse<SaleWithBatchesResponseDto>
+                {
+                    Success = false,
+                    Message = ex.Message
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error creating sale with batches");
+                return StatusCode(500, new ApiResponse<SaleWithBatchesResponseDto>
+                {
+                    Success = false,
+                    Message = "An error occurred while creating sale with batch tracking"
+                });
+            }
+        }
+
+        /// <summary>
+        /// Validate batch allocation before sale processing
+        /// </summary>
+        [HttpPost("validate-batch-allocation")]
+        [Authorize(Policy = "POS.Read")]
+        public async Task<ActionResult<ApiResponse<BatchAllocationValidationDto>>> ValidateBatchAllocation([FromBody] ValidateBatchAllocationRequest request)
+        {
+            try
+            {
+                var validation = await _posService.ValidateBatchAllocationAsync(request);
+
+                return Ok(new ApiResponse<BatchAllocationValidationDto>
+                {
+                    Success = true,
+                    Data = validation,
+                    Message = validation.IsValid ? "Batch allocation is valid" : "Batch allocation validation failed"
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error validating batch allocation");
+                return StatusCode(500, new ApiResponse<BatchAllocationValidationDto>
+                {
+                    Success = false,
+                    Message = "An error occurred while validating batch allocation"
+                });
+            }
+        }
+
+        /// <summary>
+        /// Get batch allocation summary for a completed sale
+        /// </summary>
+        [HttpGet("sales/{saleId}/batch-summary")]
+        [Authorize(Policy = "POS.Read")]
+        public async Task<ActionResult<ApiResponse<List<SaleItemWithBatchDto>>>> GetSaleBatchSummary(int saleId)
+        {
+            try
+            {
+                var batchSummary = await _posService.GetSaleBatchSummaryAsync(saleId);
+
+                return Ok(new ApiResponse<List<SaleItemWithBatchDto>>
+                {
+                    Success = true,
+                    Data = batchSummary,
+                    Message = $"Retrieved batch summary for sale {saleId}"
+                });
+            }
+            catch (ArgumentException ex)
+            {
+                _logger.LogWarning(ex, "Invalid sale ID {SaleId} for batch summary", saleId);
+                return BadRequest(new ApiResponse<List<SaleItemWithBatchDto>>
+                {
+                    Success = false,
+                    Message = ex.Message
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting batch summary for sale {SaleId}", saleId);
+                return StatusCode(500, new ApiResponse<List<SaleItemWithBatchDto>>
+                {
+                    Success = false,
+                    Message = "An error occurred while retrieving batch summary"
+                });
+            }
+        }
     }
 
     // Request DTOs

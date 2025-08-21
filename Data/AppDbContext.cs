@@ -34,6 +34,9 @@ namespace Berca_Backend.Data
         // ==================== EXPIRY MANAGEMENT DBSETS ==================== //
         public DbSet<ProductBatch> ProductBatches { get; set; }
         
+        // ==================== BATCH TRACKING DBSETS ==================== //
+        public DbSet<SaleItemBatch> SaleItemBatches { get; set; }
+        
         // ==================== SUPPLIER MANAGEMENT DBSETS ==================== //
         public DbSet<Supplier> Suppliers { get; set; }
         
@@ -2223,6 +2226,53 @@ namespace Berca_Backend.Data
                 
                 entity.HasIndex(e => e.BranchId)
                       .HasDatabaseName("IX_CalendarEvents_BranchId");
+            });
+
+            // ==================== SALE ITEM BATCH CONFIGURATION ==================== //
+            modelBuilder.Entity<SaleItemBatch>(entity =>
+            {
+                entity.HasKey(e => e.Id);
+                
+                entity.Property(e => e.BatchNumber)
+                      .IsRequired()
+                      .HasMaxLength(50);
+                
+                entity.Property(e => e.CostPerUnit)
+                      .HasColumnType("decimal(18,2)");
+                
+                entity.Property(e => e.TotalCost)
+                      .HasColumnType("decimal(18,2)");
+                
+                entity.Property(e => e.CreatedAt)
+                      .HasDefaultValueSql("GETUTCDATE()");
+                
+                // Foreign key relationships
+                entity.HasOne(e => e.SaleItem)
+                      .WithMany()
+                      .HasForeignKey(e => e.SaleItemId)
+                      .OnDelete(DeleteBehavior.Cascade);
+                
+                entity.HasOne(e => e.Batch)
+                      .WithMany()
+                      .HasForeignKey(e => e.BatchId)
+                      .OnDelete(DeleteBehavior.Restrict);
+                
+                // Indexes for performance
+                entity.HasIndex(e => e.SaleItemId)
+                      .HasDatabaseName("IX_SaleItemBatches_SaleItemId");
+                
+                entity.HasIndex(e => e.BatchId)
+                      .HasDatabaseName("IX_SaleItemBatches_BatchId");
+                
+                entity.HasIndex(e => e.BatchNumber)
+                      .HasDatabaseName("IX_SaleItemBatches_BatchNumber");
+                
+                entity.HasIndex(e => e.CreatedAt)
+                      .HasDatabaseName("IX_SaleItemBatches_CreatedAt");
+                      
+                // Composite index for query optimization
+                entity.HasIndex(e => new { e.SaleItemId, e.BatchId })
+                      .HasDatabaseName("IX_SaleItemBatches_SaleItem_Batch");
             });
         }
     }

@@ -1578,5 +1578,562 @@ namespace Berca_Backend.Services
                 _ => DisposalUrgency.Low
             };
         }
+
+        // ==================== ENHANCED BATCH MANAGEMENT IMPLEMENTATIONS ==================== //
+
+        /// <summary>
+        /// Check if product exists by barcode (for frontend registration flow)
+        /// </summary>
+        public async Task<bool> ProductExistsByBarcodeAsync(string barcode)
+        {
+            if (string.IsNullOrWhiteSpace(barcode))
+                return false;
+
+            return await _context.Products
+                .AnyAsync(p => p.Barcode == barcode.Trim() && p.IsActive);
+        }
+
+        /// <summary>
+        /// Get products with comprehensive batch summary for enhanced inventory display
+        /// </summary>
+        public async Task<List<ProductWithBatchSummaryDto>> GetProductsWithBatchSummaryAsync(ProductBatchSummaryFilterDto filter)
+        {
+            var query = _context.Products
+                .Include(p => p.Category)
+                .Where(p => p.IsActive);
+
+            // Apply filters
+            if (filter.CategoryId.HasValue)
+                query = query.Where(p => p.CategoryId == filter.CategoryId);
+
+            if (!string.IsNullOrWhiteSpace(filter.SearchTerm))
+            {
+                var searchTerm = filter.SearchTerm.ToLower();
+                query = query.Where(p => p.Name.ToLower().Contains(searchTerm) ||
+                                       p.Barcode.ToLower().Contains(searchTerm));
+            }
+
+            var products = await query
+                .Skip((filter.Page - 1) * filter.PageSize)
+                .Take(filter.PageSize)
+                .ToListAsync();
+
+            var productIds = products.Select(p => p.Id).ToList();
+
+            // Get batch information for all products
+            var batchData = await _context.ProductBatches
+                .Where(b => productIds.Contains(b.ProductId) && !b.IsDisposed)
+                .GroupBy(b => b.ProductId)
+                .Select(g => new
+                {
+                    ProductId = g.Key,
+                    TotalBatches = g.Count(),
+                    TotalValue = g.Sum(b => b.CurrentStock * b.CostPerUnit),
+                    NearestExpiryBatch = g.Where(b => b.ExpiryDate.HasValue)
+                                        .OrderBy(b => b.ExpiryDate)
+                                        .FirstOrDefault(),
+                    CriticalCount = g.Count(b => b.ExpiryStatus == ExpiryStatus.Critical),
+                    WarningCount = g.Count(b => b.ExpiryStatus == ExpiryStatus.Warning),
+                    GoodCount = g.Count(b => b.ExpiryStatus == ExpiryStatus.Good || b.ExpiryStatus == ExpiryStatus.Normal),
+                    ExpiredCount = g.Count(b => b.ExpiryStatus == ExpiryStatus.Expired)
+                })
+                .ToListAsync();
+
+            var result = new List<ProductWithBatchSummaryDto>();
+
+            foreach (var product in products)
+            {
+                var batchInfo = batchData.FirstOrDefault(b => b.ProductId == product.Id);
+                
+                var productDto = new ProductWithBatchSummaryDto
+                {
+                    Id = product.Id,
+                    Name = product.Name,
+                    Barcode = product.Barcode,
+                    Description = product.Description,
+                    CategoryId = product.CategoryId,
+                    CategoryName = product.Category?.Name ?? "No Category",
+                    BuyPrice = product.BuyPrice,
+                    SellPrice = product.SellPrice,
+                    Stock = product.Stock,
+                    MinimumStock = product.MinimumStock,
+                    Unit = product.Unit,
+                    ImageUrl = product.ImageUrl,
+                    IsActive = product.IsActive,
+                    CreatedAt = product.CreatedAt,
+                    UpdatedAt = product.UpdatedAt,
+                    TotalBatches = batchInfo?.TotalBatches ?? 0,
+                    TotalValueAllBatches = batchInfo?.TotalValue ?? 0,
+                    BatchStatusSummary = GenerateBatchStatusSummary(batchInfo),
+                    FifoRecommendation = await GenerateFifoRecommendationText(product.Id)
+                };
+
+                if (batchInfo?.NearestExpiryBatch != null)
+                {
+                    var nearestBatch = batchInfo.NearestExpiryBatch;
+                    productDto.NearestExpiryBatch = new ProductBatchDto
+                    {
+                        Id = nearestBatch.Id,
+                        BatchNumber = nearestBatch.BatchNumber,
+                        ExpiryDate = nearestBatch.ExpiryDate,
+                        CurrentStock = nearestBatch.CurrentStock,
+                        ExpiryStatus = nearestBatch.ExpiryStatus,
+                        DaysUntilExpiry = nearestBatch.DaysUntilExpiry
+                    };
+                }
+
+                result.Add(productDto);
+            }
+
+            // Apply additional filters based on batch status
+            if (filter.HasExpiredBatches.HasValue)
+            {
+                result = result.Where(p => filter.HasExpiredBatches.Value ? 
+                    p.BatchStatusSummary.Contains("expired") : 
+                    !p.BatchStatusSummary.Contains("expired")).ToList();
+            }
+
+            if (filter.HasCriticalBatches.HasValue)
+            {
+                result = result.Where(p => filter.HasCriticalBatches.Value ? 
+                    p.BatchStatusSummary.Contains("critical") : 
+                    !p.BatchStatusSummary.Contains("critical")).ToList();
+            }
+
+            if (filter.HasBatches.HasValue)
+            {
+                result = result.Where(p => filter.HasBatches.Value ? 
+                    p.TotalBatches > 0 : 
+                    p.TotalBatches == 0).ToList();
+            }
+
+            return result;
+        }
+
+        /// <summary>
+        /// Flexible stock addition with batch options
+        /// </summary>
+        public async Task<AddStockResponseDto> AddStockToBatchAsync(int productId, AddStockToBatchRequest request, int userId, int branchId)
+        {
+            // Validate product exists
+            var product = await _context.Products.FirstOrDefaultAsync(p => p.Id == productId && p.IsActive);
+            if (product == null)
+                throw new ArgumentException("Product not found");
+
+            if (request.BatchId.HasValue)
+            {
+                // Add to existing batch
+                return await AddStockToExistingBatchAsync(request.BatchId.Value, request.Quantity, request.CostPerUnit, userId);
+            }
+            else if (!string.IsNullOrWhiteSpace(request.BatchNumber) || !string.IsNullOrWhiteSpace(request.ExpiryDate))
+            {
+                // Create new batch
+                return await CreateBatchAndAddStockAsync(productId, request, userId, branchId);
+            }
+            else
+            {
+                // Simple stock addition without batch tracking
+                return await AddStockWithoutBatchAsync(productId, request.Quantity, request.CostPerUnit, userId);
+            }
+        }
+
+        /// <summary>
+        /// Add stock to existing batch
+        /// </summary>
+        public async Task<AddStockResponseDto> AddStockToExistingBatchAsync(int batchId, int quantity, decimal costPerUnit, int updatedByUserId)
+        {
+            var batch = await _context.ProductBatches
+                .Include(b => b.Product)
+                .FirstOrDefaultAsync(b => b.Id == batchId && !b.IsDisposed);
+
+            if (batch == null)
+                throw new ArgumentException("Batch not found or already disposed");
+
+            if (batch.IsBlocked)
+                throw new InvalidOperationException("Cannot add stock to blocked batch");
+
+            using var transaction = await _context.Database.BeginTransactionAsync();
+            try
+            {
+                // Calculate weighted average cost
+                var totalCurrentValue = batch.CurrentStock * batch.CostPerUnit;
+                var totalNewValue = quantity * costPerUnit;
+                var newTotalStock = batch.CurrentStock + quantity;
+                var weightedAverageCost = (totalCurrentValue + totalNewValue) / newTotalStock;
+
+                // Update batch
+                batch.CurrentStock += quantity;
+                batch.CostPerUnit = weightedAverageCost;
+                batch.UpdatedAt = _timezoneService.Now;
+                batch.UpdatedByUserId = updatedByUserId;
+
+                // Update product total stock
+                batch.Product!.Stock += quantity;
+                batch.Product.UpdatedAt = _timezoneService.Now;
+                batch.Product.UpdatedBy = updatedByUserId.ToString();
+
+                // Log inventory mutation
+                var mutation = new InventoryMutation
+                {
+                    ProductId = batch.ProductId,
+                    Type = MutationType.StockIn,
+                    Quantity = quantity,
+                    StockBefore = batch.Product.Stock - quantity,
+                    StockAfter = batch.Product.Stock,
+                    Notes = $"Added to batch {batch.BatchNumber}",
+                    ReferenceNumber = $"BATCH-{batch.BatchNumber}",
+                    UnitCost = costPerUnit,
+                    TotalCost = quantity * costPerUnit,
+                    CreatedAt = _timezoneService.Now,
+                    CreatedBy = updatedByUserId.ToString()
+                };
+
+                _context.InventoryMutations.Add(mutation);
+                await _context.SaveChangesAsync();
+                await transaction.CommitAsync();
+
+                return new AddStockResponseDto
+                {
+                    Success = true,
+                    ProductId = batch.ProductId,
+                    ProductName = batch.Product.Name,
+                    BatchId = batch.Id,
+                    BatchNumber = batch.BatchNumber,
+                    AddedQuantity = quantity,
+                    NewBatchStock = batch.CurrentStock,
+                    NewProductTotalStock = batch.Product.Stock,
+                    WeightedAverageCost = weightedAverageCost,
+                    Message = $"Successfully added {quantity} units to batch {batch.BatchNumber}"
+                };
+            }
+            catch
+            {
+                await transaction.RollbackAsync();
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// Create new batch and add stock
+        /// </summary>
+        public async Task<AddStockResponseDto> CreateBatchAndAddStockAsync(int productId, AddStockToBatchRequest request, int createdByUserId, int branchId)
+        {
+            var product = await _context.Products
+                .Include(p => p.Category)
+                .FirstOrDefaultAsync(p => p.Id == productId && p.IsActive);
+
+            if (product == null)
+                throw new ArgumentException("Product not found");
+
+            // Validate expiry requirements
+            DateTime? expiryDate = null;
+            if (!string.IsNullOrWhiteSpace(request.ExpiryDate))
+            {
+                if (!DateTime.TryParse(request.ExpiryDate, out var parsedDate))
+                    throw new ArgumentException("Invalid expiry date format");
+                expiryDate = parsedDate;
+            }
+
+            if (product.Category?.RequiresExpiryDate == true && !expiryDate.HasValue)
+                throw new ArgumentException("Expiry date is required for this product category");
+
+            using var transaction = await _context.Database.BeginTransactionAsync();
+            try
+            {
+                // Generate batch number if not provided
+                var batchNumber = !string.IsNullOrWhiteSpace(request.BatchNumber) ? 
+                    request.BatchNumber : 
+                    await GenerateBatchNumberInternalAsync(productId, DateTime.TryParse(request.ProductionDate, out var prodDate) ? prodDate : null);
+
+                // Create new batch
+                var batch = new ProductBatch
+                {
+                    ProductId = productId,
+                    BatchNumber = batchNumber,
+                    ExpiryDate = expiryDate,
+                    ProductionDate = DateTime.TryParse(request.ProductionDate, out var productionDate) ? productionDate : null,
+                    InitialStock = request.Quantity,
+                    CurrentStock = request.Quantity,
+                    CostPerUnit = request.CostPerUnit,
+                    SupplierName = request.SupplierName,
+                    PurchaseOrderNumber = request.PurchaseOrderNumber,
+                    Notes = request.Notes,
+                    BranchId = branchId,
+                    CreatedAt = _timezoneService.Now,
+                    CreatedByUserId = createdByUserId,
+                    UpdatedAt = _timezoneService.Now,
+                    UpdatedByUserId = createdByUserId
+                };
+
+                _context.ProductBatches.Add(batch);
+
+                // Update product total stock
+                product.Stock += request.Quantity;
+                product.UpdatedAt = _timezoneService.Now;
+                product.UpdatedBy = createdByUserId.ToString();
+
+                // Log inventory mutation
+                var mutation = new InventoryMutation
+                {
+                    ProductId = productId,
+                    Type = MutationType.StockIn,
+                    Quantity = request.Quantity,
+                    StockBefore = product.Stock - request.Quantity,
+                    StockAfter = product.Stock,
+                    Notes = $"New batch created: {batchNumber}",
+                    ReferenceNumber = $"BATCH-{batchNumber}",
+                    UnitCost = request.CostPerUnit,
+                    TotalCost = request.Quantity * request.CostPerUnit,
+                    CreatedAt = _timezoneService.Now,
+                    CreatedBy = createdByUserId.ToString()
+                };
+
+                _context.InventoryMutations.Add(mutation);
+                await _context.SaveChangesAsync();
+                await transaction.CommitAsync();
+
+                return new AddStockResponseDto
+                {
+                    Success = true,
+                    ProductId = productId,
+                    ProductName = product.Name,
+                    BatchId = batch.Id,
+                    BatchNumber = batch.BatchNumber,
+                    AddedQuantity = request.Quantity,
+                    NewBatchStock = batch.CurrentStock,
+                    NewProductTotalStock = product.Stock,
+                    WeightedAverageCost = request.CostPerUnit,
+                    Message = $"Successfully created batch {batch.BatchNumber} with {request.Quantity} units"
+                };
+            }
+            catch
+            {
+                await transaction.RollbackAsync();
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// Add stock without batch tracking (for products that don't require batch management)
+        /// </summary>
+        public async Task<AddStockResponseDto> AddStockWithoutBatchAsync(int productId, int quantity, decimal costPerUnit, int updatedByUserId)
+        {
+            var product = await _context.Products.FirstOrDefaultAsync(p => p.Id == productId && p.IsActive);
+            if (product == null)
+                throw new ArgumentException("Product not found");
+
+            using var transaction = await _context.Database.BeginTransactionAsync();
+            try
+            {
+                var oldStock = product.Stock;
+                
+                // Update product stock
+                product.Stock += quantity;
+                product.UpdatedAt = _timezoneService.Now;
+                product.UpdatedBy = updatedByUserId.ToString();
+
+                // Log inventory mutation
+                var mutation = new InventoryMutation
+                {
+                    ProductId = productId,
+                    Type = MutationType.StockIn,
+                    Quantity = quantity,
+                    StockBefore = oldStock,
+                    StockAfter = product.Stock,
+                    Notes = "Stock addition without batch tracking",
+                    UnitCost = costPerUnit,
+                    TotalCost = quantity * costPerUnit,
+                    CreatedAt = _timezoneService.Now,
+                    CreatedBy = updatedByUserId.ToString()
+                };
+
+                _context.InventoryMutations.Add(mutation);
+                await _context.SaveChangesAsync();
+                await transaction.CommitAsync();
+
+                return new AddStockResponseDto
+                {
+                    Success = true,
+                    ProductId = productId,
+                    ProductName = product.Name,
+                    BatchId = null,
+                    BatchNumber = null,
+                    AddedQuantity = quantity,
+                    NewBatchStock = 0,
+                    NewProductTotalStock = product.Stock,
+                    WeightedAverageCost = costPerUnit,
+                    Message = $"Successfully added {quantity} units to product stock"
+                };
+            }
+            catch
+            {
+                await transaction.RollbackAsync();
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// Get enhanced FIFO recommendations for specific product
+        /// </summary>
+        public async Task<List<BatchFifoRecommendationDto>> GetProductFifoRecommendationsAsync(int productId, int? requestedQuantity = null)
+        {
+            var batches = await _context.ProductBatches
+                .Where(b => b.ProductId == productId && 
+                           b.CurrentStock > 0 && 
+                           !b.IsDisposed && 
+                           !b.IsBlocked)
+                .OrderBy(b => b.ExpiryDate ?? DateTime.MaxValue)
+                .ThenBy(b => b.CreatedAt)
+                .ToListAsync();
+
+            var recommendations = new List<BatchFifoRecommendationDto>();
+            var remainingQuantity = requestedQuantity ?? int.MaxValue;
+            var priority = 1;
+
+            foreach (var batch in batches)
+            {
+                if (remainingQuantity <= 0) break;
+
+                var daysUntilExpiry = batch.DaysUntilExpiry ?? int.MaxValue;
+                var urgency = GetFifoUrgency(daysUntilExpiry);
+                var urgencyColor = GetUrgencyColor(urgency);
+
+                var recommendation = new BatchFifoRecommendationDto
+                {
+                    BatchId = batch.Id,
+                    BatchNumber = batch.BatchNumber,
+                    CurrentStock = batch.CurrentStock,
+                    ExpiryDate = batch.ExpiryDate,
+                    DaysUntilExpiry = daysUntilExpiry,
+                    Urgency = urgency,
+                    UrgencyColor = urgencyColor,
+                    RecommendationText = GenerateRecommendationText(batch, urgency),
+                    Priority = priority++
+                };
+
+                recommendations.Add(recommendation);
+                remainingQuantity -= batch.CurrentStock;
+            }
+
+            return recommendations;
+        }
+
+        /// <summary>
+        /// Generate batch number for new batch creation
+        /// </summary>
+        public async Task<GenerateBatchNumberResponseDto> GenerateBatchNumberAsync(int productId, DateTime? productionDate = null)
+        {
+            var batchNumber = await GenerateBatchNumberInternalAsync(productId, productionDate);
+            
+            return new GenerateBatchNumberResponseDto
+            {
+                BatchNumber = batchNumber,
+                Format = "{ProductCode}-{YYYYMMDD}-{Sequence}",
+                Example = "PRD001-20250821-001"
+            };
+        }
+
+        // ==================== HELPER METHODS ==================== //
+
+        private string GenerateBatchStatusSummary(dynamic? batchInfo)
+        {
+            if (batchInfo == null)
+                return "No batches";
+
+            var parts = new List<string>();
+            
+            if (batchInfo.ExpiredCount > 0)
+                parts.Add($"{batchInfo.ExpiredCount} expired");
+            if (batchInfo.CriticalCount > 0)
+                parts.Add($"{batchInfo.CriticalCount} critical");
+            if (batchInfo.WarningCount > 0)
+                parts.Add($"{batchInfo.WarningCount} warning");
+            if (batchInfo.GoodCount > 0)
+                parts.Add($"{batchInfo.GoodCount} good");
+
+            return parts.Any() ? string.Join(", ", parts) : "No active batches";
+        }
+
+        private async Task<string?> GenerateFifoRecommendationText(int productId)
+        {
+            var nearestExpiryBatch = await _context.ProductBatches
+                .Where(b => b.ProductId == productId && 
+                           b.CurrentStock > 0 && 
+                           !b.IsDisposed && 
+                           b.ExpiryDate.HasValue)
+                .OrderBy(b => b.ExpiryDate)
+                .FirstOrDefaultAsync();
+
+            if (nearestExpiryBatch == null)
+                return null;
+
+            var daysUntilExpiry = nearestExpiryBatch.DaysUntilExpiry ?? 0;
+            
+            return daysUntilExpiry switch
+            {
+                <= 1 => "URGENT: Sell immediately!",
+                <= 3 => "High priority: Sell within 3 days",
+                <= 7 => "Medium priority: Sell this week",
+                _ => "Follow FIFO order"
+            };
+        }
+
+        private async Task<string> GenerateBatchNumberInternalAsync(int productId, DateTime? productionDate = null)
+        {
+            var product = await _context.Products.FirstOrDefaultAsync(p => p.Id == productId);
+            if (product == null)
+                throw new ArgumentException("Product not found");
+
+            var date = productionDate ?? _timezoneService.Today;
+            var dateString = date.ToString("yyyyMMdd");
+            
+            // Generate product code (first 3 chars of name + ID)
+            var productCode = (product.Name.Length >= 3 ? 
+                product.Name.Substring(0, 3).ToUpper() : 
+                product.Name.ToUpper().PadRight(3, '0')) + product.Id.ToString("D3");
+
+            // Find next sequence number for this product and date
+            var existingBatches = await _context.ProductBatches
+                .Where(b => b.ProductId == productId && 
+                           b.BatchNumber.Contains(dateString))
+                .CountAsync();
+
+            var sequence = (existingBatches + 1).ToString("D3");
+            
+            return $"{productCode}-{dateString}-{sequence}";
+        }
+
+        private string GetFifoUrgency(int daysUntilExpiry)
+        {
+            return daysUntilExpiry switch
+            {
+                <= 0 => "Expired",
+                <= 1 => "Critical",
+                <= 3 => "Warning",
+                _ => "Good"
+            };
+        }
+
+        private string GetUrgencyColor(string urgency)
+        {
+            return urgency switch
+            {
+                "Expired" => "#7f1d1d",
+                "Critical" => "#ef4444",
+                "Warning" => "#f59e0b",
+                _ => "#22c55e"
+            };
+        }
+
+        private string GenerateRecommendationText(ProductBatch batch, string urgency)
+        {
+            return urgency switch
+            {
+                "Expired" => $"EXPIRED {Math.Abs(batch.DaysUntilExpiry ?? 0)} days ago - Dispose immediately",
+                "Critical" => "Expires within 24 hours - Sell immediately!",
+                "Warning" => $"Expires in {batch.DaysUntilExpiry} days - High priority",
+                _ => $"Good condition - Normal FIFO order (expires in {batch.DaysUntilExpiry} days)"
+            };
+        }
     }
 }

@@ -174,19 +174,6 @@ namespace Berca_Backend.DTOs
     // ==================== FIFO RECOMMENDATION DTOs ==================== //
 
     /// <summary>
-    /// DTO for FIFO sales recommendations
-    /// </summary>
-    public class FifoRecommendationDto
-    {
-        public int ProductId { get; set; }
-        public string ProductName { get; set; } = string.Empty;
-        public string ProductBarcode { get; set; } = string.Empty;
-        public List<BatchRecommendationDto> BatchRecommendations { get; set; } = new();
-        public int TotalAvailableStock { get; set; }
-        public decimal AverageCostPerUnit { get; set; }
-    }
-
-    /// <summary>
     /// DTO for individual batch recommendations in FIFO order
     /// </summary>
     public class BatchRecommendationDto

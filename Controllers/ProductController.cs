@@ -967,6 +967,193 @@ namespace Berca_Backend.Controllers
                 });
             }
         }
+
+        // ==================== BATCH MANAGEMENT ENDPOINTS ==================== //
+
+        /// <summary>
+        /// Check if product exists by barcode (for frontend registration flow)
+        /// Returns 200 if exists, 404 if not found
+        /// </summary>
+        [HttpHead("barcode/{barcode}")]
+        [Authorize(Policy = "Inventory.Read")]
+        public async Task<ActionResult> CheckProductExistsByBarcode(string barcode)
+        {
+            try
+            {
+                var exists = await _productService.ProductExistsByBarcodeAsync(barcode);
+                return exists ? Ok() : NotFound();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error checking product existence by barcode {Barcode}", barcode);
+                return StatusCode(500);
+            }
+        }
+
+        /// <summary>
+        /// Get products with comprehensive batch summary (for enhanced inventory display)
+        /// </summary>
+        [HttpGet("with-batch-summary")]
+        [Authorize(Policy = "Inventory.Read")]
+        public async Task<ActionResult<ApiResponse<List<ProductWithBatchSummaryDto>>>> GetProductsWithBatchSummary(
+            [FromQuery] ProductBatchSummaryFilterDto filter)
+        {
+            try
+            {
+                var response = await _productService.GetProductsWithBatchSummaryAsync(filter);
+
+                return Ok(new ApiResponse<List<ProductWithBatchSummaryDto>>
+                {
+                    Success = true,
+                    Data = response,
+                    Message = $"Retrieved {response.Count} products with batch summary"
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting products with batch summary");
+                return StatusCode(500, new ApiResponse<List<ProductWithBatchSummaryDto>>
+                {
+                    Success = false,
+                    Message = "An error occurred while retrieving products with batch summary"
+                });
+            }
+        }
+
+        /// <summary>
+        /// Add stock with flexible batch options (new batch, existing batch, or no batch)
+        /// </summary>
+        [HttpPost("{productId}/add-stock")]
+        [Authorize(Policy = "Inventory.Write")]
+        public async Task<ActionResult<ApiResponse<AddStockResponseDto>>> AddStockToBatch(int productId, [FromBody] AddStockToBatchRequest request)
+        {
+            try
+            {
+                var userId = GetCurrentUserId();
+                var branchId = GetCurrentUserBranchId() ?? 1; // Default to main branch if not specified
+
+                var response = await _productService.AddStockToBatchAsync(productId, request, userId, branchId);
+
+                return Ok(new ApiResponse<AddStockResponseDto>
+                {
+                    Success = true,
+                    Data = response,
+                    Message = response.Success ? "Stock added successfully" : "Failed to add stock"
+                });
+            }
+            catch (ArgumentException ex)
+            {
+                _logger.LogWarning(ex, "Invalid request for adding stock to product {ProductId}", productId);
+                return BadRequest(new ApiResponse<AddStockResponseDto>
+                {
+                    Success = false,
+                    Message = ex.Message
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error adding stock to product {ProductId}", productId);
+                return StatusCode(500, new ApiResponse<AddStockResponseDto>
+                {
+                    Success = false,
+                    Message = "An error occurred while adding stock"
+                });
+            }
+        }
+
+        /// <summary>
+        /// Get FIFO recommendations for specific product
+        /// </summary>
+        [HttpGet("{productId}/fifo-recommendations")]
+        [Authorize(Policy = "Inventory.Read")]
+        public async Task<ActionResult<ApiResponse<List<BatchFifoRecommendationDto>>>> GetProductFifoRecommendations(
+            int productId, 
+            [FromQuery] int? requestedQuantity = null)
+        {
+            try
+            {
+                var recommendations = await _productService.GetProductFifoRecommendationsAsync(productId, requestedQuantity);
+
+                return Ok(new ApiResponse<List<BatchFifoRecommendationDto>>
+                {
+                    Success = true,
+                    Data = recommendations,
+                    Message = $"Retrieved {recommendations.Count} FIFO recommendations"
+                });
+            }
+            catch (ArgumentException ex)
+            {
+                _logger.LogWarning(ex, "Invalid product ID {ProductId} for FIFO recommendations", productId);
+                return BadRequest(new ApiResponse<List<FifoRecommendationDto>>
+                {
+                    Success = false,
+                    Message = ex.Message
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting FIFO recommendations for product {ProductId}", productId);
+                return StatusCode(500, new ApiResponse<List<FifoRecommendationDto>>
+                {
+                    Success = false,
+                    Message = "An error occurred while retrieving FIFO recommendations"
+                });
+            }
+        }
+
+        /// <summary>
+        /// Generate batch number for new batch creation
+        /// </summary>
+        [HttpPost("{productId}/generate-batch-number")]
+        [Authorize(Policy = "Inventory.Write")]
+        public async Task<ActionResult<ApiResponse<GenerateBatchNumberResponseDto>>> GenerateBatchNumber(
+            int productId,
+            [FromBody] GenerateBatchNumberRequest request)
+        {
+            try
+            {
+                var response = await _productService.GenerateBatchNumberAsync(productId, request.ProductionDate);
+
+                return Ok(new ApiResponse<GenerateBatchNumberResponseDto>
+                {
+                    Success = true,
+                    Data = response,
+                    Message = "Batch number generated successfully"
+                });
+            }
+            catch (ArgumentException ex)
+            {
+                _logger.LogWarning(ex, "Invalid request for generating batch number for product {ProductId}", productId);
+                return BadRequest(new ApiResponse<GenerateBatchNumberResponseDto>
+                {
+                    Success = false,
+                    Message = ex.Message
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error generating batch number for product {ProductId}", productId);
+                return StatusCode(500, new ApiResponse<GenerateBatchNumberResponseDto>
+                {
+                    Success = false,
+                    Message = "An error occurred while generating batch number"
+                });
+            }
+        }
+
+        // ==================== HELPER METHODS ==================== //
+
+        private int GetCurrentUserId()
+        {
+            var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            return int.TryParse(userIdClaim, out var userId) ? userId : 0;
+        }
+
+        private int? GetCurrentUserBranchId()
+        {
+            var branchIdClaim = User.FindFirst("BranchId")?.Value;
+            return int.TryParse(branchIdClaim, out var branchId) ? branchId : null;
+        }
     }
 
     // Request DTOs
