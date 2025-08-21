@@ -27,6 +27,19 @@ namespace Berca_Backend.Services
         // Validation
         Task<bool> ValidateStockAvailabilityAsync(List<CreateSaleItemRequest> items);
         Task<decimal> CalculateTotalAsync(List<CreateSaleItemRequest> items, decimal discountAmount = 0, decimal taxAmount = 0);
+
+        // ==================== BATCH MANAGEMENT METHODS ==================== //
+
+        // Batch selection for POS
+        Task<List<ProductBatchDto>> GetAvailableBatchesForSaleAsync(int productId);
+        Task<List<BatchAllocationDto>> GenerateFifoSuggestionsAsync(int productId, int quantity);
+
+        // Sales with batch tracking
+        Task<SaleWithBatchesResponseDto> CreateSaleWithBatchesAsync(CreateSaleWithBatchesRequest request, int cashierId, int branchId);
+        Task<BatchAllocationValidationDto> ValidateBatchAllocationAsync(ValidateBatchAllocationRequest request);
+
+        // Batch summary for completed sales
+        Task<List<SaleItemWithBatchDto>> GetSaleBatchSummaryAsync(int saleId);
     }
 
     // Note: All DTOs have been moved to Berca_Backend.DTOs namespace to avoid duplicates

@@ -59,6 +59,26 @@ namespace Berca_Backend.Services
         Task<ExpiryAnalyticsDto> GetExpiryAnalyticsAsync(int? branchId = null, DateTime? startDate = null, DateTime? endDate = null);
         Task<List<ProductDto>> GetProductsRequiringExpiryAsync();
         Task<bool> ProductRequiresExpiryAsync(int productId);
+
+        // ==================== ENHANCED BATCH MANAGEMENT ==================== //
+
+        // Product existence check for registration flow
+        Task<bool> ProductExistsByBarcodeAsync(string barcode);
+
+        // Products with batch summary for enhanced inventory display
+        Task<List<ProductWithBatchSummaryDto>> GetProductsWithBatchSummaryAsync(ProductBatchSummaryFilterDto filter);
+
+        // Flexible stock addition methods
+        Task<AddStockResponseDto> AddStockToBatchAsync(int productId, AddStockToBatchRequest request, int userId, int branchId);
+        Task<AddStockResponseDto> AddStockToExistingBatchAsync(int batchId, int quantity, decimal costPerUnit, int updatedByUserId);
+        Task<AddStockResponseDto> CreateBatchAndAddStockAsync(int productId, AddStockToBatchRequest request, int createdByUserId, int branchId);
+        Task<AddStockResponseDto> AddStockWithoutBatchAsync(int productId, int quantity, decimal costPerUnit, int updatedByUserId);
+
+        // Enhanced FIFO recommendations
+        Task<List<BatchFifoRecommendationDto>> GetProductFifoRecommendationsAsync(int productId, int? requestedQuantity = null);
+
+        // Batch number generation
+        Task<GenerateBatchNumberResponseDto> GenerateBatchNumberAsync(int productId, DateTime? productionDate = null);
     }
 
     public class InventoryMutationDto

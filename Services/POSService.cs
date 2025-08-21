@@ -1020,5 +1020,475 @@ namespace Berca_Backend.Services
             // 1 point per 1000 IDR spent
             return (int)Math.Floor(totalAmount / 1000);
         }
+
+        // ==================== BATCH MANAGEMENT IMPLEMENTATIONS ==================== //
+
+        /// <summary>
+        /// Get available batches for POS selection (sorted by FIFO)
+        /// </summary>
+        public async Task<List<ProductBatchDto>> GetAvailableBatchesForSaleAsync(int productId)
+        {
+            var product = await _context.Products.FirstOrDefaultAsync(p => p.Id == productId && p.IsActive);
+            if (product == null)
+                throw new ArgumentException("Product not found");
+
+            var batches = await _context.ProductBatches
+                .Where(b => b.ProductId == productId && 
+                           b.CurrentStock > 0 && 
+                           !b.IsDisposed && 
+                           !b.IsBlocked)
+                .OrderBy(b => b.ExpiryDate ?? DateTime.MaxValue)
+                .ThenBy(b => b.CreatedAt)
+                .ToListAsync();
+
+            return batches.Select(batch => new ProductBatchDto
+            {
+                Id = batch.Id,
+                ProductId = batch.ProductId,
+                ProductName = product.Name,
+                BatchNumber = batch.BatchNumber,
+                ExpiryDate = batch.ExpiryDate,
+                ProductionDate = batch.ProductionDate,
+                CurrentStock = batch.CurrentStock,
+                InitialStock = batch.InitialStock,
+                CostPerUnit = batch.CostPerUnit,
+                SupplierName = batch.SupplierName,
+                PurchaseOrderNumber = batch.PurchaseOrderNumber,
+                Notes = batch.Notes,
+                IsBlocked = batch.IsBlocked,
+                BlockReason = batch.BlockReason,
+                IsDisposed = batch.IsDisposed,
+                DisposalDate = batch.DisposalDate,
+                DisposalMethod = batch.DisposalMethod,
+                CreatedAt = batch.CreatedAt,
+                UpdatedAt = batch.UpdatedAt,
+                BranchId = batch.BranchId,
+                BranchName = batch.Branch?.BranchName,
+                ExpiryStatus = batch.ExpiryStatus,
+                DaysUntilExpiry = batch.DaysUntilExpiry,
+                AvailableStock = batch.CurrentStock
+            }).ToList();
+        }
+
+        /// <summary>
+        /// Generate FIFO batch allocation suggestions
+        /// </summary>
+        public async Task<List<BatchAllocationDto>> GenerateFifoSuggestionsAsync(int productId, int quantity)
+        {
+            if (quantity <= 0)
+                throw new ArgumentException("Quantity must be greater than 0");
+
+            var batches = await _context.ProductBatches
+                .Where(b => b.ProductId == productId && 
+                           b.CurrentStock > 0 && 
+                           !b.IsDisposed && 
+                           !b.IsBlocked)
+                .OrderBy(b => b.ExpiryDate ?? DateTime.MaxValue)
+                .ThenBy(b => b.CreatedAt)
+                .ToListAsync();
+
+            var allocations = new List<BatchAllocationDto>();
+            var remainingQuantity = quantity;
+
+            foreach (var batch in batches)
+            {
+                if (remainingQuantity <= 0) break;
+
+                var allocatedQuantity = Math.Min(remainingQuantity, batch.CurrentStock);
+                var daysUntilExpiry = batch.DaysUntilExpiry ?? int.MaxValue;
+                
+                var allocation = new BatchAllocationDto
+                {
+                    BatchId = batch.Id,
+                    BatchNumber = batch.BatchNumber,
+                    Quantity = allocatedQuantity,
+                    ExpiryDate = batch.ExpiryDate,
+                    DaysUntilExpiry = batch.DaysUntilExpiry,
+                    UrgencyClass = GetUrgencyClass(daysUntilExpiry),
+                    UrgencyIcon = GetUrgencyIcon(daysUntilExpiry),
+                    ExpiryText = GetExpiryText(batch.ExpiryDate, daysUntilExpiry)
+                };
+
+                allocations.Add(allocation);
+                remainingQuantity -= allocatedQuantity;
+            }
+
+            if (remainingQuantity > 0)
+            {
+                _logger.LogWarning("Insufficient stock for product {ProductId}. Requested: {Quantity}, Available: {Available}", 
+                    productId, quantity, quantity - remainingQuantity);
+            }
+
+            return allocations;
+        }
+
+        /// <summary>
+        /// Create sale with complete batch allocation tracking
+        /// </summary>
+        public async Task<SaleWithBatchesResponseDto> CreateSaleWithBatchesAsync(CreateSaleWithBatchesRequest request, int cashierId, int branchId)
+        {
+            // Validate batch allocation first
+            var validation = await ValidateBatchAllocationAsync(new ValidateBatchAllocationRequest { Items = request.Items });
+            if (!validation.IsValid)
+                throw new InvalidOperationException(validation.ErrorMessage ?? "Batch allocation validation failed");
+
+            using var transaction = await _context.Database.BeginTransactionAsync();
+            try
+            {
+                // Create the main sale record
+                var sale = new Sale
+                {
+                    SaleNumber = await GenerateSaleNumberAsync(),
+                    SaleDate = _timezoneService.Now,
+                    Subtotal = request.Total, // Will be updated after calculating all items
+                    Total = request.Total,
+                    PaymentMethod = request.PaymentMethod,
+                    AmountPaid = request.ReceivedAmount,
+                    ChangeAmount = request.Change,
+                    MemberId = request.MemberId,
+                    CashierId = cashierId,
+                    Status = SaleStatus.Completed,
+                    ReceiptPrinted = false,
+                    CreatedAt = _timezoneService.Now
+                };
+
+                _context.Sales.Add(sale);
+                await _context.SaveChangesAsync(); // Save to get sale ID
+
+                var saleItemsWithBatches = new List<SaleItemWithBatchDto>();
+
+                // Process each sale item with batch tracking
+                foreach (var item in request.Items)
+                {
+                    var product = await _context.Products.FirstOrDefaultAsync(p => p.Id == item.ProductId && p.IsActive);
+                    if (product == null)
+                        throw new ArgumentException($"Product {item.ProductId} not found");
+
+                    // Create sale item
+                    var saleItem = new SaleItem
+                    {
+                        SaleId = sale.Id,
+                        ProductId = item.ProductId,
+                        Quantity = item.Quantity,
+                        UnitPrice = item.UnitPrice,
+                        Subtotal = item.Subtotal
+                    };
+
+                    _context.SaleItems.Add(saleItem);
+                    await _context.SaveChangesAsync(); // Save to get sale item ID
+
+                    var batchesUsed = new List<SaleItemBatchDto>();
+
+                    // Process batch allocations for this item
+                    foreach (var allocation in item.BatchAllocations)
+                    {
+                        var batch = await _context.ProductBatches.FirstOrDefaultAsync(b => b.Id == allocation.BatchId);
+                        if (batch == null)
+                            throw new ArgumentException($"Batch {allocation.BatchId} not found");
+
+                        if (batch.CurrentStock < allocation.Quantity)
+                            throw new InvalidOperationException($"Insufficient stock in batch {batch.BatchNumber}");
+
+                        // Create sale item batch record
+                        var saleItemBatch = new SaleItemBatch
+                        {
+                            SaleItemId = saleItem.Id,
+                            BatchId = allocation.BatchId,
+                            BatchNumber = batch.BatchNumber,
+                            Quantity = allocation.Quantity,
+                            CostPerUnit = batch.CostPerUnit,
+                            TotalCost = allocation.Quantity * batch.CostPerUnit,
+                            ExpiryDate = batch.ExpiryDate,
+                            CreatedAt = _timezoneService.Now
+                        };
+
+                        _context.SaleItemBatches.Add(saleItemBatch);
+
+                        // Update batch stock
+                        batch.CurrentStock -= allocation.Quantity;
+                        batch.UpdatedAt = _timezoneService.Now;
+
+                        // Update product total stock
+                        product.Stock -= allocation.Quantity;
+                        product.UpdatedAt = _timezoneService.Now;
+
+                        // Log inventory mutation
+                        var mutation = new InventoryMutation
+                        {
+                            ProductId = item.ProductId,
+                            Type = MutationType.Sale,
+                            Quantity = -allocation.Quantity,
+                            StockBefore = product.Stock + allocation.Quantity,
+                            StockAfter = product.Stock,
+                            Notes = $"Sale - Batch {batch.BatchNumber}",
+                            ReferenceNumber = sale.SaleNumber,
+                            UnitCost = batch.CostPerUnit,
+                            TotalCost = allocation.Quantity * batch.CostPerUnit,
+                            CreatedAt = _timezoneService.Now,
+                            CreatedBy = cashierId.ToString()
+                        };
+
+                        _context.InventoryMutations.Add(mutation);
+
+                        batchesUsed.Add(new SaleItemBatchDto
+                        {
+                            BatchId = batch.Id,
+                            BatchNumber = batch.BatchNumber,
+                            QuantityUsed = allocation.Quantity,
+                            CostPerUnit = batch.CostPerUnit,
+                            TotalCost = allocation.Quantity * batch.CostPerUnit,
+                            ExpiryDate = batch.ExpiryDate,
+                            ExpiryStatus = GetUrgencyClass(batch.DaysUntilExpiry ?? int.MaxValue)
+                        });
+                    }
+
+                    saleItemsWithBatches.Add(new SaleItemWithBatchDto
+                    {
+                        SaleItemId = saleItem.Id,
+                        ProductId = item.ProductId,
+                        ProductName = product.Name,
+                        Quantity = item.Quantity,
+                        UnitPrice = item.UnitPrice,
+                        Subtotal = item.Subtotal,
+                        BatchesUsed = batchesUsed
+                    });
+                }
+
+                // Handle member points if applicable
+                if (request.MemberId.HasValue)
+                {
+                    var member = await _context.Members.FirstOrDefaultAsync(m => m.Id == request.MemberId);
+                    if (member != null)
+                    {
+                        var pointsEarned = CalculatePointsEarned(request.Total);
+                        
+                        var memberPoint = new MemberPoint
+                        {
+                            MemberId = request.MemberId.Value,
+                            Points = pointsEarned,
+                            Type = PointTransactionType.Purchase,
+                            Description = $"Purchase - {sale.SaleNumber}",
+                            ReferenceNumber = sale.SaleNumber,
+                            CreatedAt = _timezoneService.Now
+                        };
+
+                        _context.MemberPoints.Add(memberPoint);
+                        member.TotalPoints += pointsEarned;
+                    }
+                }
+
+                await _context.SaveChangesAsync();
+                await transaction.CommitAsync();
+
+                // Get cashier name
+                var cashier = await _context.Users.FirstOrDefaultAsync(u => u.Id == cashierId);
+
+                return new SaleWithBatchesResponseDto
+                {
+                    Id = sale.Id,
+                    SaleNumber = sale.SaleNumber,
+                    SaleDate = sale.SaleDate,
+                    Total = sale.Total,
+                    PaymentMethod = sale.PaymentMethod,
+                    ReceivedAmount = sale.AmountPaid,
+                    Change = sale.ChangeAmount,
+                    MemberId = sale.MemberId,
+                    MemberName = sale.Member?.Name,
+                    CashierName = cashier?.Username ?? "Unknown",
+                    Items = saleItemsWithBatches,
+                    BatchTrackingEnabled = true
+                };
+            }
+            catch
+            {
+                await transaction.RollbackAsync();
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// Validate batch allocation before sale processing
+        /// </summary>
+        public async Task<BatchAllocationValidationDto> ValidateBatchAllocationAsync(ValidateBatchAllocationRequest request)
+        {
+            var validation = new BatchAllocationValidationDto
+            {
+                IsValid = true,
+                ValidationErrors = new List<string>(),
+                Warnings = new List<string>()
+            };
+
+            foreach (var item in request.Items)
+            {
+                var product = await _context.Products.FirstOrDefaultAsync(p => p.Id == item.ProductId && p.IsActive);
+                if (product == null)
+                {
+                    validation.ValidationErrors.Add($"Product {item.ProductId} not found");
+                    continue;
+                }
+
+                var totalAllocatedQuantity = item.BatchAllocations.Sum(ba => ba.Quantity);
+                if (totalAllocatedQuantity != item.Quantity)
+                {
+                    validation.ValidationErrors.Add($"Product {product.Name}: Allocated quantity ({totalAllocatedQuantity}) does not match item quantity ({item.Quantity})");
+                }
+
+                foreach (var allocation in item.BatchAllocations)
+                {
+                    var batch = await _context.ProductBatches.FirstOrDefaultAsync(b => b.Id == allocation.BatchId);
+                    if (batch == null)
+                    {
+                        validation.ValidationErrors.Add($"Batch {allocation.BatchId} not found");
+                        continue;
+                    }
+
+                    if (batch.ProductId != item.ProductId)
+                    {
+                        validation.ValidationErrors.Add($"Batch {batch.BatchNumber} does not belong to product {product.Name}");
+                    }
+
+                    if (batch.IsDisposed)
+                    {
+                        validation.ValidationErrors.Add($"Batch {batch.BatchNumber} has been disposed");
+                    }
+
+                    if (batch.IsBlocked)
+                    {
+                        validation.ValidationErrors.Add($"Batch {batch.BatchNumber} is blocked: {batch.BlockReason}");
+                    }
+
+                    if (batch.CurrentStock < allocation.Quantity)
+                    {
+                        validation.ValidationErrors.Add($"Insufficient stock in batch {batch.BatchNumber}. Available: {batch.CurrentStock}, Requested: {allocation.Quantity}");
+                    }
+
+                    // Add warnings for expired or near-expiry batches
+                    var daysUntilExpiry = batch.DaysUntilExpiry ?? int.MaxValue;
+                    if (daysUntilExpiry <= 0)
+                    {
+                        validation.Warnings.Add($"Batch {batch.BatchNumber} has expired");
+                    }
+                    else if (daysUntilExpiry <= 3)
+                    {
+                        validation.Warnings.Add($"Batch {batch.BatchNumber} expires in {daysUntilExpiry} day(s)");
+                    }
+                }
+            }
+
+            if (validation.ValidationErrors.Any())
+            {
+                validation.IsValid = false;
+                validation.ErrorMessage = string.Join("; ", validation.ValidationErrors);
+            }
+
+            return validation;
+        }
+
+        /// <summary>
+        /// Get batch allocation summary for a completed sale
+        /// </summary>
+        public async Task<List<SaleItemWithBatchDto>> GetSaleBatchSummaryAsync(int saleId)
+        {
+            var sale = await _context.Sales.FirstOrDefaultAsync(s => s.Id == saleId);
+            if (sale == null)
+                throw new ArgumentException("Sale not found");
+
+            var saleItems = await _context.SaleItems
+                .Include(si => si.Product)
+                .Where(si => si.SaleId == saleId)
+                .ToListAsync();
+
+            var result = new List<SaleItemWithBatchDto>();
+
+            foreach (var saleItem in saleItems)
+            {
+                var batchRecords = await _context.SaleItemBatches
+                    .Where(sib => sib.SaleItemId == saleItem.Id)
+                    .ToListAsync();
+
+                var batchesUsed = batchRecords.Select(br => new SaleItemBatchDto
+                {
+                    BatchId = br.BatchId,
+                    BatchNumber = br.BatchNumber,
+                    QuantityUsed = br.Quantity,
+                    CostPerUnit = br.CostPerUnit,
+                    TotalCost = br.TotalCost,
+                    ExpiryDate = br.ExpiryDate,
+                    ExpiryStatus = br.ExpiryDate.HasValue ? 
+                        GetUrgencyClass(CalculateDaysUntilExpiry(br.ExpiryDate.Value)) : 
+                        "good"
+                }).ToList();
+
+                result.Add(new SaleItemWithBatchDto
+                {
+                    SaleItemId = saleItem.Id,
+                    ProductId = saleItem.ProductId,
+                    ProductName = saleItem.Product?.Name ?? "Unknown Product",
+                    Quantity = saleItem.Quantity,
+                    UnitPrice = saleItem.UnitPrice,
+                    Subtotal = saleItem.Subtotal,
+                    BatchesUsed = batchesUsed
+                });
+            }
+
+            return result;
+        }
+
+        // ==================== HELPER METHODS ==================== //
+
+        private ExpiryUrgency GetExpiryUrgency(int daysUntilExpiry)
+        {
+            return daysUntilExpiry switch
+            {
+                <= 1 => ExpiryUrgency.Critical,
+                <= 3 => ExpiryUrgency.High,
+                <= 7 => ExpiryUrgency.Medium,
+                _ => ExpiryUrgency.Low
+            };
+        }
+
+        private string GetUrgencyClass(int daysUntilExpiry)
+        {
+            return daysUntilExpiry switch
+            {
+                <= 0 => "expired",
+                <= 1 => "critical",
+                <= 3 => "warning",
+                _ => "good"
+            };
+        }
+
+        private string GetUrgencyIcon(int daysUntilExpiry)
+        {
+            return daysUntilExpiry switch
+            {
+                <= 0 => "dangerous",
+                <= 1 => "error",
+                <= 3 => "warning",
+                _ => "check_circle"
+            };
+        }
+
+        private string GetExpiryText(DateTime? expiryDate, int? daysUntilExpiry)
+        {
+            if (!expiryDate.HasValue)
+                return "No expiry date";
+
+            if (!daysUntilExpiry.HasValue)
+                return "No expiry data";
+
+            return daysUntilExpiry.Value switch
+            {
+                < 0 => $"Expired {Math.Abs(daysUntilExpiry.Value)} day(s) ago",
+                0 => "Expires today",
+                1 => "Expires tomorrow",
+                _ => $"Expires in {daysUntilExpiry.Value} day(s)"
+            };
+        }
+
+        private int CalculateDaysUntilExpiry(DateTime expiryDate)
+        {
+            return (int)(expiryDate.Date - _timezoneService.Today).TotalDays;
+        }
     }
 }

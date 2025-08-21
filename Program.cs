@@ -591,6 +591,9 @@ builder.Services.AddMemberCreditBackgroundService();
 // ✅ Add Facture Background Service
 builder.Services.AddFactureBackgroundService();
 
+// ✅ Add Batch Expiry Monitoring Background Service
+builder.Services.AddHostedService<Berca_Backend.Services.Background.BatchExpiryMonitoringService>();
+
 // ✅ Add Sprint 8: Advanced Reporting & Analytics Services
 builder.Services.AddScoped<IReportService, ReportService>();
 builder.Services.AddScoped<IBusinessIntelligenceService, BusinessIntelligenceService>();
