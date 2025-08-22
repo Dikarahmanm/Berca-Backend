@@ -1595,119 +1595,126 @@ namespace Berca_Backend.Services
 
         /// <summary>
         /// Get products with comprehensive batch summary for enhanced inventory display
+        /// ✅ FIXED: Avoids EF LINQ translation errors by computing expiry status in memory
         /// </summary>
         public async Task<List<ProductWithBatchSummaryDto>> GetProductsWithBatchSummaryAsync(ProductBatchSummaryFilterDto filter)
         {
-            var query = _context.Products
-                .Include(p => p.Category)
-                .Where(p => p.IsActive);
-
-            // Apply filters
-            if (filter.CategoryId.HasValue)
-                query = query.Where(p => p.CategoryId == filter.CategoryId);
-
-            if (!string.IsNullOrWhiteSpace(filter.SearchTerm))
+            try
             {
-                var searchTerm = filter.SearchTerm.ToLower();
-                query = query.Where(p => p.Name.ToLower().Contains(searchTerm) ||
-                                       p.Barcode.ToLower().Contains(searchTerm));
-            }
+                _logger.LogInformation("Getting products with batch summary. Filter: {@Filter}", filter);
 
-            var products = await query
-                .Skip((filter.Page - 1) * filter.PageSize)
-                .Take(filter.PageSize)
-                .ToListAsync();
+                // Validate filter
+                if (filter == null)
+                    filter = new ProductBatchSummaryFilterDto();
 
-            var productIds = products.Select(p => p.Id).ToList();
+                // Step 1: Get basic products first (simple query with only database columns)
+                var query = _context.Products
+                    .Include(p => p.Category)
+                    .Where(p => p.IsActive);
 
-            // Get batch information for all products
-            var batchData = await _context.ProductBatches
-                .Where(b => productIds.Contains(b.ProductId) && !b.IsDisposed)
-                .GroupBy(b => b.ProductId)
-                .Select(g => new
+                // Apply basic filters
+                if (filter.CategoryId.HasValue && filter.CategoryId > 0)
+                    query = query.Where(p => p.CategoryId == filter.CategoryId);
+
+                if (!string.IsNullOrWhiteSpace(filter.SearchTerm))
                 {
-                    ProductId = g.Key,
-                    TotalBatches = g.Count(),
-                    TotalValue = g.Sum(b => b.CurrentStock * b.CostPerUnit),
-                    NearestExpiryBatch = g.Where(b => b.ExpiryDate.HasValue)
-                                        .OrderBy(b => b.ExpiryDate)
-                                        .FirstOrDefault(),
-                    CriticalCount = g.Count(b => b.ExpiryStatus == ExpiryStatus.Critical),
-                    WarningCount = g.Count(b => b.ExpiryStatus == ExpiryStatus.Warning),
-                    GoodCount = g.Count(b => b.ExpiryStatus == ExpiryStatus.Good || b.ExpiryStatus == ExpiryStatus.Normal),
-                    ExpiredCount = g.Count(b => b.ExpiryStatus == ExpiryStatus.Expired)
-                })
-                .ToListAsync();
-
-            var result = new List<ProductWithBatchSummaryDto>();
-
-            foreach (var product in products)
-            {
-                var batchInfo = batchData.FirstOrDefault(b => b.ProductId == product.Id);
-                
-                var productDto = new ProductWithBatchSummaryDto
-                {
-                    Id = product.Id,
-                    Name = product.Name,
-                    Barcode = product.Barcode,
-                    Description = product.Description,
-                    CategoryId = product.CategoryId,
-                    CategoryName = product.Category?.Name ?? "No Category",
-                    BuyPrice = product.BuyPrice,
-                    SellPrice = product.SellPrice,
-                    Stock = product.Stock,
-                    MinimumStock = product.MinimumStock,
-                    Unit = product.Unit,
-                    ImageUrl = product.ImageUrl,
-                    IsActive = product.IsActive,
-                    CreatedAt = product.CreatedAt,
-                    UpdatedAt = product.UpdatedAt,
-                    TotalBatches = batchInfo?.TotalBatches ?? 0,
-                    TotalValueAllBatches = batchInfo?.TotalValue ?? 0,
-                    BatchStatusSummary = GenerateBatchStatusSummary(batchInfo),
-                    FifoRecommendation = await GenerateFifoRecommendationText(product.Id)
-                };
-
-                if (batchInfo?.NearestExpiryBatch != null)
-                {
-                    var nearestBatch = batchInfo.NearestExpiryBatch;
-                    productDto.NearestExpiryBatch = new ProductBatchDto
-                    {
-                        Id = nearestBatch.Id,
-                        BatchNumber = nearestBatch.BatchNumber,
-                        ExpiryDate = nearestBatch.ExpiryDate,
-                        CurrentStock = nearestBatch.CurrentStock,
-                        ExpiryStatus = nearestBatch.ExpiryStatus,
-                        DaysUntilExpiry = nearestBatch.DaysUntilExpiry
-                    };
+                    var searchTerm = filter.SearchTerm.ToLower().Trim();
+                    query = query.Where(p => p.Name.ToLower().Contains(searchTerm) ||
+                                           p.Barcode.ToLower().Contains(searchTerm) ||
+                                           (p.Description != null && p.Description.ToLower().Contains(searchTerm)));
                 }
 
-                result.Add(productDto);
-            }
+                // Apply pagination with safety checks
+                var page = Math.Max(1, filter.Page);
+                var pageSize = Math.Min(Math.Max(1, filter.PageSize), 100);
 
-            // Apply additional filters based on batch status
-            if (filter.HasExpiredBatches.HasValue)
+                var products = await query
+                    .Skip((page - 1) * pageSize)
+                    .Take(pageSize)
+                    .ToListAsync();
+
+                _logger.LogInformation("Loaded {Count} products from database", products.Count);
+
+                if (!products.Any())
+                {
+                    return new List<ProductWithBatchSummaryDto>();
+                }
+
+                // Step 2: Get all batches for these products (separate simple query)
+                var productIds = products.Select(p => p.Id).ToList();
+                
+                // ✅ FIXED: Simple query using only database columns
+                var batches = await _context.ProductBatches
+                    .Where(b => productIds.Contains(b.ProductId) && !b.IsDisposed)
+                    .ToListAsync(); // Load to memory first to avoid EF translation issues
+
+                _logger.LogInformation("Loaded {Count} batches for products", batches.Count);
+
+                // Step 3: Process in memory (no EF translation issues)
+                var result = new List<ProductWithBatchSummaryDto>();
+                var now = _timezoneService.Now;
+                
+                foreach (var product in products)
+                {
+                    try
+                    {
+                        var productBatches = batches.Where(b => b.ProductId == product.Id).ToList();
+                        
+                        // ✅ FIXED: Compute expiry status in memory (not in SQL)
+                        var expiredCount = productBatches.Count(b => 
+                            b.IsExpired || (b.ExpiryDate.HasValue && b.ExpiryDate.Value < now));
+                            
+                        var criticalCount = productBatches.Count(b => 
+                            !b.IsExpired && b.ExpiryDate.HasValue && 
+                            (b.ExpiryDate.Value - now).TotalDays <= 3 &&
+                            (b.ExpiryDate.Value - now).TotalDays >= 0);
+                            
+                        var warningCount = productBatches.Count(b => 
+                            !b.IsExpired && b.ExpiryDate.HasValue && 
+                            (b.ExpiryDate.Value - now).TotalDays <= 7 &&
+                            (b.ExpiryDate.Value - now).TotalDays > 3);
+
+                        var goodCount = productBatches.Count(b => 
+                            !b.IsExpired && (!b.ExpiryDate.HasValue || 
+                            (b.ExpiryDate.Value - now).TotalDays > 7));
+
+                        // Apply expiry filters in memory if specified
+                        var shouldInclude = true;
+                        if (filter.HasExpiredBatches.HasValue)
+                        {
+                            shouldInclude = filter.HasExpiredBatches.Value ? expiredCount > 0 : expiredCount == 0;
+                        }
+                        if (shouldInclude && filter.HasCriticalBatches.HasValue)
+                        {
+                            shouldInclude = filter.HasCriticalBatches.Value ? criticalCount > 0 : criticalCount == 0;
+                        }
+                        if (shouldInclude && filter.HasBatches.HasValue)
+                        {
+                            shouldInclude = filter.HasBatches.Value ? productBatches.Any() : !productBatches.Any();
+                        }
+
+                        if (!shouldInclude) continue;
+
+                        // Create summary DTO with in-memory calculations
+                        var productSummary = await MapToProductWithBatchSummaryDtoSafe(product, productBatches, now);
+                        result.Add(productSummary);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Error processing product {ProductId} in batch summary", product.Id);
+                        // Continue with next product instead of failing completely
+                        continue;
+                    }
+                }
+
+                _logger.LogInformation("Generated batch summary for {Count} products", result.Count);
+                return result;
+            }
+            catch (Exception ex)
             {
-                result = result.Where(p => filter.HasExpiredBatches.Value ? 
-                    p.BatchStatusSummary.Contains("expired") : 
-                    !p.BatchStatusSummary.Contains("expired")).ToList();
+                _logger.LogError(ex, "Error in GetProductsWithBatchSummaryAsync with filter {@Filter}", filter);
+                throw;
             }
-
-            if (filter.HasCriticalBatches.HasValue)
-            {
-                result = result.Where(p => filter.HasCriticalBatches.Value ? 
-                    p.BatchStatusSummary.Contains("critical") : 
-                    !p.BatchStatusSummary.Contains("critical")).ToList();
-            }
-
-            if (filter.HasBatches.HasValue)
-            {
-                result = result.Where(p => filter.HasBatches.Value ? 
-                    p.TotalBatches > 0 : 
-                    p.TotalBatches == 0).ToList();
-            }
-
-            return result;
         }
 
         /// <summary>
@@ -2072,10 +2079,211 @@ namespace Berca_Backend.Services
             return daysUntilExpiry switch
             {
                 <= 1 => "URGENT: Sell immediately!",
-                <= 3 => "High priority: Sell within 3 days",
-                <= 7 => "Medium priority: Sell this week",
-                _ => "Follow FIFO order"
+                <= 3 => "Priority: Sell within 3 days",
+                <= 7 => "Schedule: Sell within a week",
+                _ => "Normal: Follow FIFO order"
             };
+        }
+
+        private async Task<string?> GenerateFifoRecommendationTextSafe(int productId)
+        {
+            try
+            {
+                return await GenerateFifoRecommendationText(productId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error generating FIFO recommendation for product {ProductId}", productId);
+                return "Check batches manually";
+            }
+        }
+
+        /// <summary>
+        /// ✅ FIXED: Safe mapping method that works with in-memory batch data
+        /// </summary>
+        private async Task<ProductWithBatchSummaryDto> MapToProductWithBatchSummaryDtoSafe(
+            Product product, 
+            List<ProductBatch> batches, 
+            DateTime now)
+        {
+            try
+            {
+                // Find nearest expiry batch (in memory calculation)
+                var nearestExpiryBatch = batches
+                    .Where(b => b.ExpiryDate.HasValue && !b.IsExpired)
+                    .OrderBy(b => b.ExpiryDate)
+                    .FirstOrDefault();
+
+                // Calculate total value (in memory)
+                var totalValue = batches.Sum(b => b.CurrentStock * b.CostPerUnit);
+
+                // Generate FIFO recommendation (in memory)
+                var fifoRecommendation = GenerateFifoRecommendationTextInMemory(batches, now);
+
+                // Generate batch status summary (in memory)
+                var batchStatusSummary = GenerateBatchStatusSummaryInMemory(batches, now);
+
+                return new ProductWithBatchSummaryDto
+                {
+                    Id = product.Id,
+                    Name = product.Name ?? string.Empty,
+                    Barcode = product.Barcode ?? string.Empty,
+                    Description = product.Description,
+                    Stock = product.Stock,
+                    MinimumStock = product.MinimumStock,
+                    BuyPrice = product.BuyPrice,
+                    SellPrice = product.SellPrice,
+                    Unit = product.Unit ?? string.Empty,
+                    CategoryId = product.CategoryId,
+                    CategoryName = product.Category?.Name ?? "No Category",
+                    IsActive = product.IsActive,
+                    CreatedAt = product.CreatedAt,
+                    UpdatedAt = product.UpdatedAt,
+                    ImageUrl = product.ImageUrl,
+                    
+                    // Batch summary fields (computed in memory)
+                    TotalBatches = batches.Count,
+                    NearestExpiryBatch = nearestExpiryBatch != null ? MapToProductBatchDtoSafe(nearestBatch: nearestExpiryBatch, productName: product.Name) : null,
+                    TotalValueAllBatches = totalValue,
+                    FifoRecommendation = fifoRecommendation,
+                    BatchStatusSummary = batchStatusSummary
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error mapping product {ProductId} to batch summary DTO", product.Id);
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// ✅ FIXED: Generate batch status summary in memory
+        /// </summary>
+        private string GenerateBatchStatusSummaryInMemory(List<ProductBatch> batches, DateTime now)
+        {
+            if (!batches.Any()) return "No batches";
+
+            var active = batches.Count(b => !b.IsExpired && !b.IsDisposed);
+            var expired = batches.Count(b => b.IsExpired || 
+                (b.ExpiryDate.HasValue && b.ExpiryDate.Value < now));
+            var critical = batches.Count(b => 
+                !b.IsExpired && b.ExpiryDate.HasValue && 
+                (b.ExpiryDate.Value - now).TotalDays <= 3 &&
+                (b.ExpiryDate.Value - now).TotalDays >= 0);
+            var warning = batches.Count(b => 
+                !b.IsExpired && b.ExpiryDate.HasValue && 
+                (b.ExpiryDate.Value - now).TotalDays <= 7 &&
+                (b.ExpiryDate.Value - now).TotalDays > 3);
+
+            var parts = new List<string>();
+            if (expired > 0) parts.Add($"{expired} expired");
+            if (critical > 0) parts.Add($"{critical} critical");
+            if (warning > 0) parts.Add($"{warning} warning");
+            if (active > 0) parts.Add($"{active} active");
+
+            return parts.Any() ? string.Join(", ", parts) : "All disposed";
+        }
+
+        /// <summary>
+        /// ✅ FIXED: Generate FIFO recommendation in memory
+        /// </summary>
+        private string? GenerateFifoRecommendationTextInMemory(List<ProductBatch> batches, DateTime now)
+        {
+            var activeBatches = batches.Where(b => !b.IsExpired && !b.IsDisposed && b.CurrentStock > 0).ToList();
+            
+            if (!activeBatches.Any())
+                return null;
+
+            var criticalBatches = activeBatches.Where(b => 
+                b.ExpiryDate.HasValue && 
+                (b.ExpiryDate.Value - now).TotalDays <= 3 &&
+                (b.ExpiryDate.Value - now).TotalDays >= 0
+            ).ToList();
+
+            if (criticalBatches.Any())
+            {
+                var totalCriticalStock = criticalBatches.Sum(b => b.CurrentStock);
+                return $"URGENT: Sell {totalCriticalStock} units from expiring batches first";
+            }
+
+            var warningBatches = activeBatches.Where(b => 
+                b.ExpiryDate.HasValue && 
+                (b.ExpiryDate.Value - now).TotalDays <= 7 &&
+                (b.ExpiryDate.Value - now).TotalDays > 3
+            ).ToList();
+
+            if (warningBatches.Any())
+            {
+                return "Priority: Monitor expiry dates - some batches expire soon";
+            }
+
+            return "Normal: Follow FIFO order";
+        }
+
+        /// <summary>
+        /// ✅ FIXED: Safe ProductBatchDto mapping
+        /// </summary>
+        private ProductBatchDto MapToProductBatchDtoSafe(ProductBatch nearestBatch, string? productName)
+        {
+            return new ProductBatchDto
+            {
+                Id = nearestBatch.Id,
+                ProductId = nearestBatch.ProductId,
+                ProductName = productName ?? string.Empty,
+                BatchNumber = nearestBatch.BatchNumber ?? string.Empty,
+                ExpiryDate = nearestBatch.ExpiryDate,
+                ProductionDate = nearestBatch.ProductionDate,
+                CurrentStock = nearestBatch.CurrentStock,
+                InitialStock = nearestBatch.InitialStock,
+                CostPerUnit = nearestBatch.CostPerUnit,
+                SupplierName = nearestBatch.SupplierName,
+                PurchaseOrderNumber = nearestBatch.PurchaseOrderNumber,
+                Notes = nearestBatch.Notes,
+                IsBlocked = nearestBatch.IsBlocked,
+                BlockReason = nearestBatch.BlockReason,
+                IsExpired = nearestBatch.IsExpired,
+                IsDisposed = nearestBatch.IsDisposed,
+                DisposalDate = nearestBatch.DisposalDate,
+                DisposalMethod = nearestBatch.DisposalMethod,
+                CreatedAt = nearestBatch.CreatedAt,
+                UpdatedAt = nearestBatch.UpdatedAt,
+                BranchId = nearestBatch.BranchId,
+                BranchName = nearestBatch.Branch?.BranchName,
+                
+                // ✅ FIXED: Compute expiry status in memory instead of using computed property
+                ExpiryStatus = CalculateExpiryStatusInMemory(nearestBatch, _timezoneService.Now),
+                DaysUntilExpiry = CalculateDaysUntilExpiryInMemory(nearestBatch, _timezoneService.Now),
+                AvailableStock = nearestBatch.CurrentStock
+            };
+        }
+
+        /// <summary>
+        /// ✅ FIXED: Calculate expiry status in memory
+        /// </summary>
+        private ExpiryStatus CalculateExpiryStatusInMemory(ProductBatch batch, DateTime now)
+        {
+            if (!batch.ExpiryDate.HasValue) return ExpiryStatus.NoExpiry;
+            if (batch.IsExpired) return ExpiryStatus.Expired;
+
+            var daysUntilExpiry = (batch.ExpiryDate.Value - now).TotalDays;
+            
+            return daysUntilExpiry switch
+            {
+                < 0 => ExpiryStatus.Expired,
+                <= 3 => ExpiryStatus.Critical,
+                <= 7 => ExpiryStatus.Warning,
+                <= 30 => ExpiryStatus.Normal,
+                _ => ExpiryStatus.Good
+            };
+        }
+
+        /// <summary>
+        /// ✅ FIXED: Calculate days until expiry in memory
+        /// </summary>
+        private int? CalculateDaysUntilExpiryInMemory(ProductBatch batch, DateTime now)
+        {
+            if (!batch.ExpiryDate.HasValue) return null;
+            return (int)(batch.ExpiryDate.Value.Date - now.Date).TotalDays;
         }
 
         private async Task<string> GenerateBatchNumberInternalAsync(int productId, DateTime? productionDate = null)
