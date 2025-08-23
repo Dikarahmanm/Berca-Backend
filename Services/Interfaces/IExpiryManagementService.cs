@@ -146,6 +146,18 @@ namespace Berca_Backend.Services.Interfaces
         /// Update expiry status for all batches
         /// </summary>
         Task<int> UpdateExpiryStatusesAsync();
+
+        // ==================== ADVANCED ANALYTICS (NEW) ==================== //
+
+        /// <summary>
+        /// Get comprehensive expiry analytics with financial calculations
+        /// </summary>
+        Task<ComprehensiveExpiryAnalyticsDto> GetComprehensiveExpiryAnalyticsAsync(int? branchId = null);
+
+        /// <summary>
+        /// Get smart FIFO recommendations with advanced scoring
+        /// </summary>
+        Task<List<SmartFifoRecommendationDto>> GetSmartFifoRecommendationsAsync(int? branchId = null);
     }
 
     // ==================== ADDITIONAL DTOs FOR EXPIRY SERVICE ==================== //

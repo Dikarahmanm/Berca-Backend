@@ -106,6 +106,50 @@ namespace Berca_Backend.Models
         [NotMapped]
         public bool IsEmergencyTransfer => Priority == TransferPriority.Emergency;
 
+        // Compatibility properties for service layer
+        [NotMapped]
+        public int FromBranchId { get => SourceBranchId; set => SourceBranchId = value; }
+        
+        [NotMapped]
+        public int ToBranchId { get => DestinationBranchId; set => DestinationBranchId = value; }
+        
+        [NotMapped]
+        public DateTime TransferDate { get => CreatedAt; set => CreatedAt = value; }
+        
+        [NotMapped]
+        public string Reason { get => RequestReason; set => RequestReason = value; }
+        
+        // For single-product transfers - simplified access
+        [NotMapped]
+        public int? ProductId 
+        { 
+            get => TransferItems?.FirstOrDefault()?.ProductId; 
+            set 
+            {
+                // For single-product transfers, create or update first item
+                if (value.HasValue && TransferItems != null && TransferItems.Any())
+                {
+                    var firstItem = TransferItems.First();
+                    firstItem.ProductId = value.Value;
+                }
+            }
+        }
+        
+        [NotMapped]
+        public int Quantity 
+        { 
+            get => TransferItems?.Sum(ti => ti.Quantity) ?? 0;
+            set
+            {
+                // For single-product transfers, create or update first item quantity
+                if (TransferItems != null && TransferItems.Any())
+                {
+                    var firstItem = TransferItems.First();
+                    firstItem.Quantity = value;
+                }
+            }
+        }
+
         [NotMapped]
         public bool CanBeApproved => Status == TransferStatus.Pending;
 
@@ -264,5 +308,16 @@ namespace Berca_Backend.Models
         Normal = 1,
         High = 2,
         Emergency = 3
+    }
+
+    // Alias for service compatibility
+    public enum InventoryTransferStatus
+    {
+        Pending = 0,     // Waiting for approval
+        Approved = 1,    // Approved and ready to ship
+        InTransit = 2,   // Being shipped
+        Completed = 3,   // Received and completed
+        Cancelled = 4,   // Cancelled by user
+        Rejected = 5     // Rejected during approval
     }
 }

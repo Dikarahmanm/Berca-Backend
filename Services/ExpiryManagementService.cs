@@ -1018,5 +1018,491 @@ namespace Berca_Backend.Services
                 _ => "Low"
             };
         }
+
+        // ==================== COMPREHENSIVE ANALYTICS METHODS ==================== //
+
+        /// <summary>
+        /// Get comprehensive expiry analytics with financial calculations
+        /// </summary>
+        public async Task<ComprehensiveExpiryAnalyticsDto> GetComprehensiveExpiryAnalyticsAsync(int? branchId = null)
+        {
+            try
+            {
+                var currentDate = DateTime.UtcNow;
+                
+                // Get all batches with expiry tracking
+                var batchesQuery = _context.ProductBatches
+                    .Include(pb => pb.Product)
+                    .ThenInclude(p => p.Category)
+                    .Where(pb => pb.ExpiryDate.HasValue && !pb.IsDisposed);
+                    
+                if (branchId.HasValue)
+                    batchesQuery = batchesQuery.Where(pb => pb.BranchId == branchId);
+                    
+                var batches = await batchesQuery.ToListAsync();
+
+                // Calculate comprehensive metrics
+                var analytics = new ComprehensiveExpiryAnalyticsDto
+                {
+                    AnalysisDate = currentDate,
+                    BranchId = branchId,
+                    
+                    // Basic counts
+                    TotalBatchesWithExpiry = batches.Count,
+                    ExpiredBatches = batches.Count(b => b.ExpiryDate <= currentDate),
+                    ExpiringNext7Days = batches.Count(b => b.ExpiryDate <= currentDate.AddDays(7) && b.ExpiryDate > currentDate),
+                    ExpiringNext30Days = batches.Count(b => b.ExpiryDate <= currentDate.AddDays(30) && b.ExpiryDate > currentDate.AddDays(7)),
+                    
+                    // Financial impact calculations
+                    TotalStockValue = batches.Sum(b => b.CurrentStock * b.CostPerUnit),
+                    ExpiredStockValue = batches.Where(b => b.ExpiryDate <= currentDate).Sum(b => b.CurrentStock * b.CostPerUnit),
+                    AtRiskStockValue = batches.Where(b => b.ExpiryDate <= currentDate.AddDays(30) && b.ExpiryDate > currentDate).Sum(b => b.CurrentStock * b.CostPerUnit),
+                    
+                    // Performance metrics
+                    WastagePercentage = CalculateWastePercentageHelper(batches, currentDate),
+                    MonthlyExpiryRate = await CalculateMonthlyExpiryRateHelper(branchId),
+                    PreventionOpportunityValue = CalculatePreventionOpportunityHelper(batches),
+                    
+                    // Category breakdown
+                    CategoryPerformance = CalculateCategoryExpiryPerformanceHelper(batches),
+                    
+                    // Trend analysis (simplified for now)
+                    ExpiryTrends = await CalculateExpiryTrendsHelper(branchId, 6), // Last 6 months
+                    
+                    // Recommendations
+                    ActionableRecommendations = GenerateExpiryActionRecommendationsHelper(batches, currentDate),
+                    
+                    // Projections
+                    ProjectedExpiryNext30Days = (int)(await ProjectFutureExpiryHelper(branchId, 30)),
+                    EstimatedSavingsOpportunity = CalculateEstimatedSavingsHelper(batches, currentDate)
+                };
+
+                return analytics;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error calculating comprehensive expiry analytics for branch {BranchId}", branchId);
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// Get smart FIFO recommendations with advanced scoring
+        /// </summary>
+        public async Task<List<SmartFifoRecommendationDto>> GetSmartFifoRecommendationsAsync(int? branchId = null)
+        {
+            try
+            {
+                var batches = await _context.ProductBatches
+                    .Include(pb => pb.Product)
+                    .ThenInclude(p => p.Category)
+                    .Where(pb => pb.CurrentStock > 0 && !pb.IsDisposed && !pb.IsBlocked)
+                    .Where(pb => branchId == null || pb.BranchId == branchId)
+                    .ToListAsync();
+
+                var recommendations = new List<SmartFifoRecommendationDto>();
+
+                foreach (var batch in batches)
+                {
+                    var daysToExpiry = batch.ExpiryDate.HasValue ? 
+                        (batch.ExpiryDate.Value - DateTime.UtcNow).Days : 
+                        int.MaxValue;
+
+                    // Calculate sales velocity for this product (simplified)
+                    var recentSales = await _context.SaleItems
+                        .Where(si => si.ProductId == batch.ProductId && 
+                                   si.Sale.SaleDate >= DateTime.UtcNow.AddDays(-30))
+                        .SumAsync(si => si.Quantity);
+                    var dailyVelocity = recentSales / 30.0m;
+
+                    // Calculate smart priority score (0-100)
+                    var priorityScore = CalculateSmartPriorityScoreHelper(batch, daysToExpiry, dailyVelocity);
+
+                    // Determine optimal pricing strategy
+                    var pricingRecommendation = CalculateOptimalPricingHelper(batch.Product, daysToExpiry, dailyVelocity);
+
+                    // Financial impact analysis
+                    var financialImpact = CalculateFinancialImpactHelper(batch, pricingRecommendation, daysToExpiry);
+
+                    var recommendation = new SmartFifoRecommendationDto
+                    {
+                        BatchId = batch.Id,
+                        ProductId = batch.ProductId,
+                        ProductName = batch.Product.Name,
+                        BatchNumber = batch.BatchNumber,
+                        CurrentStock = batch.CurrentStock,
+                        ExpiryDate = batch.ExpiryDate,
+                        DaysToExpiry = daysToExpiry,
+                        
+                        // Smart scoring
+                        PriorityScore = priorityScore,
+                        UrgencyLevel = CalculateUrgencyLevelHelper(priorityScore),
+                        RecommendedAction = DetermineRecommendedActionHelper(daysToExpiry, dailyVelocity, batch.CurrentStock),
+                        
+                        // Pricing optimization
+                        CurrentPrice = batch.Product.SellPrice,
+                        RecommendedPrice = pricingRecommendation.OptimalPrice,
+                        SuggestedDiscount = pricingRecommendation.DiscountPercentage,
+                        MinimumViablePrice = pricingRecommendation.MinimumPrice,
+                        
+                        // Financial projections
+                        PotentialRevenue = financialImpact.PotentialRevenue,
+                        EstimatedLoss = financialImpact.EstimatedLoss,
+                        NetBenefit = financialImpact.NetBenefit,
+                        
+                        // Sales projections
+                        EstimatedSellThroughDays = dailyVelocity > 0 ? (int)(batch.CurrentStock / dailyVelocity) : int.MaxValue,
+                        RecommendedSalesChannels = DetermineOptimalSalesChannelsHelper(batch, daysToExpiry),
+                        
+                        // Action items
+                        ImmediateActions = GenerateImmediateActionPlanHelper(batch, daysToExpiry, priorityScore),
+                        Timeline = CalculateActionTimelineHelper(daysToExpiry, batch.CurrentStock, dailyVelocity)
+                    };
+
+                    recommendations.Add(recommendation);
+                }
+
+                // Sort by priority and return top recommendations
+                return recommendations
+                    .OrderByDescending(r => r.PriorityScore)
+                    .ThenBy(r => r.DaysToExpiry)
+                    .Take(100) // Limit to top 100
+                    .ToList();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error generating smart FIFO recommendations for branch {BranchId}", branchId);
+                throw;
+            }
+        }
+
+        // ==================== PRIVATE HELPER METHODS FOR ANALYTICS ==================== //
+
+        private decimal CalculateWastePercentageHelper(List<ProductBatch> batches, DateTime currentDate)
+        {
+            var expiredBatches = batches.Where(b => b.ExpiryDate <= currentDate).ToList();
+            var totalValue = batches.Sum(b => b.InitialStock * b.CostPerUnit);
+            var expiredValue = expiredBatches.Sum(b => b.CurrentStock * b.CostPerUnit);
+            
+            return totalValue > 0 ? (expiredValue / totalValue) * 100 : 0;
+        }
+
+        private async Task<decimal> CalculateMonthlyExpiryRateHelper(int? branchId)
+        {
+            var thirtyDaysAgo = DateTime.UtcNow.AddDays(-30);
+            
+            var expiredLastMonth = await _context.ProductBatches
+                .Where(pb => pb.ExpiryDate.HasValue && 
+                           pb.ExpiryDate >= thirtyDaysAgo && 
+                           pb.ExpiryDate <= DateTime.UtcNow &&
+                           (branchId == null || pb.BranchId == branchId))
+                .CountAsync();
+                
+            var totalBatches = await _context.ProductBatches
+                .Where(pb => pb.ExpiryDate.HasValue && 
+                           (branchId == null || pb.BranchId == branchId))
+                .CountAsync();
+                
+            return totalBatches > 0 ? (decimal)expiredLastMonth / totalBatches * 100 : 0;
+        }
+
+        private decimal CalculatePreventionOpportunityHelper(List<ProductBatch> batches)
+        {
+            var nearExpiryBatches = batches
+                .Where(b => b.ExpiryDate.HasValue && 
+                          b.ExpiryDate <= DateTime.UtcNow.AddDays(30) &&
+                          b.ExpiryDate > DateTime.UtcNow)
+                .ToList();
+                
+            // Assume 70% of near-expiry value can be saved with proper action
+            return nearExpiryBatches.Sum(b => b.CurrentStock * b.CostPerUnit) * 0.7m;
+        }
+
+        private List<CategoryExpiryPerformance> CalculateCategoryExpiryPerformanceHelper(List<ProductBatch> batches)
+        {
+            return batches
+                .Where(b => b.Product?.Category != null)
+                .GroupBy(b => b.Product.Category)
+                .Select(g => new CategoryExpiryPerformance
+                {
+                    CategoryId = g.Key.Id,
+                    CategoryName = g.Key.Name,
+                    TotalBatches = g.Count(),
+                    ExpiredBatches = g.Count(b => b.ExpiryDate <= DateTime.UtcNow),
+                    NearExpiryBatches = g.Count(b => b.ExpiryDate <= DateTime.UtcNow.AddDays(7) && b.ExpiryDate > DateTime.UtcNow),
+                    TotalValue = g.Sum(b => b.CurrentStock * b.CostPerUnit),
+                    ExpiredValue = g.Where(b => b.ExpiryDate <= DateTime.UtcNow).Sum(b => b.CurrentStock * b.CostPerUnit),
+                    WastePercentage = g.Sum(b => b.InitialStock * b.CostPerUnit) > 0 ? 
+                        g.Where(b => b.ExpiryDate <= DateTime.UtcNow).Sum(b => b.CurrentStock * b.CostPerUnit) / 
+                        g.Sum(b => b.InitialStock * b.CostPerUnit) * 100 : 0
+                })
+                .OrderByDescending(c => c.WastePercentage)
+                .ToList();
+        }
+
+        private async Task<List<ExpiryTrendData>> CalculateExpiryTrendsHelper(int? branchId, int months)
+        {
+            var trends = new List<ExpiryTrendData>();
+            var startDate = DateTime.UtcNow.AddMonths(-months);
+            
+            for (int i = 0; i < months; i++)
+            {
+                var monthStart = startDate.AddMonths(i);
+                var monthEnd = monthStart.AddMonths(1).AddDays(-1);
+                
+                var monthlyExpired = await _context.ProductBatches
+                    .Where(pb => pb.ExpiryDate.HasValue &&
+                               pb.ExpiryDate >= monthStart &&
+                               pb.ExpiryDate <= monthEnd &&
+                               (branchId == null || pb.BranchId == branchId))
+                    .ToListAsync();
+                
+                trends.Add(new ExpiryTrendData
+                {
+                    Period = monthStart.ToString("yyyy-MM"),
+                    PeriodDisplay = monthStart.ToString("MMM yyyy"),
+                    ExpiredBatches = monthlyExpired.Count,
+                    ExpiredValue = monthlyExpired.Sum(b => b.CurrentStock * b.CostPerUnit),
+                    WastagePercentage = 0 // Would need more complex calculation
+                });
+            }
+            
+            return trends;
+        }
+
+        private List<ExpiryActionRecommendation> GenerateExpiryActionRecommendationsHelper(List<ProductBatch> batches, DateTime currentDate)
+        {
+            var recommendations = new List<ExpiryActionRecommendation>();
+            
+            // Critical items (expire today/tomorrow)
+            var criticalBatches = batches.Where(b => b.ExpiryDate <= currentDate.AddDays(1) && b.ExpiryDate > currentDate).ToList();
+            if (criticalBatches.Any())
+            {
+                recommendations.Add(new ExpiryActionRecommendation
+                {
+                    Priority = "Critical",
+                    ActionType = "Immediate Discount",
+                    Description = $"Apply emergency discount to {criticalBatches.Count} batches expiring within 24 hours",
+                    AffectedBatchesCount = criticalBatches.Count,
+                    PotentialSavings = criticalBatches.Sum(b => b.CurrentStock * b.CostPerUnit) * 0.5m,
+                    Deadline = currentDate.AddHours(8),
+                    ActionItems = new List<string>
+                    {
+                        "Apply 30-50% discount immediately",
+                        "Move products to prominent display location", 
+                        "Create promotional bundles",
+                        "Consider staff purchase program"
+                    }
+                });
+            }
+            
+            // High priority items (expire within a week)
+            var weekBatches = batches.Where(b => b.ExpiryDate <= currentDate.AddDays(7) && b.ExpiryDate > currentDate.AddDays(1)).ToList();
+            if (weekBatches.Any())
+            {
+                recommendations.Add(new ExpiryActionRecommendation
+                {
+                    Priority = "High",
+                    ActionType = "Promotional Campaign",
+                    Description = $"Launch promotion for {weekBatches.Count} batches expiring this week",
+                    AffectedBatchesCount = weekBatches.Count,
+                    PotentialSavings = weekBatches.Sum(b => b.CurrentStock * b.CostPerUnit) * 0.3m,
+                    Deadline = currentDate.AddDays(2),
+                    ActionItems = new List<string>
+                    {
+                        "Apply 15-25% discount",
+                        "Include in weekly promotional flyer",
+                        "Train sales staff on promotion details",
+                        "Monitor daily sales progress"
+                    }
+                });
+            }
+            
+            return recommendations;
+        }
+
+        private async Task<decimal> ProjectFutureExpiryHelper(int? branchId, int days)
+        {
+            var futureDate = DateTime.UtcNow.AddDays(days);
+            
+            var futureBatches = await _context.ProductBatches
+                .Where(pb => pb.ExpiryDate.HasValue &&
+                           pb.ExpiryDate <= futureDate &&
+                           pb.ExpiryDate > DateTime.UtcNow &&
+                           pb.CurrentStock > 0 &&
+                           (branchId == null || pb.BranchId == branchId))
+                .ToListAsync();
+                
+            return futureBatches.Sum(b => b.CurrentStock * b.CostPerUnit);
+        }
+
+        private decimal CalculateEstimatedSavingsHelper(List<ProductBatch> batches, DateTime currentDate)
+        {
+            var nearExpiryBatches = batches
+                .Where(b => b.ExpiryDate.HasValue && 
+                          b.ExpiryDate <= currentDate.AddDays(30) &&
+                          b.ExpiryDate > currentDate)
+                .ToList();
+                
+            // Conservative estimate: 60% of value can be recovered with proper action
+            return nearExpiryBatches.Sum(b => b.CurrentStock * b.CostPerUnit) * 0.6m;
+        }
+
+        private int CalculateSmartPriorityScoreHelper(ProductBatch batch, int daysToExpiry, decimal dailyVelocity)
+        {
+            var score = 0;
+            
+            // Expiry urgency (40% weight)
+            if (daysToExpiry <= 1) score += 40;
+            else if (daysToExpiry <= 3) score += 35;
+            else if (daysToExpiry <= 7) score += 30;
+            else if (daysToExpiry <= 14) score += 20;
+            else if (daysToExpiry <= 30) score += 10;
+            
+            // Stock value impact (30% weight)
+            var stockValue = batch.CurrentStock * batch.CostPerUnit;
+            if (stockValue >= 5000000) score += 30; // 5M+ IDR
+            else if (stockValue >= 1000000) score += 25; // 1M+ IDR
+            else if (stockValue >= 500000) score += 20; // 500K+ IDR
+            else if (stockValue >= 100000) score += 15; // 100K+ IDR
+            else score += 5;
+            
+            // Sales velocity factor (20% weight)
+            var sellThroughDays = dailyVelocity > 0 ? batch.CurrentStock / dailyVelocity : int.MaxValue;
+            if (sellThroughDays > daysToExpiry * 2) score += 20; // High risk
+            else if (sellThroughDays > daysToExpiry) score += 15; // Medium risk
+            else score += 5; // Low risk
+            
+            // Category factor (10% weight)
+            if (batch.Product.Category?.RequiresExpiryDate == true) score += 10;
+            else score += 5;
+            
+            return Math.Min(100, Math.Max(0, score));
+        }
+
+        private PricingRecommendation CalculateOptimalPricingHelper(Product product, int daysToExpiry, decimal dailyVelocity)
+        {
+            var currentPrice = product.SellPrice;
+            var costPrice = product.BuyPrice;
+            
+            var discountPercentage = daysToExpiry switch
+            {
+                <= 1 => 40m, // 40% discount for items expiring today/tomorrow
+                <= 3 => 25m, // 25% discount for critical items
+                <= 7 => 15m, // 15% discount for items expiring this week
+                <= 14 => 10m, // 10% discount for items expiring in 2 weeks
+                _ => 0m
+            };
+            
+            var optimalPrice = currentPrice * (1 - discountPercentage / 100);
+            var minimumPrice = costPrice * 1.05m; // 5% markup minimum
+            
+            return new PricingRecommendation
+            {
+                OptimalPrice = Math.Max(optimalPrice, minimumPrice),
+                DiscountPercentage = discountPercentage,
+                MinimumPrice = minimumPrice
+            };
+        }
+
+        private FinancialImpact CalculateFinancialImpactHelper(ProductBatch batch, PricingRecommendation pricing, int daysToExpiry)
+        {
+            var potentialRevenue = batch.CurrentStock * pricing.OptimalPrice;
+            var costBasis = batch.CurrentStock * batch.CostPerUnit;
+            var estimatedLoss = daysToExpiry <= 1 ? costBasis * 0.7m : costBasis * 0.3m; // Higher loss if very close to expiry
+            
+            return new FinancialImpact
+            {
+                PotentialRevenue = potentialRevenue,
+                EstimatedLoss = estimatedLoss,
+                NetBenefit = potentialRevenue - costBasis
+            };
+        }
+
+        private string CalculateUrgencyLevelHelper(int priorityScore)
+        {
+            return priorityScore switch
+            {
+                >= 80 => "Critical",
+                >= 60 => "High", 
+                >= 40 => "Medium",
+                _ => "Low"
+            };
+        }
+
+        private string DetermineRecommendedActionHelper(int daysToExpiry, decimal dailyVelocity, int currentStock)
+        {
+            if (daysToExpiry <= 1) return "Emergency discount and promotion";
+            if (daysToExpiry <= 3) return "Immediate promotional pricing";
+            if (daysToExpiry <= 7) return "Weekly promotion campaign";
+            if (dailyVelocity > 0 && currentStock / dailyVelocity > daysToExpiry) return "Increase marketing focus";
+            return "Monitor and apply standard FIFO";
+        }
+
+        private List<string> DetermineOptimalSalesChannelsHelper(ProductBatch batch, int daysToExpiry)
+        {
+            var channels = new List<string> { "In-store" };
+            
+            if (daysToExpiry <= 3) 
+            {
+                channels.AddRange(new[] { "Staff sales", "Bundle deals", "Social media promotion" });
+            }
+            else if (daysToExpiry <= 7)
+            {
+                channels.AddRange(new[] { "Weekly specials", "Email marketing" });
+            }
+            
+            return channels;
+        }
+
+        private List<string> GenerateImmediateActionPlanHelper(ProductBatch batch, int daysToExpiry, int priorityScore)
+        {
+            var actions = new List<string>();
+            
+            if (daysToExpiry <= 1)
+            {
+                actions.AddRange(new[]
+                {
+                    "Apply emergency discount (30-50%)",
+                    "Move to high-visibility location",
+                    "Create staff alert",
+                    "Consider donation if unsold by end of day"
+                });
+            }
+            else if (daysToExpiry <= 3)
+            {
+                actions.AddRange(new[]
+                {
+                    "Apply promotional pricing (20-30%)",
+                    "Include in daily specials",
+                    "Train staff on selling points"
+                });
+            }
+            else if (priorityScore >= 60)
+            {
+                actions.AddRange(new[]
+                {
+                    "Monitor daily inventory levels",
+                    "Include in upcoming promotions",
+                    "Review supplier delivery timing"
+                });
+            }
+            
+            return actions;
+        }
+
+        private ActionTimeline CalculateActionTimelineHelper(int daysToExpiry, int currentStock, decimal dailyVelocity)
+        {
+            return new ActionTimeline
+            {
+                ImmediateAction = daysToExpiry <= 1 ? "Within 2 hours" : "Within 24 hours",
+                ShortTerm = daysToExpiry <= 3 ? "Next 1-2 days" : "Next 3-5 days", 
+                MediumTerm = "Next 1-2 weeks",
+                ReviewDate = DateTime.UtcNow.AddDays(Math.Min(daysToExpiry / 2, 7))
+            };
+        }
     }
+
+    // ==================== SUPPORTING DATA CLASSES ==================== //
+    // DTOs moved to Berca_Backend.DTOs namespace to avoid conflicts
 }

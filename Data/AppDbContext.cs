@@ -63,6 +63,10 @@ namespace Berca_Backend.Data
         public DbSet<ReportExecution> ReportExecutions { get; set; }
         public DbSet<ReportTemplate> ReportTemplates { get; set; }
         
+        // ==================== SMART NOTIFICATION SYSTEM DBSETS ==================== //
+        public DbSet<NotificationRule> NotificationRules { get; set; }
+        public DbSet<UserNotificationPreferences> UserNotificationPreferences { get; set; }
+        
         protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
         {
             base.OnConfiguring(optionsBuilder);

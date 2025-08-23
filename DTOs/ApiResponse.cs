@@ -12,6 +12,15 @@ namespace Berca_Backend.DTOs
         public T? Data { get; set; }
         public DateTime Timestamp { get; set; } = DateTime.UtcNow;
         public List<string>? Errors { get; set; }
+        
+        /// <summary>
+        /// Single error message for backward compatibility
+        /// </summary>
+        public string? Error 
+        { 
+            get => Errors?.FirstOrDefault(); 
+            set => Errors = value != null ? new List<string> { value } : null; 
+        }
 
         /// <summary>
         /// Create a successful response with data

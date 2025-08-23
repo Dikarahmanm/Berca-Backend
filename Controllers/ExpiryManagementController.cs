@@ -684,6 +684,84 @@ namespace Berca_Backend.Controllers
                 return StatusCode(500, new { message = "Internal server error" });
             }
         }
+
+        // ==================== ADVANCED ANALYTICS (NEW) ==================== //
+
+        /// <summary>
+        /// Get comprehensive expiry analytics with financial calculations
+        /// </summary>
+        [HttpGet("comprehensive-analytics")]
+        [Authorize(Policy = "Expiry.Analytics")]
+        public async Task<ActionResult<ApiResponse<ComprehensiveExpiryAnalyticsDto>>> GetComprehensiveExpiryAnalytics([FromQuery] int? branchId = null)
+        {
+            try
+            {
+                // Restrict to user's branch if not admin
+                if (!CanAccessMultipleBranches())
+                {
+                    branchId = GetCurrentUserBranchId();
+                }
+
+                _logger.LogInformation("Getting comprehensive expiry analytics for branch {BranchId}", branchId);
+
+                var analytics = await _expiryService.GetComprehensiveExpiryAnalyticsAsync(branchId);
+
+                return Ok(new ApiResponse<ComprehensiveExpiryAnalyticsDto>
+                {
+                    Success = true,
+                    Data = analytics,
+                    Message = "Comprehensive expiry analytics retrieved successfully"
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting comprehensive expiry analytics");
+                return StatusCode(500, new ApiResponse<ComprehensiveExpiryAnalyticsDto>
+                {
+                    Success = false,
+                    Message = "Failed to get comprehensive expiry analytics",
+                    Error = ex.Message
+                });
+            }
+        }
+
+        /// <summary>
+        /// Get smart FIFO recommendations with advanced scoring
+        /// </summary>
+        [HttpGet("smart-fifo-recommendations")]
+        [Authorize(Policy = "Expiry.FIFO")]
+        public async Task<ActionResult<ApiResponse<List<SmartFifoRecommendationDto>>>> GetSmartFifoRecommendations([FromQuery] int? branchId = null)
+        {
+            try
+            {
+                // Restrict to user's branch if not admin
+                if (!CanAccessMultipleBranches())
+                {
+                    branchId = GetCurrentUserBranchId();
+                }
+
+                _logger.LogInformation("Getting smart FIFO recommendations for branch {BranchId}", branchId);
+
+                var recommendations = await _expiryService.GetSmartFifoRecommendationsAsync(branchId);
+
+                return Ok(new ApiResponse<List<SmartFifoRecommendationDto>>
+                {
+                    Success = true,
+                    Data = recommendations,
+                    Message = $"Generated {recommendations.Count} smart FIFO recommendations"
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting smart FIFO recommendations");
+                return StatusCode(500, new ApiResponse<List<SmartFifoRecommendationDto>>
+                {
+                    Success = false,
+                    Message = "Failed to get smart FIFO recommendations",
+                    Error = ex.Message
+                });
+            }
+        }
     }
 
     // ==================== ADDITIONAL DTOs FOR CONTROLLER ==================== //
