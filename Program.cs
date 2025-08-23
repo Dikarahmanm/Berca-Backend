@@ -602,6 +602,10 @@ builder.Services.AddScoped<IExportService, ExportService>();
 // ✅ Add Business Rules Service for centralized business logic
 builder.Services.AddScoped<IBusinessRulesService, BusinessRulesService>();
 
+// ✅ Add Advanced Analytics Services (Final Backend Implementation)
+builder.Services.AddScoped<ISmartNotificationEngineService, SmartNotificationEngineService>();
+builder.Services.AddScoped<IMultiBranchCoordinationService, MultiBranchCoordinationService>();
+
 // ✅ Add Swagger
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>

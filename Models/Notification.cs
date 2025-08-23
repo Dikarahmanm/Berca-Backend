@@ -93,4 +93,62 @@ namespace Berca_Backend.Models
         High = 2,
         Critical = 3
     }
+
+    /// <summary>
+    /// Notification rule for automated notifications
+    /// </summary>
+    public class NotificationRule
+    {
+        public int Id { get; set; }
+        
+        [Required]
+        [StringLength(50)]
+        public string RuleType { get; set; } = string.Empty;
+        
+        [Required]
+        [StringLength(100)]
+        public string Name { get; set; } = string.Empty;
+        
+        public bool IsActive { get; set; } = true;
+        
+        [StringLength(2000)]
+        public string? Parameters { get; set; } // JSON string for rule parameters
+        
+        [StringLength(200)]
+        public string? TargetRoles { get; set; } // Comma-separated roles
+        
+        public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+        public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
+    }
+
+    /// <summary>
+    /// User notification preferences
+    /// </summary>
+    public class UserNotificationPreferences
+    {
+        public int Id { get; set; }
+        
+        [Required]
+        public int UserId { get; set; }
+        public virtual User User { get; set; } = null!;
+        
+        public bool EmailNotifications { get; set; } = true;
+        public bool PushNotifications { get; set; } = true;
+        public bool SmsNotifications { get; set; } = false;
+        public bool ExpiryAlerts { get; set; } = true;
+        public bool StockAlerts { get; set; } = true;
+        public bool FinancialAlerts { get; set; } = true;
+        
+        [StringLength(20)]
+        public string AlertFrequency { get; set; } = "Immediate";
+        
+        [StringLength(5)]
+        public string QuietHoursStart { get; set; } = "22:00";
+        
+        [StringLength(5)]
+        public string QuietHoursEnd { get; set; } = "06:00";
+        
+        public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+        public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
+    }
 }

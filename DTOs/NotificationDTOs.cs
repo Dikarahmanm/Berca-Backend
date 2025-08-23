@@ -64,6 +64,7 @@ namespace Berca_Backend.DTOs
         public int? BranchId { get; set; }
         public bool IsSystemNotification { get; set; }
         public bool RequiresAction { get; set; }
+        public object? Metadata { get; set; }
     }
 
 }

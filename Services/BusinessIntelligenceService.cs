@@ -852,19 +852,675 @@ namespace Berca_Backend.Services
             return Task.FromResult<object>(new { Message = "Stock movement prediction implementation pending" });
         }
 
-        public Task<object> GetSlowMovingInventoryAsync(int? branchId = null, int daysThreshold = 90)
+        public async Task<object> GetSlowMovingInventoryAsync(int? branchId = null, int daysThreshold = 90)
         {
-            return Task.FromResult<object>(new { Message = "Slow moving inventory analysis implementation pending" });
+            try
+            {
+                var cacheKey = $"slow_moving_inventory_{branchId}_{daysThreshold}";
+                
+                if (_cache.TryGetValue(cacheKey, out object? cachedResult) && cachedResult != null)
+                {
+                    return cachedResult;
+                }
+
+                var cutoffDate = DateTime.UtcNow.AddDays(-daysThreshold);
+                
+                // Get products with their sales history
+                var products = await _context.Products
+                    .Include(p => p.Category)
+                    .Include(p => p.SaleItems.Where(si => si.Sale.SaleDate >= cutoffDate))
+                    .Where(p => p.IsActive)
+                    .ToListAsync();
+
+                var slowMovingAnalysis = products.Select(p =>
+                {
+                    // Calculate sales velocity
+                    var totalSold = p.SaleItems.Sum(si => si.Quantity);
+                    var lastSaleDate = p.SaleItems.Any() ? p.SaleItems.Max(si => si.Sale.SaleDate) : (DateTime?)null;
+                    var daysSinceLastSale = lastSaleDate.HasValue ? (DateTime.UtcNow - lastSaleDate.Value).Days : int.MaxValue;
+                    
+                    // Calculate stock metrics
+                    var stockValue = p.Stock * p.BuyPrice;
+                    var dailyVelocity = daysThreshold > 0 ? (decimal)totalSold / daysThreshold : 0;
+                    var daysOfStock = dailyVelocity > 0 ? p.Stock / dailyVelocity : int.MaxValue;
+                    
+                    // Risk assessment
+                    var riskLevel = "Low";
+                    var recommendedAction = "Monitor";
+                    var potentialLoss = 0m;
+                    
+                    if (daysSinceLastSale > daysThreshold)
+                    {
+                        riskLevel = "High";
+                        recommendedAction = "Discount/Clearance";
+                        potentialLoss = stockValue * 0.3m; // 30% markdown
+                    }
+                    else if (daysSinceLastSale > daysThreshold / 2)
+                    {
+                        riskLevel = "Medium";
+                        recommendedAction = "Promote/Review Pricing";
+                        potentialLoss = stockValue * 0.15m; // 15% markdown
+                    }
+                    else if (totalSold == 0)
+                    {
+                        riskLevel = "Critical";
+                        recommendedAction = "Review Product Viability";
+                        potentialLoss = stockValue * 0.5m; // 50% potential loss
+                    }
+                    
+                    return new
+                    {
+                        ProductId = p.Id,
+                        ProductName = p.Name,
+                        CategoryName = p.Category?.Name ?? "Tanpa Kategori",
+                        CurrentStock = p.Stock,
+                        StockValue = stockValue,
+                        StockValueDisplay = stockValue.ToString("C0", IdCulture),
+                        
+                        // Sales metrics
+                        TotalSoldInPeriod = totalSold,
+                        DaysSinceLastSale = daysSinceLastSale == int.MaxValue ? "Never" : daysSinceLastSale.ToString(),
+                        LastSaleDate = lastSaleDate?.ToString("dd/MM/yyyy", IdCulture) ?? "Tidak pernah",
+                        DailyVelocity = Math.Round(dailyVelocity, 2),
+                        DaysOfStock = daysOfStock == int.MaxValue ? "Unlimited" : Math.Round(daysOfStock, 0).ToString(),
+                        
+                        // Risk assessment
+                        RiskLevel = riskLevel,
+                        RecommendedAction = recommendedAction,
+                        PotentialLoss = potentialLoss,
+                        PotentialLossDisplay = potentialLoss.ToString("C0", IdCulture),
+                        
+                        // Scoring
+                        SlowMovingScore = CalculateSlowMovingScore(daysSinceLastSale, totalSold, daysThreshold),
+                        Priority = daysSinceLastSale > daysThreshold ? "High" : daysSinceLastSale > daysThreshold / 2 ? "Medium" : "Low"
+                    };
+                }).ToList();
+
+                // Filter to actual slow-moving items
+                var slowMovingItems = slowMovingAnalysis
+                    .Where(item => item.DaysSinceLastSale != "Never" ? 
+                        int.Parse(item.DaysSinceLastSale) > daysThreshold / 2 : true)
+                    .OrderByDescending(item => item.SlowMovingScore)
+                    .ToList();
+
+                // Calculate summary metrics
+                var totalSlowMovingValue = slowMovingItems.Sum(item => item.StockValue);
+                var totalPotentialLoss = slowMovingItems.Sum(item => item.PotentialLoss);
+                
+                var result = new
+                {
+                    AnalysisDate = DateTime.UtcNow.ToString("dd/MM/yyyy HH:mm", IdCulture),
+                    DaysThreshold = daysThreshold,
+                    BranchId = branchId,
+                    
+                    Summary = new
+                    {
+                        TotalProducts = products.Count,
+                        SlowMovingItems = slowMovingItems.Count,
+                        SlowMovingPercentage = products.Count > 0 ? Math.Round((double)slowMovingItems.Count / products.Count * 100, 1) : 0,
+                        TotalStockValue = products.Sum(p => p.Stock * p.BuyPrice),
+                        TotalStockValueDisplay = products.Sum(p => p.Stock * p.BuyPrice).ToString("C0", IdCulture),
+                        SlowMovingStockValue = totalSlowMovingValue,
+                        SlowMovingStockValueDisplay = totalSlowMovingValue.ToString("C0", IdCulture),
+                        PotentialLoss = totalPotentialLoss,
+                        PotentialLossDisplay = totalPotentialLoss.ToString("C0", IdCulture),
+                        RiskLevel = totalPotentialLoss > 10000000 ? "High" : totalPotentialLoss > 5000000 ? "Medium" : "Low"
+                    },
+                    
+                    SlowMovingItems = slowMovingItems.Take(50).ToList(), // Top 50 items
+                    
+                    CategoryBreakdown = slowMovingItems
+                        .GroupBy(item => item.CategoryName)
+                        .Select(g => new
+                        {
+                            CategoryName = g.Key,
+                            ItemCount = g.Count(),
+                            TotalValue = g.Sum(item => item.StockValue),
+                            TotalValueDisplay = g.Sum(item => item.StockValue).ToString("C0", IdCulture),
+                            AverageRiskScore = g.Average(item => item.SlowMovingScore)
+                        })
+                        .OrderByDescending(c => c.TotalValue)
+                        .ToList(),
+                    
+                    ActionableRecommendations = new
+                    {
+                        HighPriority = slowMovingItems.Where(item => item.Priority == "High").Take(10).ToList(),
+                        MediumPriority = slowMovingItems.Where(item => item.Priority == "Medium").Take(10).ToList(),
+                        GeneralRecommendations = new List<string>
+                        {
+                            "Implement promotional campaigns for slow-moving items",
+                            "Review pricing strategy for high-risk products",
+                            "Consider supplier negotiations for better terms",
+                            "Improve product placement and visibility",
+                            "Analyze customer feedback for product improvements"
+                        }
+                    },
+                    
+                    Insights = new
+                    {
+                        MostAffectedCategory = slowMovingItems.GroupBy(i => i.CategoryName)
+                            .OrderByDescending(g => g.Count())
+                            .FirstOrDefault()?.Key ?? "N/A",
+                        HighestRiskProduct = slowMovingItems.OrderByDescending(i => i.PotentialLoss).FirstOrDefault()?.ProductName ?? "N/A",
+                        TotalActionItemsCount = slowMovingItems.Count(i => i.Priority == "High" || i.Priority == "Medium")
+                    }
+                };
+
+                // Cache for 4 hours
+                _cache.Set(cacheKey, result, TimeSpan.FromHours(4));
+                return result;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error analyzing slow moving inventory");
+                return new { Error = "Gagal menganalisis inventori bergerak lambat" };
+            }
+        }
+        
+        private int CalculateSlowMovingScore(int daysSinceLastSale, int totalSold, int daysThreshold)
+        {
+            var score = 0;
+            
+            // Days since last sale (50% weight)
+            if (daysSinceLastSale > daysThreshold * 2) score += 50;
+            else if (daysSinceLastSale > daysThreshold) score += 40;
+            else if (daysSinceLastSale > daysThreshold / 2) score += 30;
+            else if (daysSinceLastSale > daysThreshold / 4) score += 20;
+            else score += 10;
+            
+            // Sales velocity (30% weight)
+            if (totalSold == 0) score += 30;
+            else if (totalSold <= 2) score += 25;
+            else if (totalSold <= 5) score += 20;
+            else if (totalSold <= 10) score += 15;
+            else score += 5;
+            
+            // Time factor (20% weight)
+            var timeScore = Math.Min(20, daysSinceLastSale / 10);
+            score += timeScore;
+            
+            return Math.Min(100, score);
         }
 
-        public Task<object> GetReorderRecommendationsAsync(int? branchId = null)
+        public async Task<object> GetReorderRecommendationsAsync(int? branchId = null)
         {
-            return Task.FromResult<object>(new { Message = "Reorder recommendations implementation pending" });
+            try
+            {
+                var cacheKey = $"reorder_recommendations_{branchId}";
+                
+                if (_cache.TryGetValue(cacheKey, out object? cachedResult) && cachedResult != null)
+                {
+                    return cachedResult;
+                }
+
+                // Get products with sales history for velocity calculation
+                var products = await _context.Products
+                    .Include(p => p.Category)
+                    .Include(p => p.SaleItems.Where(si => si.Sale.SaleDate >= DateTime.UtcNow.AddDays(-90)))
+                    .Where(p => p.IsActive)
+                    .ToListAsync();
+
+                var reorderAnalysis = new List<object>();
+
+                foreach (var product in products)
+                {
+                    // Calculate sales velocity (units per day over last 90 days)
+                    var sales90Days = product.SaleItems.Sum(si => si.Quantity);
+                    var dailyVelocity = sales90Days / 90.0m;
+                    var daysOfStock = dailyVelocity > 0 ? product.Stock / dailyVelocity : int.MaxValue;
+                    
+                    // Calculate safety stock (buffer)
+                    var leadTimeDays = 14; // Assume 14 days lead time
+                    var safetyStock = (int)(dailyVelocity * leadTimeDays * 1.2m); // 20% safety buffer
+                    var reorderPoint = safetyStock + (int)(dailyVelocity * leadTimeDays);
+                    
+                    // Calculate optimal order quantity (simplified EOQ)
+                    var annualDemand = dailyVelocity * 365;
+                    var orderingCost = 50000; // 50k IDR per order
+                    var holdingCostRate = 0.15m; // 15% of product cost
+                    var holdingCost = product.BuyPrice * holdingCostRate;
+                    
+                    var economicOrderQty = holdingCost > 0 ? 
+                        (int)Math.Sqrt((double)((2 * orderingCost * annualDemand) / holdingCost)) : 
+                        Math.Max(product.MinimumStock, (int)(dailyVelocity * 30)); // 30 days supply
+                    
+                    // Determine reorder priority
+                    var priority = 0;
+                    var urgencyLevel = "Low";
+                    var recommendedAction = "Monitor";
+                    
+                    if (product.Stock <= 0)
+                    {
+                        priority = 100;
+                        urgencyLevel = "Critical";
+                        recommendedAction = "Emergency Reorder";
+                    }
+                    else if (product.Stock <= product.MinimumStock)
+                    {
+                        priority = 90;
+                        urgencyLevel = "High";
+                        recommendedAction = "Immediate Reorder";
+                    }
+                    else if (product.Stock <= reorderPoint)
+                    {
+                        priority = 70;
+                        urgencyLevel = "Medium";
+                        recommendedAction = "Schedule Reorder";
+                    }
+                    else if (daysOfStock <= 30)
+                    {
+                        priority = 50;
+                        urgencyLevel = "Low";
+                        recommendedAction = "Plan Reorder";
+                    }
+                    
+                    // Calculate financial impact
+                    var potentialLostSales = 0m;
+                    if (daysOfStock <= 7 && dailyVelocity > 0)
+                    {
+                        var stockoutDays = Math.Max(0, 7 - daysOfStock);
+                        potentialLostSales = (decimal)stockoutDays * dailyVelocity * product.SellPrice;
+                    }
+                    
+                    var recommendedOrderQty = Math.Max(
+                        economicOrderQty,
+                        reorderPoint - product.Stock + (int)(dailyVelocity * 30) // Cover 30 days
+                    );
+                    
+                    if (priority >= 50) // Only include items that need attention
+                    {
+                        reorderAnalysis.Add(new
+                        {
+                            ProductId = product.Id,
+                            ProductName = product.Name,
+                            CategoryName = product.Category?.Name ?? "Tanpa Kategori",
+                            CurrentStock = product.Stock,
+                            MinimumStock = product.MinimumStock,
+                            ReorderPoint = reorderPoint,
+                            SafetyStock = safetyStock,
+                            
+                            // Sales metrics
+                            DailyVelocity = Math.Round(dailyVelocity, 2),
+                            Sales90Days = sales90Days,
+                            DaysOfStock = daysOfStock == int.MaxValue ? "Unlimited" : Math.Round(daysOfStock, 1).ToString(),
+                            
+                            // Reorder recommendations
+                            RecommendedOrderQty = Math.Max(0, recommendedOrderQty),
+                            EconomicOrderQty = economicOrderQty,
+                            Priority = priority,
+                            UrgencyLevel = urgencyLevel,
+                            RecommendedAction = recommendedAction,
+                            
+                            // Financial impact
+                            OrderCost = recommendedOrderQty * product.BuyPrice,
+                            OrderCostDisplay = (recommendedOrderQty * product.BuyPrice).ToString("C0", IdCulture),
+                            PotentialLostSales = potentialLostSales,
+                            PotentialLostSalesDisplay = potentialLostSales.ToString("C0", IdCulture),
+                            NetBenefit = potentialLostSales - (recommendedOrderQty * product.BuyPrice * holdingCostRate),
+                            
+                            // Timing
+                            EstimatedStockoutDate = dailyVelocity > 0 ? 
+                                DateTime.UtcNow.AddDays((double)daysOfStock).ToString("dd/MM/yyyy", IdCulture) : 
+                                "Never",
+                            RecommendedOrderDate = DateTime.UtcNow.AddDays(Math.Max(0, (double)(daysOfStock - leadTimeDays))).ToString("dd/MM/yyyy", IdCulture),
+                            
+                            // Supplier info
+                            LeadTimeDays = leadTimeDays,
+                            SupplierId = (int?)null, // Would need supplier relationship
+                            SupplierName = "To be determined"
+                        });
+                    }
+                }
+
+                var sortedRecommendations = reorderAnalysis
+                    .Cast<dynamic>()
+                    .OrderByDescending(r => r.Priority)
+                    .ThenBy(r => r.EstimatedStockoutDate)
+                    .ToList();
+
+                var totalOrderValue = sortedRecommendations.Sum(r => (decimal)r.OrderCost);
+                var totalPotentialLoss = sortedRecommendations.Sum(r => (decimal)r.PotentialLostSales);
+
+                var result = new
+                {
+                    GeneratedAt = DateTime.UtcNow.ToString("dd/MM/yyyy HH:mm", IdCulture),
+                    BranchId = branchId,
+                    
+                    Summary = new
+                    {
+                        TotalRecommendations = reorderAnalysis.Count,
+                        CriticalItems = reorderAnalysis.Cast<dynamic>().Count(r => r.UrgencyLevel == "Critical"),
+                        HighPriorityItems = reorderAnalysis.Cast<dynamic>().Count(r => r.UrgencyLevel == "High"),
+                        MediumPriorityItems = reorderAnalysis.Cast<dynamic>().Count(r => r.UrgencyLevel == "Medium"),
+                        
+                        TotalOrderValue = totalOrderValue,
+                        TotalOrderValueDisplay = totalOrderValue.ToString("C0", IdCulture),
+                        PotentialLossWithoutReorder = totalPotentialLoss,
+                        PotentialLossDisplay = totalPotentialLoss.ToString("C0", IdCulture),
+                        NetSavingsOpportunity = totalPotentialLoss - (totalOrderValue * 0.15m),
+                        NetSavingsOpportunityDisplay = (totalPotentialLoss - (totalOrderValue * 0.15m)).ToString("C0", IdCulture)
+                    },
+                    
+                    Recommendations = sortedRecommendations.Take(50).ToList(), // Top 50
+                    
+                    CategoryInsights = reorderAnalysis
+                        .Cast<dynamic>()
+                        .GroupBy(r => r.CategoryName)
+                        .Select(g => new
+                        {
+                            CategoryName = g.Key,
+                            ItemCount = g.Count(),
+                            TotalOrderValue = g.Sum(r => (decimal)r.OrderCost),
+                            TotalOrderValueDisplay = g.Sum(r => (decimal)r.OrderCost).ToString("C0", IdCulture),
+                            AveragePriority = g.Average(r => (int)r.Priority),
+                            CriticalCount = g.Count(r => r.UrgencyLevel == "Critical")
+                        })
+                        .OrderByDescending(c => c.AveragePriority)
+                        .ToList(),
+                    
+                    ActionPlan = new
+                    {
+                        ImmediateActions = sortedRecommendations
+                            .Where(r => r.UrgencyLevel == "Critical" || r.UrgencyLevel == "High")
+                            .Take(10)
+                            .ToList(),
+                        ThisWeekActions = sortedRecommendations
+                            .Where(r => r.UrgencyLevel == "Medium")
+                            .Take(15)
+                            .ToList(),
+                        UpcomingActions = sortedRecommendations
+                            .Where(r => r.UrgencyLevel == "Low")
+                            .Take(20)
+                            .ToList()
+                    },
+                    
+                    BusinessInsights = new
+                    {
+                        TopCategoryByUrgency = reorderAnalysis.Cast<dynamic>()
+                            .GroupBy(r => r.CategoryName)
+                            .OrderByDescending(g => g.Average(r => (int)r.Priority))
+                            .FirstOrDefault()?.Key ?? "N/A",
+                        
+                        MostCriticalProduct = sortedRecommendations
+                            .FirstOrDefault()?.ProductName ?? "N/A",
+                        
+                        ReorderFrequency = "Weekly review recommended",
+                        
+                        OptimizationTips = new List<string>
+                        {
+                            "Consider negotiating shorter lead times with high-priority suppliers",
+                            "Implement automated reorder points for fast-moving items",
+                            "Review minimum stock levels quarterly based on demand patterns",
+                            "Consider bulk ordering for high-volume, stable products",
+                            "Monitor seasonal trends for more accurate forecasting"
+                        }
+                    }
+                };
+
+                // Cache for 6 hours
+                _cache.Set(cacheKey, result, TimeSpan.FromHours(6));
+                return result;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error generating reorder recommendations");
+                return new { Error = "Gagal membuat rekomendasi pemesanan ulang" };
+            }
         }
 
-        public Task<object> GetABCAnalysisAsync(int? branchId = null)
+        public async Task<object> GetABCAnalysisAsync(int? branchId = null)
         {
-            return Task.FromResult<object>(new { Message = "ABC analysis implementation pending" });
+            try
+            {
+                var cacheKey = $"abc_analysis_{branchId}";
+                
+                if (_cache.TryGetValue(cacheKey, out object? cachedResult) && cachedResult != null)
+                {
+                    return cachedResult;
+                }
+
+                // Get sales data for last 12 months for ABC analysis
+                var startDate = DateTime.UtcNow.AddMonths(-12);
+                var endDate = DateTime.UtcNow;
+                
+                var productSales = await _context.SaleItems
+                    .Include(si => si.Product)
+                        .ThenInclude(p => p!.Category)
+                    .Include(si => si.Sale)
+                    .Where(si => si.Sale.SaleDate >= startDate && si.Sale.SaleDate <= endDate)
+                    .Where(si => si.Product != null)
+                    .GroupBy(si => si.Product!)
+                    .Select(g => new
+                    {
+                        Product = g.Key,
+                        TotalRevenue = g.Sum(si => si.Subtotal),
+                        TotalQuantitySold = g.Sum(si => si.Quantity),
+                        TransactionCount = g.Select(si => si.SaleId).Distinct().Count(),
+                        AveragePrice = g.Average(si => si.UnitPrice),
+                        TotalCost = g.Sum(si => si.Quantity * si.Product!.BuyPrice),
+                        GrossProfit = g.Sum(si => si.Subtotal - (si.Quantity * si.Product!.BuyPrice))
+                    })
+                    .ToListAsync();
+
+                // Calculate ABC classification based on revenue (80-15-5 rule)
+                var totalRevenue = productSales.Sum(ps => ps.TotalRevenue);
+                var sortedByRevenue = productSales.OrderByDescending(ps => ps.TotalRevenue).ToList();
+                
+                var runningRevenue = 0m;
+                var abcAnalysis = new List<object>();
+                
+                for (int i = 0; i < sortedByRevenue.Count; i++)
+                {
+                    var productSale = sortedByRevenue[i];
+                    runningRevenue += productSale.TotalRevenue;
+                    var revenuePercentage = totalRevenue > 0 ? (runningRevenue / totalRevenue) * 100 : 0;
+                    
+                    string abcClass;
+                    string classification;
+                    string strategy;
+                    
+                    if (revenuePercentage <= 80)
+                    {
+                        abcClass = "A";
+                        classification = "High Value";
+                        strategy = "Tight control, frequent review, high service level";
+                    }
+                    else if (revenuePercentage <= 95)
+                    {
+                        abcClass = "B";
+                        classification = "Moderate Value";
+                        strategy = "Moderate control, regular review, good service level";
+                    }
+                    else
+                    {
+                        abcClass = "C";
+                        classification = "Low Value";
+                        strategy = "Simple control, periodic review, acceptable stockouts";
+                    }
+                    
+                    // Calculate additional metrics
+                    var stockValue = productSale.Product.Stock * productSale.Product.BuyPrice;
+                    var turnoverRate = stockValue > 0 ? productSale.TotalCost / stockValue : 0;
+                    var profitMargin = productSale.TotalRevenue > 0 ? (productSale.GrossProfit / productSale.TotalRevenue) * 100 : 0;
+                    
+                    // Calculate days of inventory
+                    var dailyUsage = productSale.TotalQuantitySold / 365.0m;
+                    var daysOfInventory = dailyUsage > 0 ? productSale.Product.Stock / dailyUsage : int.MaxValue;
+                    
+                    abcAnalysis.Add(new
+                    {
+                        ProductId = productSale.Product.Id,
+                        ProductName = productSale.Product.Name,
+                        CategoryName = productSale.Product.Category?.Name ?? "Tanpa Kategori",
+                        
+                        // ABC Classification
+                        ABCClass = abcClass,
+                        Classification = classification,
+                        RevenueRank = i + 1,
+                        CumulativeRevenuePercentage = Math.Round(revenuePercentage, 2),
+                        
+                        // Financial metrics
+                        TotalRevenue = productSale.TotalRevenue,
+                        TotalRevenueDisplay = productSale.TotalRevenue.ToString("C0", IdCulture),
+                        RevenuePercentage = totalRevenue > 0 ? Math.Round((productSale.TotalRevenue / totalRevenue) * 100, 2) : 0,
+                        GrossProfit = productSale.GrossProfit,
+                        GrossProfitDisplay = productSale.GrossProfit.ToString("C0", IdCulture),
+                        ProfitMargin = Math.Round(profitMargin, 2),
+                        
+                        // Sales metrics
+                        TotalQuantitySold = productSale.TotalQuantitySold,
+                        TransactionCount = productSale.TransactionCount,
+                        AveragePrice = Math.Round(productSale.AveragePrice, 0),
+                        AveragePriceDisplay = productSale.AveragePrice.ToString("C0", IdCulture),
+                        
+                        // Inventory metrics
+                        CurrentStock = productSale.Product.Stock,
+                        StockValue = stockValue,
+                        StockValueDisplay = stockValue.ToString("C0", IdCulture),
+                        TurnoverRate = Math.Round(turnoverRate, 2),
+                        DaysOfInventory = daysOfInventory == int.MaxValue ? "N/A" : Math.Round(daysOfInventory, 0).ToString(),
+                        
+                        // Management strategy
+                        RecommendedStrategy = strategy,
+                        InventoryPolicy = abcClass switch
+                        {
+                            "A" => "High service level (98%), tight control, daily monitoring",
+                            "B" => "Good service level (95%), weekly monitoring, moderate safety stock",
+                            "C" => "Acceptable service level (90%), monthly monitoring, low safety stock",
+                            _ => "Standard policy"
+                        },
+                        
+                        // Risk assessment
+                        StockoutRisk = abcClass == "A" ? "High Impact" : abcClass == "B" ? "Medium Impact" : "Low Impact",
+                        ReorderPriority = abcClass == "A" ? "Critical" : abcClass == "B" ? "Important" : "Standard"
+                    });
+                }
+                
+                // Calculate summary statistics
+                var aItems = abcAnalysis.Cast<dynamic>().Where(item => item.ABCClass == "A").ToList();
+                var bItems = abcAnalysis.Cast<dynamic>().Where(item => item.ABCClass == "B").ToList();
+                var cItems = abcAnalysis.Cast<dynamic>().Where(item => item.ABCClass == "C").ToList();
+                
+                var result = new
+                {
+                    AnalysisDate = DateTime.UtcNow.ToString("dd/MM/yyyy HH:mm", IdCulture),
+                    AnalysisPeriod = $"{startDate:dd/MM/yyyy} - {endDate:dd/MM/yyyy}",
+                    BranchId = branchId,
+                    
+                    Summary = new
+                    {
+                        TotalProducts = abcAnalysis.Count,
+                        TotalRevenue = totalRevenue,
+                        TotalRevenueDisplay = totalRevenue.ToString("C0", IdCulture),
+                        
+                        ClassificationBreakdown = new
+                        {
+                            AItems = new
+                            {
+                                Count = aItems.Count,
+                                Percentage = abcAnalysis.Count > 0 ? Math.Round((double)aItems.Count / abcAnalysis.Count * 100, 1) : 0,
+                                RevenueContribution = aItems.Sum(item => (decimal)item.TotalRevenue),
+                                RevenueContributionDisplay = aItems.Sum(item => (decimal)item.TotalRevenue).ToString("C0", IdCulture),
+                                RevenuePercentage = totalRevenue > 0 ? Math.Round(aItems.Sum(item => (decimal)item.TotalRevenue) / totalRevenue * 100, 1) : 0
+                            },
+                            BItems = new
+                            {
+                                Count = bItems.Count,
+                                Percentage = abcAnalysis.Count > 0 ? Math.Round((double)bItems.Count / abcAnalysis.Count * 100, 1) : 0,
+                                RevenueContribution = bItems.Sum(item => (decimal)item.TotalRevenue),
+                                RevenueContributionDisplay = bItems.Sum(item => (decimal)item.TotalRevenue).ToString("C0", IdCulture),
+                                RevenuePercentage = totalRevenue > 0 ? Math.Round(bItems.Sum(item => (decimal)item.TotalRevenue) / totalRevenue * 100, 1) : 0
+                            },
+                            CItems = new
+                            {
+                                Count = cItems.Count,
+                                Percentage = abcAnalysis.Count > 0 ? Math.Round((double)cItems.Count / abcAnalysis.Count * 100, 1) : 0,
+                                RevenueContribution = cItems.Sum(item => (decimal)item.TotalRevenue),
+                                RevenueContributionDisplay = cItems.Sum(item => (decimal)item.TotalRevenue).ToString("C0", IdCulture),
+                                RevenuePercentage = totalRevenue > 0 ? Math.Round(cItems.Sum(item => (decimal)item.TotalRevenue) / totalRevenue * 100, 1) : 0
+                            }
+                        }
+                    },
+                    
+                    ABCAnalysis = abcAnalysis.Take(100).ToList(), // Top 100 items
+                    
+                    CategoryInsights = abcAnalysis
+                        .Cast<dynamic>()
+                        .GroupBy(item => item.CategoryName)
+                        .Select(g => new
+                        {
+                            CategoryName = g.Key,
+                            TotalItems = g.Count(),
+                            AItems = g.Count(item => item.ABCClass == "A"),
+                            BItems = g.Count(item => item.ABCClass == "B"),
+                            CItems = g.Count(item => item.ABCClass == "C"),
+                            TotalRevenue = g.Sum(item => (decimal)item.TotalRevenue),
+                            TotalRevenueDisplay = g.Sum(item => (decimal)item.TotalRevenue).ToString("C0", IdCulture),
+                            AverageMargin = g.Average(item => (decimal)item.ProfitMargin)
+                        })
+                        .OrderByDescending(c => c.TotalRevenue)
+                        .ToList(),
+                    
+                    ManagementRecommendations = new
+                    {
+                        AClassItems = new
+                        {
+                            FocusAreas = new List<string>
+                            {
+                                "Implement tight inventory control with daily monitoring",
+                                "Maintain high service levels (98%+) to avoid stockouts",
+                                "Consider vendor-managed inventory for top items",
+                                "Negotiate better terms with suppliers for volume discounts",
+                                "Implement demand forecasting for accurate planning"
+                            },
+                            TopItems = aItems.Take(5).ToList()
+                        },
+                        BClassItems = new
+                        {
+                            FocusAreas = new List<string>
+                            {
+                                "Weekly inventory reviews and moderate control",
+                                "Maintain good service levels (95%+)",
+                                "Consider automated reorder points",
+                                "Regular supplier performance reviews"
+                            }
+                        },
+                        CClassItems = new
+                        {
+                            FocusAreas = new List<string>
+                            {
+                                "Monthly inventory reviews with simple control",
+                                "Acceptable stockout levels to reduce carrying costs",
+                                "Consider bulk purchasing for economies of scale",
+                                "Evaluate discontinuation of very low performers"
+                            }
+                        }
+                    },
+                    
+                    KeyInsights = new
+                    {
+                        ParetoValidation = aItems.Sum(item => (decimal)item.TotalRevenue) / totalRevenue * 100 > 70 ? 
+                            "Pareto principle confirmed: small number of products drive majority of revenue" :
+                            "Revenue distribution is more balanced than typical Pareto pattern",
+                        
+                        TopPerformer = aItems.FirstOrDefault()?.ProductName ?? "N/A",
+                        TopPerformerRevenue = aItems.FirstOrDefault()?.TotalRevenueDisplay ?? "N/A",
+                        
+                        OptimizationOpportunity = $"Focus inventory management efforts on {aItems.Count} A-class items for maximum impact",
+                        
+                        CostReductionPotential = $"C-class items ({cItems.Count} products) may be candidates for inventory reduction or discontinuation"
+                    }
+                };
+
+                // Cache for 12 hours (ABC analysis doesn't change frequently)
+                _cache.Set(cacheKey, result, TimeSpan.FromHours(12));
+                return result;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error performing ABC analysis");
+                return new { Error = "Gagal melakukan analisis ABC" };
+            }
         }
 
         public Task<object> GetProfitabilityAnalysisAsync(DateTime startDate, DateTime endDate, string analysisType = "product")
@@ -907,9 +1563,170 @@ namespace Berca_Backend.Services
             return Task.FromResult<object>(new { Message = "Supplier performance scoring implementation pending" });
         }
 
-        public Task<object> GetBranchComparisonAnalyticsAsync(DateTime startDate, DateTime endDate)
+        public async Task<object> GetBranchComparisonAnalyticsAsync(DateTime startDate, DateTime endDate)
         {
-            return Task.FromResult<object>(new { Message = "Branch comparison analytics implementation pending" });
+            try
+            {
+                var cacheKey = $"branch_comparison_{startDate:yyyyMMdd}_{endDate:yyyyMMdd}";
+                
+                if (_cache.TryGetValue(cacheKey, out object? cachedResult) && cachedResult != null)
+                {
+                    return cachedResult;
+                }
+
+                // Get all active branches
+                var branches = await _context.Branches
+                    .Where(b => b.IsActive)
+                    .ToListAsync();
+
+                var branchAnalytics = new List<object>();
+
+                foreach (var branch in branches)
+                {
+                    // Calculate sales data for branch
+                    var branchSales = await _context.Sales
+                        .Where(s => s.SaleDate >= startDate && s.SaleDate <= endDate)
+                        .Where(s => s.Cashier != null && s.Cashier.BranchId == branch.Id)
+                        .ToListAsync();
+
+                    // Calculate inventory value for branch (simplified)
+                    var branchProducts = await _context.Products
+                        .Where(p => p.IsActive)
+                        .ToListAsync();
+                    var inventoryValue = branchProducts.Sum(p => p.Stock * p.BuyPrice) / branches.Count; // Distributed equally
+
+                    // Calculate performance metrics
+                    var totalRevenue = branchSales.Sum(s => s.Total);
+                    var transactionCount = branchSales.Count;
+                    var averageTransaction = transactionCount > 0 ? totalRevenue / transactionCount : 0;
+                    
+                    // Calculate revenue growth (vs previous period)
+                    var periodDays = (endDate - startDate).Days;
+                    var previousStart = startDate.AddDays(-periodDays);
+                    var previousSales = await _context.Sales
+                        .Where(s => s.SaleDate >= previousStart && s.SaleDate < startDate)
+                        .Where(s => s.Cashier != null && s.Cashier.BranchId == branch.Id)
+                        .SumAsync(s => s.Total);
+                    
+                    var revenueGrowth = previousSales > 0 ? ((totalRevenue - previousSales) / previousSales) * 100 : 0;
+
+                    // Calculate efficiency metrics
+                    var activeEmployees = await _context.Users
+                        .Where(u => u.IsActive && u.BranchId == branch.Id)
+                        .CountAsync();
+                    
+                    var salesPerEmployee = activeEmployees > 0 ? totalRevenue / activeEmployees : 0;
+                    var transactionsPerEmployee = activeEmployees > 0 ? (decimal)transactionCount / activeEmployees : 0;
+
+                    // Performance scoring
+                    var efficiencyScore = Math.Min(100, transactionsPerEmployee * 10); // 10 transactions per employee = 100%
+                    var profitabilityScore = inventoryValue > 0 ? Math.Min(100, (totalRevenue / inventoryValue) * 20) : 0;
+                    var overallScore = (efficiencyScore + profitabilityScore) / 2;
+                    
+                    branchAnalytics.Add(new
+                    {
+                        BranchId = branch.Id,
+                        BranchName = branch.BranchName,
+                        City = branch.City,
+                        Province = branch.Province,
+                        
+                        // Financial metrics
+                        TotalRevenue = totalRevenue,
+                        TotalRevenueDisplay = totalRevenue.ToString("C0", IdCulture),
+                        RevenueGrowth = Math.Round(revenueGrowth, 2),
+                        RevenueGrowthDisplay = $"{revenueGrowth:+0.0;-0.0;0}%",
+                        
+                        // Operational metrics
+                        TransactionCount = transactionCount,
+                        AverageTransactionValue = Math.Round(averageTransaction, 0),
+                        AverageTransactionDisplay = averageTransaction.ToString("C0", IdCulture),
+                        
+                        // Staff metrics
+                        ActiveEmployees = activeEmployees,
+                        SalesPerEmployee = Math.Round(salesPerEmployee, 0),
+                        SalesPerEmployeeDisplay = salesPerEmployee.ToString("C0", IdCulture),
+                        TransactionsPerEmployee = Math.Round(transactionsPerEmployee, 1),
+                        
+                        // Inventory metrics
+                        InventoryValue = inventoryValue,
+                        InventoryValueDisplay = inventoryValue.ToString("C0", IdCulture),
+                        
+                        // Performance scores
+                        EfficiencyScore = Math.Round(efficiencyScore, 1),
+                        ProfitabilityScore = Math.Round(profitabilityScore, 1),
+                        OverallPerformanceScore = Math.Round(overallScore, 1),
+                        PerformanceGrade = overallScore >= 90 ? "A" : overallScore >= 80 ? "B" : overallScore >= 70 ? "C" : overallScore >= 60 ? "D" : "F",
+                        
+                        // Status indicators
+                        TrendDirection = revenueGrowth > 5 ? "Naik" : revenueGrowth < -5 ? "Turun" : "Stabil",
+                        HealthStatus = overallScore >= 80 ? "Sehat" : overallScore >= 60 ? "Baik" : "Perlu Perhatian"
+                    });
+                }
+
+                // Calculate comparative insights
+                var topPerformer = branchAnalytics
+                    .Cast<dynamic>()
+                    .OrderByDescending(b => b.TotalRevenue)
+                    .FirstOrDefault();
+                
+                var averageRevenue = branchAnalytics
+                    .Cast<dynamic>()
+                    .Average(b => (decimal)b.TotalRevenue);
+                
+                var totalSystemRevenue = branchAnalytics
+                    .Cast<dynamic>()
+                    .Sum(b => (decimal)b.TotalRevenue);
+
+                var result = new
+                {
+                    AnalysisPeriod = new
+                    {
+                        StartDate = startDate.ToString("dd/MM/yyyy", IdCulture),
+                        EndDate = endDate.ToString("dd/MM/yyyy", IdCulture),
+                        PeriodDays = (endDate - startDate).Days + 1
+                    },
+                    Summary = new
+                    {
+                        TotalBranches = branchAnalytics.Count,
+                        TotalSystemRevenue = totalSystemRevenue,
+                        TotalSystemRevenueDisplay = totalSystemRevenue.ToString("C0", IdCulture),
+                        AverageRevenuePerBranch = averageRevenue,
+                        AverageRevenuePerBranchDisplay = averageRevenue.ToString("C0", IdCulture),
+                        TopPerformer = topPerformer?.BranchName ?? "N/A",
+                        TopPerformerRevenue = topPerformer?.TotalRevenueDisplay ?? "N/A"
+                    },
+                    BranchAnalytics = branchAnalytics
+                        .Cast<dynamic>()
+                        .OrderByDescending(b => b.TotalRevenue)
+                        .ToList(),
+                    Insights = new
+                    {
+                        PerformanceDistribution = new
+                        {
+                            Excellent = branchAnalytics.Cast<dynamic>().Count(b => b.OverallPerformanceScore >= 90),
+                            Good = branchAnalytics.Cast<dynamic>().Count(b => b.OverallPerformanceScore >= 80 && b.OverallPerformanceScore < 90),
+                            Average = branchAnalytics.Cast<dynamic>().Count(b => b.OverallPerformanceScore >= 60 && b.OverallPerformanceScore < 80),
+                            NeedsImprovement = branchAnalytics.Cast<dynamic>().Count(b => b.OverallPerformanceScore < 60)
+                        },
+                        TopRecommendations = new List<string>
+                        {
+                            "Focus on low-performing branches for improvement initiatives",
+                            "Share best practices from top performers to underperforming branches",
+                            "Consider staff training programs for branches with low efficiency scores",
+                            "Review inventory distribution across branches"
+                        }
+                    }
+                };
+
+                // Cache for 2 hours
+                _cache.Set(cacheKey, result, TimeSpan.FromHours(2));
+                return result;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting branch comparison analytics");
+                return new { Error = "Gagal menganalisis perbandingan cabang" };
+            }
         }
 
         public Task<object> GetKPIMetricsAsync(DateTime startDate, DateTime endDate, int? branchId = null)
