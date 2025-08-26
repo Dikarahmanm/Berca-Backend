@@ -627,32 +627,191 @@ namespace Berca_Backend.Services
 
         // ==================== BUSINESS INTEGRATION (Placeholder methods) ==================== //
 
-        public Task<PushNotificationResult> SendProductExpiryNotificationAsync(int productId, DateTime expiryDate, int daysUntilExpiry, int? branchId = null)
+        public async Task<PushNotificationResult> SendProductExpiryNotificationAsync(int productId, DateTime expiryDate, int daysUntilExpiry, int? branchId = null)
         {
-            // This would integrate with the existing product expiry system
-            // For now, return a placeholder implementation
-            return Task.FromResult(new PushNotificationResult { Success = true });
+            try
+            {
+                var product = await _context.Products
+                    .Include(p => p.Category)
+                    .FirstOrDefaultAsync(p => p.Id == productId);
+                
+                if (product == null)
+                {
+                    _logger.LogWarning("Product {ProductId} not found for expiry notification", productId);
+                    return new PushNotificationResult { Success = false };
+                }
+
+                var urgencyLevel = daysUntilExpiry <= 1 ? "KRITIS" : daysUntilExpiry <= 3 ? "TINGGI" : "SEDANG";
+                var icon = daysUntilExpiry <= 1 ? "⚠️" : daysUntilExpiry <= 3 ? "🔶" : "📅";
+                
+                var payload = new NotificationPayload
+                {
+                    Title = $"{icon} Produk Akan Kadaluarsa",
+                    Body = $"{product.Name} akan kadaluarsa dalam {daysUntilExpiry} hari ({expiryDate.ToString("dd/MM/yyyy", _indonesianCulture)})",
+                    Icon = "/icons/expiry-warning.png",
+                    Badge = "/icons/badge-72x72.png",
+                    Tag = $"expiry_{productId}",
+                    Priority = daysUntilExpiry <= 1 ? NotificationPriority.High : NotificationPriority.Normal,
+                    Data = new Dictionary<string, object>
+                    {
+                        { "type", "product_expiry" },
+                        { "productId", productId },
+                        { "expiryDate", expiryDate.ToString("O") },
+                        { "daysUntilExpiry", daysUntilExpiry },
+                        { "urgencyLevel", urgencyLevel },
+                        { "categoryName", product.Category?.Name ?? "" },
+                        { "actionUrl", $"/products/{productId}/expiry-management" }
+                    }
+                };
+
+                // Send to relevant users based on branch
+                var targetRoles = new List<string> { "Admin", "Manager", "Staff" };
+                return await SendToRolesAsync(targetRoles, payload, branchId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error sending product expiry notification for product {ProductId}", productId);
+                return new PushNotificationResult { Success = false };
+            }
         }
 
-        public Task<PushNotificationResult> SendFactureDueNotificationAsync(int factureId, DateTime dueDate, decimal amount, string supplierName, int? branchId = null)
+        public async Task<PushNotificationResult> SendFactureDueNotificationAsync(int factureId, DateTime dueDate, decimal amount, string supplierName, int? branchId = null)
         {
-            // This would integrate with the existing facture system
-            // For now, return a placeholder implementation
-            return Task.FromResult(new PushNotificationResult { Success = true });
+            try
+            {
+                var daysUntilDue = (dueDate.Date - DateTime.Now.Date).Days;
+                var isOverdue = daysUntilDue < 0;
+                var urgencyLevel = isOverdue ? "KRITIS" : daysUntilDue <= 2 ? "TINGGI" : "SEDANG";
+                var icon = isOverdue ? "🚨" : daysUntilDue <= 2 ? "⏰" : "💰";
+                
+                var title = isOverdue ? $"{icon} Faktur Terlambat" : $"{icon} Faktur Jatuh Tempo";
+                var bodyMessage = isOverdue 
+                    ? $"Faktur #{factureId} dari {supplierName} sudah terlambat {Math.Abs(daysUntilDue)} hari"
+                    : $"Faktur #{factureId} dari {supplierName} jatuh tempo dalam {daysUntilDue} hari";
+                
+                var payload = new NotificationPayload
+                {
+                    Title = title,
+                    Body = $"{bodyMessage}. Jumlah: {amount.ToString("C0", _indonesianCulture)}",
+                    Icon = "/icons/invoice-warning.png",
+                    Badge = "/icons/badge-72x72.png",
+                    Tag = $"facture_{factureId}",
+                    Priority = isOverdue ? NotificationPriority.High : NotificationPriority.Normal,
+                    Data = new Dictionary<string, object>
+                    {
+                        { "type", "facture_due" },
+                        { "factureId", factureId },
+                        { "dueDate", dueDate.ToString("O") },
+                        { "amount", amount },
+                        { "supplierName", supplierName },
+                        { "daysUntilDue", daysUntilDue },
+                        { "isOverdue", isOverdue },
+                        { "urgencyLevel", urgencyLevel },
+                        { "actionUrl", $"/factures/{factureId}" }
+                    }
+                };
+
+                // Send to finance and management roles
+                var targetRoles = new List<string> { "Admin", "Manager" };
+                return await SendToRolesAsync(targetRoles, payload, branchId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error sending facture due notification for facture {FactureId}", factureId);
+                return new PushNotificationResult { Success = false };
+            }
         }
 
-        public Task<PushNotificationResult> SendMemberCreditAlertAsync(int memberId, string memberName, string creditIssue, decimal amount, int? branchId = null)
+        public async Task<PushNotificationResult> SendMemberCreditAlertAsync(int memberId, string memberName, string creditIssue, decimal amount, int? branchId = null)
         {
-            // This would integrate with the existing member credit system
-            // For now, return a placeholder implementation
-            return Task.FromResult(new PushNotificationResult { Success = true });
+            try
+            {
+                var isNegativeCredit = amount < 0;
+                var icon = isNegativeCredit ? "❌" : "💳";
+                var urgencyLevel = isNegativeCredit ? "TINGGI" : "SEDANG";
+                
+                var title = isNegativeCredit ? $"{icon} Kredit Member Bermasalah" : $"{icon} Alert Kredit Member";
+                var bodyMessage = $"Member {memberName}: {creditIssue}. Saldo: {amount.ToString("C0", _indonesianCulture)}";
+                
+                var payload = new NotificationPayload
+                {
+                    Title = title,
+                    Body = bodyMessage,
+                    Icon = "/icons/member-credit.png",
+                    Badge = "/icons/badge-72x72.png",
+                    Tag = $"member_credit_{memberId}",
+                    Priority = isNegativeCredit ? NotificationPriority.High : NotificationPriority.Normal,
+                    Data = new Dictionary<string, object>
+                    {
+                        { "type", "member_credit_alert" },
+                        { "memberId", memberId },
+                        { "memberName", memberName },
+                        { "creditIssue", creditIssue },
+                        { "amount", amount },
+                        { "isNegativeCredit", isNegativeCredit },
+                        { "urgencyLevel", urgencyLevel },
+                        { "actionUrl", $"/members/{memberId}/credit" }
+                    }
+                };
+
+                // Send to cashier and management roles
+                var targetRoles = new List<string> { "Admin", "Manager", "Cashier" };
+                return await SendToRolesAsync(targetRoles, payload, branchId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error sending member credit alert for member {MemberId}", memberId);
+                return new PushNotificationResult { Success = false };
+            }
         }
 
-        public Task<PushNotificationResult> SendLowStockNotificationAsync(int productId, string productName, int currentStock, int minimumStock, int? branchId = null)
+        public async Task<PushNotificationResult> SendLowStockNotificationAsync(int productId, string productName, int currentStock, int minimumStock, int? branchId = null)
         {
-            // This would integrate with the existing inventory system
-            // For now, return a placeholder implementation
-            return Task.FromResult(new PushNotificationResult { Success = true });
+            try
+            {
+                var stockPercentage = minimumStock > 0 ? (currentStock * 100.0 / minimumStock) : 0;
+                var isCritical = currentStock == 0;
+                var isLow = stockPercentage <= 50;
+                
+                var icon = isCritical ? "🚫" : isLow ? "⚠️" : "📦";
+                var urgencyLevel = isCritical ? "KRITIS" : isLow ? "TINGGI" : "SEDANG";
+                
+                var title = isCritical ? $"{icon} Stok Habis" : $"{icon} Stok Menipis";
+                var bodyMessage = isCritical 
+                    ? $"{productName} sudah habis! Perlu restock segera."
+                    : $"{productName} tersisa {currentStock} unit (minimum: {minimumStock})";
+                
+                var payload = new NotificationPayload
+                {
+                    Title = title,
+                    Body = bodyMessage,
+                    Icon = "/icons/low-stock.png",
+                    Badge = "/icons/badge-72x72.png",
+                    Tag = $"low_stock_{productId}",
+                    Priority = isCritical ? NotificationPriority.High : NotificationPriority.Normal,
+                    Data = new Dictionary<string, object>
+                    {
+                        { "type", "low_stock" },
+                        { "productId", productId },
+                        { "productName", productName },
+                        { "currentStock", currentStock },
+                        { "minimumStock", minimumStock },
+                        { "stockPercentage", Math.Round(stockPercentage, 1) },
+                        { "isCritical", isCritical },
+                        { "urgencyLevel", urgencyLevel },
+                        { "actionUrl", $"/inventory/restock/{productId}" }
+                    }
+                };
+
+                // Send to inventory management roles
+                var targetRoles = new List<string> { "Admin", "Manager", "Staff" };
+                return await SendToRolesAsync(targetRoles, payload, branchId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error sending low stock notification for product {ProductId}", productId);
+                return new PushNotificationResult { Success = false };
+            }
         }
 
         // ==================== TEMPLATE MANAGEMENT (Simplified implementation) ==================== //
