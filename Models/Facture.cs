@@ -301,7 +301,7 @@ namespace Berca_Backend.Models
         public bool CanCancel => Status != FactureStatus.Paid && Status != FactureStatus.Cancelled;
 
         [NotMapped]
-        public bool CanSchedulePayment => Status == FactureStatus.Approved && OutstandingAmount > 0;
+        public bool CanSchedulePayment => (Status == FactureStatus.Approved || Status == FactureStatus.PartiallyPaid) && OutstandingAmount > 0;
 
         [NotMapped]
         public bool CanReceivePayment => Status != FactureStatus.Paid && Status != FactureStatus.Cancelled && OutstandingAmount > 0;
