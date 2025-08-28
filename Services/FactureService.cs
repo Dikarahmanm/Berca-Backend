@@ -1650,6 +1650,448 @@ namespace Berca_Backend.Services
             }
         }
 
+        // ==================== NEW ANALYTICS METHODS ==================== //
+
+        public async Task<List<FactureListDto>> GetOutstandingFacturesAsync(int requestingUserId, int? branchId = null, int? supplierId = null, int limit = 50)
+        {
+            try
+            {
+                var user = await _context.Users.FindAsync(requestingUserId);
+                var userBranches = user?.CanAccessMultipleBranches == true ? 
+                    (user.AccessibleBranchIds?.Split(',').Select(int.Parse).ToList() ?? new List<int> { 0 }) : 
+                    new List<int> { user?.BranchId ?? 0 };
+                var now = _timezoneService.UtcToLocal(DateTime.UtcNow);
+
+                var query = _context.Factures
+                    .Include(f => f.Supplier)
+                    .Include(f => f.Branch)
+                    .Where(f => f.Status != FactureStatus.Paid && 
+                               f.Status != FactureStatus.Cancelled &&
+                               (f.TotalAmount - f.PaidAmount) > 0);
+
+                // Apply branch filter
+                if (branchId.HasValue)
+                {
+                    query = query.Where(f => f.BranchId == branchId.Value);
+                }
+                else if (!userBranches.Contains(0)) // Not global access
+                {
+                    query = query.Where(f => f.BranchId == null || userBranches.Contains(f.BranchId.Value));
+                }
+
+                // Apply supplier filter
+                if (supplierId.HasValue)
+                {
+                    query = query.Where(f => f.SupplierId == supplierId.Value);
+                }
+
+                var factures = await query
+                    .OrderByDescending(f => f.TotalAmount - f.PaidAmount)
+                    .ThenBy(f => f.DueDate)
+                    .Take(limit)
+                    .Select(f => new FactureListDto
+                    {
+                        Id = f.Id,
+                        SupplierInvoiceNumber = f.SupplierInvoiceNumber,
+                        InternalReferenceNumber = f.InternalReferenceNumber,
+                        SupplierName = f.Supplier!.CompanyName,
+                        InvoiceDate = f.InvoiceDate,
+                        DueDate = f.DueDate,
+                        TotalAmount = f.TotalAmount,
+                        PaidAmount = f.PaidAmount,
+                        OutstandingAmount = f.TotalAmount - f.PaidAmount,
+                        Status = f.Status,
+                        IsOverdue = f.DueDate < now && f.Status != FactureStatus.Paid && f.Status != FactureStatus.Cancelled,
+                        DaysOverdue = f.DueDate < now && f.Status != FactureStatus.Paid && f.Status != FactureStatus.Cancelled 
+                            ? EF.Functions.DateDiffDay(f.DueDate, now) : 0,
+                        DaysUntilDue = f.Status == FactureStatus.Paid || f.Status == FactureStatus.Cancelled 
+                            ? 0 : (EF.Functions.DateDiffDay(now, f.DueDate) < 0 ? 0 : EF.Functions.DateDiffDay(now, f.DueDate)),
+                        PaymentPriority = (f.Status == FactureStatus.Paid || f.Status == FactureStatus.Cancelled) 
+                            ? PaymentPriority.Normal 
+                            : (f.DueDate < now || EF.Functions.DateDiffDay(now, f.DueDate) <= 1) 
+                                ? PaymentPriority.Urgent 
+                                : (EF.Functions.DateDiffDay(now, f.DueDate) <= 7) 
+                                    ? PaymentPriority.High 
+                                    : PaymentPriority.Normal,
+                        BranchName = f.Branch != null ? f.Branch.BranchName : "All Branches",
+                        CreatedAt = f.CreatedAt
+                    })
+                    .ToListAsync();
+
+                return factures;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting outstanding factures");
+                throw;
+            }
+        }
+
+        public async Task<List<OutstandingBySupplierDto>> GetTopSuppliersByFacturesAsync(int requestingUserId, int? branchId = null, DateTime? fromDate = null, DateTime? toDate = null, int limit = 10)
+        {
+            try
+            {
+                var user = await _context.Users.FindAsync(requestingUserId);
+                var userBranches = user?.CanAccessMultipleBranches == true ? 
+                    (user.AccessibleBranchIds?.Split(',').Select(int.Parse).ToList() ?? new List<int> { 0 }) : 
+                    new List<int> { user?.BranchId ?? 0 };
+                var now = _timezoneService.UtcToLocal(DateTime.UtcNow);
+                fromDate ??= now.AddMonths(-3); // Default 3 months
+                toDate ??= now;
+
+                var query = _context.Factures
+                    .Include(f => f.Supplier)
+                    .Where(f => f.InvoiceDate >= fromDate && f.InvoiceDate <= toDate);
+
+                // Apply branch filter
+                if (branchId.HasValue)
+                {
+                    query = query.Where(f => f.BranchId == branchId.Value);
+                }
+                else if (!userBranches.Contains(0)) // Not global access
+                {
+                    query = query.Where(f => f.BranchId == null || userBranches.Contains(f.BranchId.Value));
+                }
+
+                var topSuppliers = await query
+                    .GroupBy(f => new { f.SupplierId, f.Supplier!.SupplierCode, f.Supplier.CompanyName, f.Supplier.ContactPerson, f.Supplier.Phone, f.Supplier.Email })
+                    .Select(g => new OutstandingBySupplierDto
+                    {
+                        SupplierId = g.Key.SupplierId,
+                        SupplierCode = g.Key.SupplierCode,
+                        CompanyName = g.Key.CompanyName,
+                        ContactPerson = g.Key.ContactPerson ?? "",
+                        Phone = g.Key.Phone ?? "",
+                        Email = g.Key.Email ?? "",
+                        TotalOutstandingFactures = g.Count(f => f.Status != FactureStatus.Paid && f.Status != FactureStatus.Cancelled),
+                        TotalOutstandingAmount = g.Where(f => f.Status != FactureStatus.Paid && f.Status != FactureStatus.Cancelled).Sum(f => f.TotalAmount - f.PaidAmount),
+                        OldestOutstandingDays = g.Where(f => f.Status != FactureStatus.Paid && f.Status != FactureStatus.Cancelled && f.DueDate < now)
+                                                 .OrderBy(f => f.DueDate)
+                                                 .Select(f => (decimal)EF.Functions.DateDiffDay(f.DueDate, now))
+                                                 .FirstOrDefault(),
+                        AveragePaymentDelayDays = 0, // Simplified for now - complex payment calculation
+                        OldestFactureDueDate = g.Where(f => f.Status != FactureStatus.Paid && f.Status != FactureStatus.Cancelled)
+                                                .OrderBy(f => f.DueDate)
+                                                .Select(f => (DateTime?)f.DueDate)
+                                                .FirstOrDefault(),
+                        OverdueCount = g.Count(f => f.DueDate < now && f.Status != FactureStatus.Paid && f.Status != FactureStatus.Cancelled),
+                        OverdueAmount = g.Where(f => f.DueDate < now && f.Status != FactureStatus.Paid && f.Status != FactureStatus.Cancelled).Sum(f => f.TotalAmount - f.PaidAmount),
+                        PaymentRisk = g.Any(f => f.DueDate < now && f.Status != FactureStatus.Paid && f.Status != FactureStatus.Cancelled && (f.TotalAmount - f.PaidAmount) > 100000000) ? "Critical" :
+                                     g.Any(f => f.DueDate < now && f.Status != FactureStatus.Paid && f.Status != FactureStatus.Cancelled && (f.TotalAmount - f.PaidAmount) > 50000000) ? "High" :
+                                     g.Any(f => f.DueDate < now && f.Status != FactureStatus.Paid && f.Status != FactureStatus.Cancelled) ? "Medium" : "Low"
+                    })
+                    .OrderByDescending(s => s.TotalOutstandingAmount)
+                    .Take(limit)
+                    .ToListAsync();
+
+                // Get top outstanding factures for each supplier
+                foreach (var supplier in topSuppliers)
+                {
+                    supplier.TopOutstandingFactures = await _context.Factures
+                        .Where(f => f.SupplierId == supplier.SupplierId && 
+                                   f.Status != FactureStatus.Paid && 
+                                   f.Status != FactureStatus.Cancelled &&
+                                   (f.TotalAmount - f.PaidAmount) > 0)
+                        .OrderByDescending(f => f.TotalAmount - f.PaidAmount)
+                        .Take(3)
+                        .Select(f => new OutstandingFactureBriefDto
+                        {
+                            Id = f.Id,
+                            SupplierInvoiceNumber = f.SupplierInvoiceNumber,
+                            InternalReferenceNumber = f.InternalReferenceNumber,
+                            OutstandingAmount = f.TotalAmount - f.PaidAmount,
+                            DaysOverdue = f.DueDate < now && f.Status != FactureStatus.Paid && f.Status != FactureStatus.Cancelled 
+                                ? EF.Functions.DateDiffDay(f.DueDate, now) : 0,
+                            DueDate = f.DueDate,
+                            Priority = (f.Status == FactureStatus.Paid || f.Status == FactureStatus.Cancelled) 
+                                ? PaymentPriority.Normal 
+                                : (f.DueDate < now || EF.Functions.DateDiffDay(now, f.DueDate) <= 1) 
+                                    ? PaymentPriority.Urgent 
+                                    : (EF.Functions.DateDiffDay(now, f.DueDate) <= 7) 
+                                        ? PaymentPriority.High 
+                                        : PaymentPriority.Normal
+                        })
+                        .ToListAsync();
+                }
+
+                return topSuppliers;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting top suppliers by factures");
+                throw;
+            }
+        }
+
+        public async Task<List<SuppliersByBranchDto>> GetSuppliersByBranchAsync(int requestingUserId, int? branchId = null)
+        {
+            try
+            {
+                var user = await _context.Users.FindAsync(requestingUserId);
+                var userBranches = user?.CanAccessMultipleBranches == true ? 
+                    (user.AccessibleBranchIds?.Split(',').Select(int.Parse).ToList() ?? new List<int> { 0 }) : 
+                    new List<int> { user?.BranchId ?? 0 };
+                var now = _timezoneService.UtcToLocal(DateTime.UtcNow);
+                var thisMonth = new DateTime(now.Year, now.Month, 1);
+
+                var query = _context.Branches.AsQueryable();
+
+                // Apply branch filter
+                if (branchId.HasValue)
+                {
+                    query = query.Where(b => b.Id == branchId.Value);
+                }
+                else if (!userBranches.Contains(0)) // Not global access
+                {
+                    query = query.Where(b => userBranches.Contains(b.Id));
+                }
+
+                var branchesData = await query
+                    .Select(b => new SuppliersByBranchDto
+                    {
+                        BranchId = b.Id,
+                        BranchCode = b.BranchCode,
+                        BranchName = b.BranchName,
+                        City = b.City ?? "",
+                        TotalSuppliers = _context.Suppliers.Count(s => s.BranchId == b.Id || s.BranchId == null),
+                        ActiveSuppliers = _context.Suppliers.Count(s => s.IsActive && (s.BranchId == b.Id || s.BranchId == null)),
+                        TotalOutstanding = _context.Factures
+                            .Where(f => f.BranchId == b.Id && f.Status != FactureStatus.Paid && f.Status != FactureStatus.Cancelled)
+                            .Sum(f => (decimal?)(f.TotalAmount - f.PaidAmount)) ?? 0,
+                        AverageFactureAmount = _context.Factures
+                            .Where(f => f.BranchId == b.Id && f.InvoiceDate >= thisMonth)
+                            .Average(f => (decimal?)f.TotalAmount) ?? 0,
+                        TotalFacturesThisMonth = _context.Factures.Count(f => f.BranchId == b.Id && f.InvoiceDate >= thisMonth),
+                        PaymentComplianceRate = _context.Factures
+                            .Where(f => f.BranchId == b.Id && f.DueDate >= thisMonth.AddMonths(-1) && f.DueDate < thisMonth)
+                            .Count() > 0 ? 
+                            (decimal)_context.Factures
+                                .Where(f => f.BranchId == b.Id && f.DueDate >= thisMonth.AddMonths(-1) && f.DueDate < thisMonth && f.Status == FactureStatus.Paid)
+                                .Count() * 100 / 
+                            _context.Factures
+                                .Where(f => f.BranchId == b.Id && f.DueDate >= thisMonth.AddMonths(-1) && f.DueDate < thisMonth)
+                                .Count() : 100
+                    })
+                    .ToListAsync();
+
+                // Get top suppliers for each branch
+                foreach (var branch in branchesData)
+                {
+                    branch.TopSuppliers = await _context.Factures
+                        .Include(f => f.Supplier)
+                        .Where(f => f.BranchId == branch.BranchId && f.InvoiceDate >= thisMonth)
+                        .GroupBy(f => new { f.SupplierId, f.Supplier!.SupplierCode, f.Supplier.CompanyName })
+                        .Select(g => new TopSupplierByBranchDto
+                        {
+                            SupplierId = g.Key.SupplierId,
+                            SupplierCode = g.Key.SupplierCode,
+                            CompanyName = g.Key.CompanyName,
+                            MonthlySpending = g.Sum(f => f.TotalAmount),
+                            FacturesCount = g.Count(),
+                            OutstandingAmount = g.Where(f => f.Status != FactureStatus.Paid && f.Status != FactureStatus.Cancelled).Sum(f => f.TotalAmount - f.PaidAmount)
+                        })
+                        .OrderByDescending(s => s.MonthlySpending)
+                        .Take(5)
+                        .ToListAsync();
+
+                    // Get category spending (simplified - using supplier as category for now)
+                    branch.SpendingByCategory = await _context.Factures
+                        .Include(f => f.Supplier)
+                        .Where(f => f.BranchId == branch.BranchId && f.InvoiceDate >= thisMonth)
+                        .GroupBy(f => f.Supplier!.CompanyName)
+                        .Select(g => new CategorySpendingDto
+                        {
+                            Category = g.Key,
+                            Amount = g.Sum(f => f.TotalAmount),
+                            FacturesCount = g.Count(),
+                            Percentage = 0 // Will be calculated later
+                        })
+                        .OrderByDescending(c => c.Amount)
+                        .Take(5)
+                        .ToListAsync();
+
+                    // Calculate percentages
+                    var totalAmount = branch.SpendingByCategory.Sum(c => c.Amount);
+                    if (totalAmount > 0)
+                    {
+                        foreach (var category in branch.SpendingByCategory)
+                        {
+                            category.Percentage = Math.Round(category.Amount * 100 / totalAmount, 2);
+                        }
+                    }
+                }
+
+                return branchesData;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting suppliers by branch");
+                throw;
+            }
+        }
+
+        public async Task<SupplierAlertsDto> GetSupplierAlertsAsync(int requestingUserId, int? branchId = null, string? priorityFilter = null)
+        {
+            try
+            {
+                var user = await _context.Users.FindAsync(requestingUserId);
+                var userBranches = user?.CanAccessMultipleBranches == true ? 
+                    (user.AccessibleBranchIds?.Split(',').Select(int.Parse).ToList() ?? new List<int> { 0 }) : 
+                    new List<int> { user?.BranchId ?? 0 };
+                var now = _timezoneService.UtcToLocal(DateTime.UtcNow);
+                var alerts = new List<FactureSupplierAlertDto>();
+
+                var query = _context.Factures
+                    .Include(f => f.Supplier)
+                    .Include(f => f.Branch)
+                    .AsQueryable();
+
+                // Apply branch filter
+                if (branchId.HasValue)
+                {
+                    query = query.Where(f => f.BranchId == branchId.Value);
+                }
+                else if (!userBranches.Contains(0)) // Not global access
+                {
+                    query = query.Where(f => f.BranchId == null || userBranches.Contains(f.BranchId.Value));
+                }
+
+                // Critical Alerts - Overdue > 30 days with high amounts
+                var criticalOverdue = await query
+                    .Where(f => f.DueDate < now && f.Status != FactureStatus.Paid && f.Status != FactureStatus.Cancelled && 
+                               EF.Functions.DateDiffDay(f.DueDate, now) > 30 && (f.TotalAmount - f.PaidAmount) > 50000000)
+                    .Select(f => new FactureSupplierAlertDto
+                    {
+                        Id = f.Id,
+                        AlertType = "CriticalOverdue",
+                        Priority = "Critical",
+                        Title = "Critical Overdue Payment",
+                        Message = $"Facture {f.SupplierInvoiceNumber} is {EF.Functions.DateDiffDay(f.DueDate, now)} days overdue with outstanding amount",
+                        SupplierId = f.SupplierId,
+                        SupplierName = f.Supplier!.CompanyName,
+                        FactureId = f.Id,
+                        FactureReference = f.SupplierInvoiceNumber,
+                        Amount = f.TotalAmount - f.PaidAmount,
+                        CreatedAt = now,
+                        DueDate = f.DueDate,
+                        DaysOverdue = EF.Functions.DateDiffDay(f.DueDate, now),
+                        ActionRequired = "Immediate payment processing required",
+                        IsRead = false,
+                        BranchId = f.BranchId,
+                        BranchName = f.Branch != null ? f.Branch.BranchName : null
+                    })
+                    .ToListAsync();
+
+                // Warning Alerts - Overdue or high outstanding amounts
+                var warningAlerts = await query
+                    .Where(f => (f.DueDate < now && f.Status != FactureStatus.Paid && f.Status != FactureStatus.Cancelled && EF.Functions.DateDiffDay(f.DueDate, now) <= 30) || 
+                               ((f.TotalAmount - f.PaidAmount) > 100000000 && f.Status != FactureStatus.Paid))
+                    .Select(f => new FactureSupplierAlertDto
+                    {
+                        Id = f.Id,
+                        AlertType = (f.DueDate < now && f.Status != FactureStatus.Paid && f.Status != FactureStatus.Cancelled) ? "PaymentOverdue" : "HighOutstanding",
+                        Priority = "Warning",
+                        Title = (f.DueDate < now && f.Status != FactureStatus.Paid && f.Status != FactureStatus.Cancelled) ? "Payment Overdue" : "High Outstanding Amount",
+                        Message = (f.DueDate < now && f.Status != FactureStatus.Paid && f.Status != FactureStatus.Cancelled) ? 
+                            $"Facture {f.SupplierInvoiceNumber} is {EF.Functions.DateDiffDay(f.DueDate, now)} days overdue" :
+                            $"High outstanding amount",
+                        SupplierId = f.SupplierId,
+                        SupplierName = f.Supplier!.CompanyName,
+                        FactureId = f.Id,
+                        FactureReference = f.SupplierInvoiceNumber,
+                        Amount = f.TotalAmount - f.PaidAmount,
+                        CreatedAt = now,
+                        DueDate = f.DueDate,
+                        DaysOverdue = (f.DueDate < now && f.Status != FactureStatus.Paid && f.Status != FactureStatus.Cancelled) ? EF.Functions.DateDiffDay(f.DueDate, now) : 0,
+                        ActionRequired = (f.DueDate < now && f.Status != FactureStatus.Paid && f.Status != FactureStatus.Cancelled) ? "Schedule payment immediately" : "Review payment schedule",
+                        IsRead = false,
+                        BranchId = f.BranchId,
+                        BranchName = f.Branch != null ? f.Branch.BranchName : null
+                    })
+                    .ToListAsync();
+
+                // Info Alerts - Due soon
+                var infoAlerts = await query
+                    .Where(f => EF.Functions.DateDiffDay(now, f.DueDate) <= 7 && EF.Functions.DateDiffDay(now, f.DueDate) > 0 && 
+                               f.Status != FactureStatus.Paid && f.Status != FactureStatus.Cancelled)
+                    .Select(f => new FactureSupplierAlertDto
+                    {
+                        Id = f.Id,
+                        AlertType = "DueSoon",
+                        Priority = "Info",
+                        Title = "Payment Due Soon",
+                        Message = $"Facture {f.SupplierInvoiceNumber} is due in {EF.Functions.DateDiffDay(now, f.DueDate)} days",
+                        SupplierId = f.SupplierId,
+                        SupplierName = f.Supplier!.CompanyName,
+                        FactureId = f.Id,
+                        FactureReference = f.SupplierInvoiceNumber,
+                        Amount = f.TotalAmount - f.PaidAmount,
+                        CreatedAt = now,
+                        DueDate = f.DueDate,
+                        DaysOverdue = 0,
+                        ActionRequired = "Review and schedule payment",
+                        IsRead = false,
+                        BranchId = f.BranchId,
+                        BranchName = f.Branch != null ? f.Branch.BranchName : null
+                    })
+                    .ToListAsync();
+
+                var result = new SupplierAlertsDto
+                {
+                    CriticalAlerts = criticalOverdue,
+                    WarningAlerts = warningAlerts,
+                    InfoAlerts = infoAlerts,
+                    Summary = new SupplierAlertSummaryDto
+                    {
+                        TotalCriticalAlerts = criticalOverdue.Count,
+                        TotalWarningAlerts = warningAlerts.Count,
+                        TotalInfoAlerts = infoAlerts.Count,
+                        UnreadAlerts = criticalOverdue.Count + warningAlerts.Count + infoAlerts.Count,
+                        TotalAmountAtRisk = criticalOverdue.Sum(a => a.Amount ?? 0) + warningAlerts.Sum(a => a.Amount ?? 0),
+                        SuppliersWithAlerts = (criticalOverdue.Select(a => a.SupplierId)
+                                              .Concat(warningAlerts.Select(a => a.SupplierId))
+                                              .Concat(infoAlerts.Select(a => a.SupplierId)))
+                                              .Distinct().Count(),
+                        LastUpdated = now,
+                        AlertsByCategory = new List<AlertCategoryDto>
+                        {
+                            new() { Category = "CriticalOverdue", Count = criticalOverdue.Count, Priority = "Critical" },
+                            new() { Category = "PaymentOverdue", Count = warningAlerts.Count(a => a.AlertType == "PaymentOverdue"), Priority = "Warning" },
+                            new() { Category = "HighOutstanding", Count = warningAlerts.Count(a => a.AlertType == "HighOutstanding"), Priority = "Warning" },
+                            new() { Category = "DueSoon", Count = infoAlerts.Count, Priority = "Info" }
+                        }
+                    }
+                };
+
+                // Apply priority filter
+                if (!string.IsNullOrEmpty(priorityFilter))
+                {
+                    switch (priorityFilter.ToLower())
+                    {
+                        case "critical":
+                            result.WarningAlerts.Clear();
+                            result.InfoAlerts.Clear();
+                            break;
+                        case "warning":
+                            result.CriticalAlerts.Clear();
+                            result.InfoAlerts.Clear();
+                            break;
+                        case "info":
+                            result.CriticalAlerts.Clear();
+                            result.WarningAlerts.Clear();
+                            break;
+                    }
+                }
+
+                return result;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting supplier alerts");
+                throw;
+            }
+        }
+
         // ==================== HELPER METHODS ==================== //
 
         private async Task<FacturePaymentDto> GetPaymentByIdAsync(int paymentId)

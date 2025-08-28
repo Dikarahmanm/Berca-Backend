@@ -202,6 +202,7 @@ namespace Berca_Backend.DTOs
         public DateTime InvoiceDate { get; set; }
         public DateTime DueDate { get; set; }
         public decimal TotalAmount { get; set; }
+        public decimal PaidAmount { get; set; }
         public decimal OutstandingAmount { get; set; }
         public FactureStatus Status { get; set; }
         public string StatusDisplay { get; set; } = string.Empty;
@@ -561,5 +562,144 @@ namespace Berca_Backend.DTOs
         public int PageSize { get; set; } = 20;
         public string SortBy { get; set; } = "InvoiceDate";
         public string SortOrder { get; set; } = "desc";
+    }
+
+    /// <summary>
+    /// DTO for outstanding factures by supplier analytics
+    /// </summary>
+    public class OutstandingBySupplierDto
+    {
+        public int SupplierId { get; set; }
+        public string SupplierCode { get; set; } = string.Empty;
+        public string CompanyName { get; set; } = string.Empty;
+        public string ContactPerson { get; set; } = string.Empty;
+        public string Phone { get; set; } = string.Empty;
+        public string Email { get; set; } = string.Empty;
+        public int TotalOutstandingFactures { get; set; }
+        public decimal TotalOutstandingAmount { get; set; }
+        public decimal OldestOutstandingDays { get; set; }
+        public decimal AveragePaymentDelayDays { get; set; }
+        public DateTime? OldestFactureDueDate { get; set; }
+        public int OverdueCount { get; set; }
+        public decimal OverdueAmount { get; set; }
+        public string PaymentRisk { get; set; } = "Low"; // Low, Medium, High, Critical
+        public List<OutstandingFactureBriefDto> TopOutstandingFactures { get; set; } = new();
+    }
+
+    /// <summary>
+    /// Brief info for outstanding facture in supplier summary
+    /// </summary>
+    public class OutstandingFactureBriefDto
+    {
+        public int Id { get; set; }
+        public string SupplierInvoiceNumber { get; set; } = string.Empty;
+        public string InternalReferenceNumber { get; set; } = string.Empty;
+        public decimal OutstandingAmount { get; set; }
+        public int DaysOverdue { get; set; }
+        public DateTime DueDate { get; set; }
+        public PaymentPriority Priority { get; set; }
+    }
+
+    /// <summary>
+    /// DTO for suppliers by branch analytics
+    /// </summary>
+    public class SuppliersByBranchDto
+    {
+        public int BranchId { get; set; }
+        public string BranchCode { get; set; } = string.Empty;
+        public string BranchName { get; set; } = string.Empty;
+        public string City { get; set; } = string.Empty;
+        public int TotalSuppliers { get; set; }
+        public int ActiveSuppliers { get; set; }
+        public decimal TotalOutstanding { get; set; }
+        public decimal AverageFactureAmount { get; set; }
+        public int TotalFacturesThisMonth { get; set; }
+        public decimal PaymentComplianceRate { get; set; } // Percentage
+        public List<TopSupplierByBranchDto> TopSuppliers { get; set; } = new();
+        public List<CategorySpendingDto> SpendingByCategory { get; set; } = new();
+    }
+
+    /// <summary>
+    /// Top supplier info for branch summary
+    /// </summary>
+    public class TopSupplierByBranchDto
+    {
+        public int SupplierId { get; set; }
+        public string SupplierCode { get; set; } = string.Empty;
+        public string CompanyName { get; set; } = string.Empty;
+        public decimal MonthlySpending { get; set; }
+        public int FacturesCount { get; set; }
+        public decimal OutstandingAmount { get; set; }
+    }
+
+    /// <summary>
+    /// Category spending info for branch
+    /// </summary>
+    public class CategorySpendingDto
+    {
+        public string Category { get; set; } = string.Empty;
+        public decimal Amount { get; set; }
+        public int FacturesCount { get; set; }
+        public decimal Percentage { get; set; }
+    }
+
+    /// <summary>
+    /// DTO for supplier alerts
+    /// </summary>
+    public class SupplierAlertsDto
+    {
+        public List<FactureSupplierAlertDto> CriticalAlerts { get; set; } = new();
+        public List<FactureSupplierAlertDto> WarningAlerts { get; set; } = new();
+        public List<FactureSupplierAlertDto> InfoAlerts { get; set; } = new();
+        public SupplierAlertSummaryDto Summary { get; set; } = new();
+    }
+
+    /// <summary>
+    /// Individual supplier alert from facture context
+    /// </summary>
+    public class FactureSupplierAlertDto
+    {
+        public int Id { get; set; }
+        public string AlertType { get; set; } = string.Empty; // PaymentOverdue, HighOutstanding, CreditLimitExceeded, etc.
+        public string Priority { get; set; } = string.Empty; // Critical, Warning, Info
+        public string Title { get; set; } = string.Empty;
+        public string Message { get; set; } = string.Empty;
+        public int SupplierId { get; set; }
+        public string SupplierName { get; set; } = string.Empty;
+        public int? FactureId { get; set; }
+        public string? FactureReference { get; set; }
+        public decimal? Amount { get; set; }
+        public DateTime CreatedAt { get; set; }
+        public DateTime? DueDate { get; set; }
+        public int DaysOverdue { get; set; }
+        public string ActionRequired { get; set; } = string.Empty;
+        public bool IsRead { get; set; }
+        public int? BranchId { get; set; }
+        public string? BranchName { get; set; }
+    }
+
+    /// <summary>
+    /// Summary of supplier alerts
+    /// </summary>
+    public class SupplierAlertSummaryDto
+    {
+        public int TotalCriticalAlerts { get; set; }
+        public int TotalWarningAlerts { get; set; }
+        public int TotalInfoAlerts { get; set; }
+        public int UnreadAlerts { get; set; }
+        public decimal TotalAmountAtRisk { get; set; }
+        public int SuppliersWithAlerts { get; set; }
+        public DateTime LastUpdated { get; set; }
+        public List<AlertCategoryDto> AlertsByCategory { get; set; } = new();
+    }
+
+    /// <summary>
+    /// Alert breakdown by category
+    /// </summary>
+    public class AlertCategoryDto
+    {
+        public string Category { get; set; } = string.Empty;
+        public int Count { get; set; }
+        public string Priority { get; set; } = string.Empty;
     }
 }
