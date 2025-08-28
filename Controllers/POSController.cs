@@ -1,6 +1,7 @@
-﻿// Controllers/POSController.cs - Sprint 2 POS Controller Implementation
+﻿// Controllers/POSController.cs - Enhanced with Member Credit Integration
 using Berca_Backend.DTOs;
 using Berca_Backend.Services;
+using Berca_Backend.Services.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System.Security.Claims;
@@ -13,6 +14,7 @@ namespace Berca_Backend.Controllers
     public class POSController : ControllerBase
     {
         private readonly IPOSService _posService;
+        // TODO: Add IMemberCreditService when implementation is complete
         private readonly ILogger<POSController> _logger;
 
         public POSController(IPOSService posService, ILogger<POSController> logger)
@@ -722,6 +724,318 @@ namespace Berca_Backend.Controllers
                 {
                     Success = false,
                     Message = "An error occurred while retrieving batch summary"
+                });
+            }
+        }
+
+        // ==================== MEMBER CREDIT INTEGRATION ENDPOINTS ==================== //
+
+        /// <summary>
+        /// Validate member credit before POS checkout
+        /// </summary>
+        [HttpPost("validate-member-credit")]
+        [Authorize(Policy = "POS.CreditValidation")]
+        public async Task<ActionResult<ApiResponse<CreditValidationResultDto>>> ValidateMemberCredit([FromBody] CreditValidationRequestDto request)
+        {
+            try
+            {
+                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+                if (!int.TryParse(userIdClaim, out int validatedByUserId))
+                {
+                    return Unauthorized(new ApiResponse<CreditValidationResultDto>
+                    {
+                        Success = false,
+                        Message = "Invalid user authentication"
+                    });
+                }
+
+                var result = await _posService.ValidateMemberCreditAsync(request);
+                result.ValidatedByUserId = validatedByUserId;
+                result.ValidationTimestamp = DateTime.UtcNow;
+                result.ValidationId = Guid.NewGuid().ToString("N")[..10]; // Short validation ID
+
+                _logger.LogInformation("Member credit validation completed. Member: {MemberId}, Amount: {Amount}, Approved: {IsApproved}",
+                    request.MemberId, request.RequestedAmount, result.IsApproved);
+
+                return Ok(new ApiResponse<CreditValidationResultDto>
+                {
+                    Success = true,
+                    Data = result,
+                    Message = result.IsApproved ? "Credit validation successful" : "Credit validation failed"
+                });
+            }
+            catch (ArgumentException ex)
+            {
+                _logger.LogWarning(ex, "Invalid credit validation request for member {MemberId}", request.MemberId);
+                return BadRequest(new ApiResponse<CreditValidationResultDto>
+                {
+                    Success = false,
+                    Message = ex.Message
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error validating member credit for member {MemberId}", request.MemberId);
+                return StatusCode(500, new ApiResponse<CreditValidationResultDto>
+                {
+                    Success = false,
+                    Message = "Internal server error during credit validation"
+                });
+            }
+        }
+
+        /// <summary>
+        /// Create sale with member credit payment
+        /// </summary>
+        [HttpPost("create-sale-with-credit")]
+        [Authorize(Policy = "POS.CreditTransaction")]
+        public async Task<ActionResult<ApiResponse<SaleDto>>> CreateSaleWithCredit([FromBody] CreateSaleWithCreditDto request)
+        {
+            try
+            {
+                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+                if (!int.TryParse(userIdClaim, out int cashierId))
+                {
+                    return Unauthorized(new ApiResponse<SaleDto>
+                    {
+                        Success = false,
+                        Message = "Invalid user authentication"
+                    });
+                }
+
+                // Ensure cashier ID matches request
+                request.CashierId = cashierId;
+
+                var result = await _posService.CreateSaleWithCreditAsync(request);
+
+                _logger.LogInformation("Credit sale created successfully. Sale ID: {SaleId}, Member: {MemberId}, Credit: {CreditAmount}",
+                    result.Id, request.MemberId, request.CreditAmount);
+
+                return CreatedAtAction(nameof(GetSale), new { id = result.Id }, new ApiResponse<SaleDto>
+                {
+                    Success = true,
+                    Data = result,
+                    Message = "Sale with credit payment created successfully"
+                });
+            }
+            catch (InvalidOperationException ex)
+            {
+                _logger.LogWarning(ex, "Credit sale validation failed for member {MemberId}", request.MemberId);
+                return BadRequest(new ApiResponse<SaleDto>
+                {
+                    Success = false,
+                    Message = ex.Message
+                });
+            }
+            catch (ArgumentException ex)
+            {
+                _logger.LogWarning(ex, "Invalid credit sale request for member {MemberId}", request.MemberId);
+                return BadRequest(new ApiResponse<SaleDto>
+                {
+                    Success = false,
+                    Message = ex.Message
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error creating credit sale for member {MemberId}", request.MemberId);
+                return StatusCode(500, new ApiResponse<SaleDto>
+                {
+                    Success = false,
+                    Message = "Internal server error during credit sale creation"
+                });
+            }
+        }
+
+        /// <summary>
+        /// Apply credit payment to existing sale
+        /// </summary>
+        [HttpPost("apply-credit-payment")]
+        [Authorize(Policy = "POS.CreditTransaction")]
+        public async Task<ActionResult<ApiResponse<PaymentResultDto>>> ApplyCreditPayment([FromBody] ApplyCreditPaymentDto request)
+        {
+            try
+            {
+                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+                if (!int.TryParse(userIdClaim, out int processedBy))
+                {
+                    return Unauthorized(new ApiResponse<PaymentResultDto>
+                    {
+                        Success = false,
+                        Message = "Invalid user authentication"
+                    });
+                }
+
+                // Ensure processed by matches current user
+                request.ProcessedBy = processedBy;
+                request.ProcessingDate = DateTime.UtcNow;
+
+                var result = await _posService.ApplyCreditPaymentAsync(request);
+
+                if (!result.IsSuccess)
+                {
+                    _logger.LogWarning("Credit payment application failed. Sale: {SaleId}, Member: {MemberId}, Reason: {Message}",
+                        request.SaleId, request.MemberId, result.Message);
+                    
+                    return BadRequest(new ApiResponse<PaymentResultDto>
+                    {
+                        Success = false,
+                        Data = result,
+                        Message = result.Message
+                    });
+                }
+
+                _logger.LogInformation("Credit payment applied successfully. Sale: {SaleId}, Member: {MemberId}, Amount: {Amount}",
+                    request.SaleId, request.MemberId, request.CreditAmount);
+
+                return Ok(new ApiResponse<PaymentResultDto>
+                {
+                    Success = true,
+                    Data = result,
+                    Message = "Credit payment applied successfully"
+                });
+            }
+            catch (KeyNotFoundException ex)
+            {
+                _logger.LogWarning(ex, "Sale or member not found for credit payment. Sale: {SaleId}, Member: {MemberId}", 
+                    request.SaleId, request.MemberId);
+                return NotFound(new ApiResponse<PaymentResultDto>
+                {
+                    Success = false,
+                    Message = "Sale or member not found"
+                });
+            }
+            catch (InvalidOperationException ex)
+            {
+                _logger.LogWarning(ex, "Credit payment operation invalid. Sale: {SaleId}, Member: {MemberId}", 
+                    request.SaleId, request.MemberId);
+                return BadRequest(new ApiResponse<PaymentResultDto>
+                {
+                    Success = false,
+                    Message = ex.Message
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error applying credit payment. Sale: {SaleId}, Member: {MemberId}", 
+                    request.SaleId, request.MemberId);
+                return StatusCode(500, new ApiResponse<PaymentResultDto>
+                {
+                    Success = false,
+                    Message = "Internal server error during credit payment processing"
+                });
+            }
+        }
+
+        /// <summary>
+        /// Quick member credit lookup for POS cashier
+        /// </summary>
+        [HttpGet("member-credit-lookup/{identifier}")]
+        [Authorize(Policy = "POS.CreditValidation")]
+        public async Task<ActionResult<ApiResponse<POSMemberCreditDto>>> GetMemberCreditForPOS(string identifier)
+        {
+            try
+            {
+                var memberCreditInfo = await _posService.GetMemberCreditForPOSAsync(identifier);
+                if (memberCreditInfo == null)
+                {
+                    return NotFound(new ApiResponse<POSMemberCreditDto>
+                    {
+                        Success = false,
+                        Message = "Member not found with the provided identifier"
+                    });
+                }
+
+                _logger.LogInformation("POS member credit lookup successful for identifier: {Identifier}", identifier);
+
+                return Ok(new ApiResponse<POSMemberCreditDto>
+                {
+                    Success = true,
+                    Data = memberCreditInfo,
+                    Message = "Member credit information retrieved successfully"
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error retrieving member credit for POS lookup: {Identifier}", identifier);
+                return StatusCode(500, new ApiResponse<POSMemberCreditDto>
+                {
+                    Success = false,
+                    Message = "Internal server error during member lookup"
+                });
+            }
+        }
+
+        /// <summary>
+        /// Get credit transaction summary for receipt printing
+        /// </summary>
+        [HttpGet("sales/{id}/credit-info")]
+        [Authorize(Policy = "POS.Read")]
+        public async Task<ActionResult<ApiResponse<SaleCreditInfoDto>>> GetSaleCreditInfo(int id)
+        {
+            try
+            {
+                var creditInfo = await _posService.GetSaleCreditInfoAsync(id);
+                if (creditInfo == null)
+                {
+                    return NotFound(new ApiResponse<SaleCreditInfoDto>
+                    {
+                        Success = false,
+                        Message = "Sale not found or does not have credit transaction"
+                    });
+                }
+
+                return Ok(new ApiResponse<SaleCreditInfoDto>
+                {
+                    Success = true,
+                    Data = creditInfo,
+                    Message = "Sale credit information retrieved successfully"
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error retrieving credit info for sale: {SaleId}", id);
+                return StatusCode(500, new ApiResponse<SaleCreditInfoDto>
+                {
+                    Success = false,
+                    Message = "Internal server error"
+                });
+            }
+        }
+
+        /// <summary>
+        /// Check member credit eligibility before POS interaction
+        /// </summary>
+        [HttpGet("member/{memberId}/credit-eligibility")]
+        [Authorize(Policy = "POS.CreditValidation")]
+        public async Task<ActionResult<ApiResponse<MemberCreditEligibilityDto>>> CheckCreditEligibility(int memberId)
+        {
+            try
+            {
+                var eligibility = await _posService.CheckMemberCreditEligibilityAsync(memberId);
+                if (eligibility == null)
+                {
+                    return NotFound(new ApiResponse<MemberCreditEligibilityDto>
+                    {
+                        Success = false,
+                        Message = "Member not found"
+                    });
+                }
+
+                return Ok(new ApiResponse<MemberCreditEligibilityDto>
+                {
+                    Success = true,
+                    Data = eligibility,
+                    Message = "Credit eligibility checked successfully"
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error checking credit eligibility for member: {MemberId}", memberId);
+                return StatusCode(500, new ApiResponse<MemberCreditEligibilityDto>
+                {
+                    Success = false,
+                    Message = "Internal server error"
                 });
             }
         }

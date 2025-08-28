@@ -480,7 +480,7 @@ namespace Berca_Backend.Services
                         SaleNumber = s.SaleNumber,
                         SaleDate = s.SaleDate,
                         Total = s.Total,
-                        PaymentMethod = s.PaymentMethod,
+                        PaymentMethod = s.PaymentMethod.ToString(),
                         CustomerName = s.CustomerName ?? (s.Member != null ? s.Member.Name : "Guest"),
                         CashierName = s.Cashier.UserProfile != null ? s.Cashier.UserProfile.FullName : s.Cashier.Username,
                         ItemCount = s.TotalItems
@@ -508,7 +508,7 @@ namespace Berca_Backend.Services
                     .GroupBy(s => s.PaymentMethod)
                     .Select(g => new PaymentMethodSummaryDto
                     {
-                        PaymentMethod = g.Key,
+                        PaymentMethod = g.Key.ToString(),
                         Total = g.Sum(s => s.Total),
                         TransactionCount = g.Count(),
                         Percentage = sales.Sum(s => s.Total) > 0 ? (g.Sum(s => s.Total) / sales.Sum(s => s.Total)) * 100 : 0

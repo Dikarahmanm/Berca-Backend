@@ -38,11 +38,19 @@ namespace Berca_Backend.Models
         public decimal ChangeAmount { get; set; }
 
         [Required]
-        [StringLength(20)]
-        public string PaymentMethod { get; set; } = string.Empty;
+        public PaymentMethod PaymentMethod { get; set; } = PaymentMethod.Cash;
 
         [StringLength(100)]
         public string? PaymentReference { get; set; }
+
+        // ✅ NEW: Credit transaction support
+        [Column(TypeName = "decimal(18,2)")]
+        public decimal? CreditAmount { get; set; }
+        
+        public bool IsCreditTransaction { get; set; } = false;
+        
+        public int? CreditTransactionId { get; set; }
+        public virtual MemberCreditTransaction? CreditTransaction { get; set; }
 
         // Customer/Member Info
         public int? MemberId { get; set; }
@@ -113,4 +121,5 @@ namespace Berca_Backend.Models
         Cancelled = 2,
         Refunded = 3
     }
+
 }

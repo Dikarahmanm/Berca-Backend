@@ -55,7 +55,7 @@ namespace Berca_Backend.Services
                     DiscountPercentage = request.DiscountPercentage,
                     TaxAmount = 0,
                     Total = request.Total,
-                    PaymentMethod = request.PaymentMethod,
+                    PaymentMethod = Enum.Parse<PaymentMethod>(request.PaymentMethod, true),
                     AmountPaid = request.AmountPaid,
                     ChangeAmount = request.ChangeAmount,
                     MemberId = request.MemberId,
@@ -215,7 +215,7 @@ namespace Berca_Backend.Services
                         DiscountPercentage = s.DiscountPercentage,
                         TaxAmount = s.TaxAmount,
                         Total = s.Total,
-                        PaymentMethod = s.PaymentMethod,
+                        PaymentMethod = s.PaymentMethod.ToString(),
                         AmountPaid = s.AmountPaid,
                         ChangeAmount = s.ChangeAmount,
                         Status = s.Status.ToString(),
@@ -278,7 +278,7 @@ namespace Berca_Backend.Services
                         DiscountPercentage = s.DiscountPercentage,
                         TaxAmount = s.TaxAmount,
                         Total = s.Total,
-                        PaymentMethod = s.PaymentMethod,
+                        PaymentMethod = s.PaymentMethod.ToString(),
                         AmountPaid = s.AmountPaid,
                         ChangeAmount = s.ChangeAmount,
                         Status = s.Status.ToString(),
@@ -341,8 +341,8 @@ namespace Berca_Backend.Services
                 if (cashierId.HasValue)
                     query = query.Where(s => s.CashierId == cashierId.Value);
 
-                if (!string.IsNullOrEmpty(paymentMethod))
-                    query = query.Where(s => s.PaymentMethod == paymentMethod);
+                if (!string.IsNullOrEmpty(paymentMethod) && Enum.TryParse<PaymentMethod>(paymentMethod, true, out var paymentEnum))
+                    query = query.Where(s => s.PaymentMethod == paymentEnum);
 
                 return await query
                     .OrderByDescending(s => s.SaleDate)
@@ -358,7 +358,7 @@ namespace Berca_Backend.Services
                         DiscountPercentage = s.DiscountPercentage,
                         TaxAmount = s.TaxAmount,
                         Total = s.Total,
-                        PaymentMethod = s.PaymentMethod,
+                        PaymentMethod = s.PaymentMethod.ToString(),
                         AmountPaid = s.AmountPaid,
                         ChangeAmount = s.ChangeAmount,
                         Status = s.Status.ToString(),
@@ -782,7 +782,7 @@ namespace Berca_Backend.Services
                     .GroupBy(s => s.PaymentMethod)
                     .Select(g => new PaymentMethodBreakdownDto
                     {
-                        MethodName = g.Key,
+                        MethodName = g.Key.ToString(),
                         TotalAmount = g.Sum(s => s.Total),
                         TransactionCount = g.Count(),
                         Percentage = totalSales > 0 ? Math.Round((g.Sum(s => s.Total) / totalSales) * 100, 1) : 0
@@ -930,7 +930,7 @@ namespace Berca_Backend.Services
                     .GroupBy(s => s.PaymentMethod)
                     .Select(g => new PaymentMethodSummaryDto
                     {
-                        PaymentMethod = g.Key,
+                        PaymentMethod = g.Key.ToString(),
                         Total = g.Sum(s => s.Total),
                         TransactionCount = g.Count(),
                         Percentage = totalSales > 0 ? (g.Sum(s => s.Total) / totalSales) * 100 : 0
@@ -1142,7 +1142,7 @@ namespace Berca_Backend.Services
                     SaleDate = _timezoneService.Now,
                     Subtotal = request.Total, // Will be updated after calculating all items
                     Total = request.Total,
-                    PaymentMethod = request.PaymentMethod,
+                    PaymentMethod = Enum.Parse<PaymentMethod>(request.PaymentMethod, true),
                     AmountPaid = request.ReceivedAmount,
                     ChangeAmount = request.Change,
                     MemberId = request.MemberId,
@@ -1289,7 +1289,7 @@ namespace Berca_Backend.Services
                     SaleNumber = sale.SaleNumber,
                     SaleDate = sale.SaleDate,
                     Total = sale.Total,
-                    PaymentMethod = sale.PaymentMethod,
+                    PaymentMethod = sale.PaymentMethod.ToString(),
                     ReceivedAmount = sale.AmountPaid,
                     Change = sale.ChangeAmount,
                     MemberId = sale.MemberId,
@@ -1490,5 +1490,525 @@ namespace Berca_Backend.Services
         {
             return (int)(expiryDate.Date - _timezoneService.Today).TotalDays;
         }
+
+        // ==================== MEMBER CREDIT INTEGRATION METHODS ==================== //
+
+        public async Task<CreditValidationResultDto> ValidateMemberCreditAsync(CreditValidationRequestDto request)
+        {
+            try
+            {
+                var member = await _context.Members.FindAsync(request.MemberId);
+                if (member == null)
+                {
+                    return new CreditValidationResultDto
+                    {
+                        IsApproved = false,
+                        DecisionReason = "Member not found",
+                        Errors = new List<string> { "Member does not exist" }
+                    };
+                }
+
+                var creditSummary = await _memberService.GetCreditSummaryAsync(request.MemberId);
+                var availableCredit = await _memberService.CalculateAvailableCreditAsync(request.MemberId);
+                var hasOverdue = await _memberService.HasOverduePaymentsAsync(request.MemberId);
+
+                var result = new CreditValidationResultDto
+                {
+                    MemberName = member.Name,
+                    MemberTier = member.Tier.ToString(),
+                    AvailableCredit = availableCredit,
+                    CreditScore = await _memberService.CalculateCreditScoreAsync(request.MemberId),
+                    CreditUtilization = await _memberService.CalculateCreditUtilizationAsync(request.MemberId)
+                };
+
+                // Check eligibility
+                if (!creditSummary.IsEligible)
+                {
+                    result.IsApproved = false;
+                    result.DecisionReason = "Member not eligible for credit";
+                    result.Errors.Add("Member is not eligible for credit transactions");
+                    return result;
+                }
+
+                // Check overdue payments
+                if (hasOverdue)
+                {
+                    result.IsApproved = false;
+                    result.DecisionReason = "Has overdue payments";
+                    result.Errors.Add("Member has overdue payments");
+                    return result;
+                }
+
+                // Check available credit
+                if (request.RequestedAmount > availableCredit)
+                {
+                    result.IsApproved = false;
+                    result.DecisionReason = "Insufficient available credit";
+                    result.ApprovedAmount = availableCredit;
+                    result.Errors.Add($"Requested amount ({request.RequestedAmount:C}) exceeds available credit ({availableCredit:C})");
+                    return result;
+                }
+
+                // Calculate risk
+                var (riskScore, riskLevel) = await CalculateTransactionRiskAsync(request.MemberId, request.RequestedAmount, request.Items);
+                result.RiskLevel = riskLevel;
+
+                // Check if requires manager approval
+                var maxAllowed = await _memberService.CalculateMaxTransactionAmountAsync(request.MemberId);
+                result.RequiresManagerApproval = request.RequestedAmount > maxAllowed || riskScore > 70;
+
+                if (result.RequiresManagerApproval && !request.OverrideWarnings)
+                {
+                    result.IsApproved = false;
+                    result.DecisionReason = "Requires manager approval";
+                    result.Warnings.Add("Transaction requires manager approval");
+                    result.MaxAllowedAmount = maxAllowed;
+                    return result;
+                }
+
+                // Approve transaction
+                result.IsApproved = true;
+                result.ApprovedAmount = request.RequestedAmount;
+                result.DecisionReason = "Transaction approved";
+                result.MaxAllowedAmount = maxAllowed;
+
+                return result;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error validating member credit: {MemberId}", request.MemberId);
+                return new CreditValidationResultDto
+                {
+                    IsApproved = false,
+                    DecisionReason = "System error during validation",
+                    Errors = new List<string> { "Internal system error" }
+                };
+            }
+        }
+
+        public async Task<SaleDto> CreateSaleWithCreditAsync(CreateSaleWithCreditDto request)
+        {
+            using var transaction = await _context.Database.BeginTransactionAsync();
+            try
+            {
+                // Validate credit first
+                var validation = await ValidateMemberCreditAsync(new CreditValidationRequestDto
+                {
+                    MemberId = request.MemberId,
+                    RequestedAmount = request.CreditAmount,
+                    Items = request.Items,
+                    BranchId = request.BranchId,
+                    OverrideWarnings = request.IsManagerApproved
+                });
+
+                if (!validation.IsApproved)
+                {
+                    throw new InvalidOperationException($"Credit validation failed: {validation.DecisionReason}");
+                }
+
+                // Create the sale
+                var saleNumber = await GenerateSaleNumberAsync();
+                var sale = new Sale
+                {
+                    SaleNumber = saleNumber,
+                    SaleDate = _timezoneService.Now,
+                    Subtotal = request.TotalAmount - (request.TaxAmount ?? 0) - (request.DiscountAmount ?? 0),
+                    DiscountAmount = request.DiscountAmount ?? 0,
+                    TaxAmount = request.TaxAmount ?? 0,
+                    Total = request.TotalAmount,
+                    AmountPaid = request.CashAmount,
+                    ChangeAmount = 0, // No change for credit transactions
+                    PaymentMethod = request.PaymentMethod,
+                    PaymentReference = request.ValidationId,
+                    MemberId = request.MemberId,
+                    CustomerName = validation.MemberName,
+                    CashierId = request.CashierId,
+                    Status = SaleStatus.Completed,
+                    Notes = request.Description,
+                    
+                    // Credit transaction fields
+                    CreditAmount = request.CreditAmount,
+                    IsCreditTransaction = true,
+                    ReceiptPrinted = false,
+                    CreatedAt = _timezoneService.Now,
+                    UpdatedAt = _timezoneService.Now
+                };
+
+                _context.Sales.Add(sale);
+                await _context.SaveChangesAsync();
+
+                // Add sale items
+                foreach (var item in request.Items)
+                {
+                    var saleItem = new SaleItem
+                    {
+                        SaleId = sale.Id,
+                        ProductId = item.ProductId,
+                        Quantity = (int)item.Quantity,
+                        UnitPrice = item.UnitPrice,
+                        Subtotal = item.Subtotal,
+                        DiscountAmount = item.DiscountAmount,
+                        CreatedAt = _timezoneService.Now,
+                        // UpdatedAt property doesn't exist in SaleItem model
+                    };
+
+                    _context.SaleItems.Add(saleItem);
+                }
+
+                await _context.SaveChangesAsync();
+
+                // Grant credit to member
+                var creditGranted = await _memberService.GrantCreditAsync(
+                    request.MemberId, 
+                    request.CreditAmount, 
+                    request.Description ?? $"POS Purchase - Sale #{sale.SaleNumber}",
+                    sale.Id);
+
+                if (!creditGranted)
+                {
+                    throw new InvalidOperationException("Failed to grant credit to member");
+                }
+
+                // Update member statistics
+                await _memberService.UpdateMemberAfterCreditTransactionAsync(request.MemberId, request.CreditAmount, sale.Id);
+
+                await transaction.CommitAsync();
+
+                _logger.LogInformation("Credit sale created successfully. Sale: {SaleId}, Member: {MemberId}, Credit: {CreditAmount}", 
+                    sale.Id, request.MemberId, request.CreditAmount);
+
+                // Return sale DTO
+                return await GetSaleByIdAsync(sale.Id) ?? throw new InvalidOperationException("Failed to retrieve created sale");
+            }
+            catch (Exception ex)
+            {
+                await transaction.RollbackAsync();
+                _logger.LogError(ex, "Error creating credit sale for member {MemberId}", request.MemberId);
+                throw;
+            }
+        }
+
+        public async Task<PaymentResultDto> ApplyCreditPaymentAsync(ApplyCreditPaymentDto request)
+        {
+            try
+            {
+                var sale = await _context.Sales.FindAsync(request.SaleId);
+                if (sale == null)
+                {
+                    return new PaymentResultDto
+                    {
+                        IsSuccess = false,
+                        Message = "Sale not found"
+                    };
+                }
+
+                var member = await _context.Members.FindAsync(request.MemberId);
+                if (member == null)
+                {
+                    return new PaymentResultDto
+                    {
+                        IsSuccess = false,
+                        Message = "Member not found"
+                    };
+                }
+
+                // Validate credit availability
+                var availableCredit = await _memberService.CalculateAvailableCreditAsync(request.MemberId);
+                if (request.CreditAmount > availableCredit)
+                {
+                    return new PaymentResultDto
+                    {
+                        IsSuccess = false,
+                        Message = $"Insufficient credit. Available: {availableCredit:C}, Requested: {request.CreditAmount:C}"
+                    };
+                }
+
+                // Apply credit payment
+                var creditGranted = await _memberService.GrantCreditAsync(
+                    request.MemberId,
+                    request.CreditAmount,
+                    request.Description ?? $"Credit payment for Sale #{sale.SaleNumber}",
+                    request.SaleId);
+
+                if (!creditGranted)
+                {
+                    return new PaymentResultDto
+                    {
+                        IsSuccess = false,
+                        Message = "Failed to process credit payment"
+                    };
+                }
+
+                // Update sale
+                sale.CreditAmount = (sale.CreditAmount ?? 0) + request.CreditAmount;
+                sale.IsCreditTransaction = true;
+                sale.AmountPaid += request.CreditAmount;
+                sale.PaymentMethod = sale.AmountPaid == sale.Total ? PaymentMethod.MemberCredit : PaymentMethod.Mixed;
+                sale.UpdatedAt = _timezoneService.Now;
+
+                await _context.SaveChangesAsync();
+
+                var newCreditSummary = await _memberService.GetCreditSummaryAsync(request.MemberId);
+
+                return new PaymentResultDto
+                {
+                    IsSuccess = true,
+                    Message = "Credit payment applied successfully",
+                    ProcessedAmount = request.CreditAmount,
+                    RemainingBalance = sale.Total - sale.AmountPaid,
+                    ProcessedAt = _timezoneService.Now,
+                    TransactionReference = sale.SaleNumber,
+                    NewAvailableCredit = await _memberService.CalculateAvailableCreditAsync(request.MemberId),
+                    NewCurrentDebt = newCreditSummary.CurrentDebt,
+                    NewCreditStatus = await _memberService.DetermineCreditStatusAsync(request.MemberId)
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error applying credit payment for sale {SaleId}", request.SaleId);
+                return new PaymentResultDto
+                {
+                    IsSuccess = false,
+                    Message = "System error processing credit payment"
+                };
+            }
+        }
+
+        public async Task<POSMemberCreditDto?> GetMemberCreditForPOSAsync(string identifier)
+        {
+            try
+            {
+                return await _memberService.GetMemberCreditForPOSAsync(identifier);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting member credit for POS: {Identifier}", identifier);
+                return null;
+            }
+        }
+
+        public async Task<bool> ProcessCreditTransactionAsync(int saleId, int memberId, decimal creditAmount)
+        {
+            try
+            {
+                // This is handled in CreateSaleWithCreditAsync and ApplyCreditPaymentAsync
+                // This method provides additional processing if needed
+                await Task.CompletedTask;
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error processing credit transaction: {SaleId}", saleId);
+                return false;
+            }
+        }
+
+        public async Task<SaleCreditInfoDto?> GetSaleCreditInfoAsync(int saleId)
+        {
+            try
+            {
+                var sale = await _context.Sales
+                    .Include(s => s.Member)
+                    .Where(s => s.Id == saleId && s.IsCreditTransaction)
+                    .FirstOrDefaultAsync();
+
+                if (sale == null) return null;
+
+                var creditSummary = sale.MemberId.HasValue ? 
+                    await _memberService.GetCreditSummaryAsync(sale.MemberId.Value) : null;
+
+                return new SaleCreditInfoDto
+                {
+                    SaleId = sale.Id,
+                    SaleNumber = sale.SaleNumber,
+                    MemberId = sale.MemberId ?? 0,
+                    MemberName = sale.Member?.Name ?? sale.CustomerName ?? "",
+                    MemberNumber = sale.Member?.MemberNumber ?? "",
+                    CreditAmount = sale.CreditAmount ?? 0,
+                    TotalSaleAmount = sale.Total,
+                    CashAmount = sale.AmountPaid - (sale.CreditAmount ?? 0),
+                    TransactionDate = sale.SaleDate,
+                    PaymentTerms = creditSummary?.PaymentTermDays ?? 30,
+                    
+                    // Updated member credit status after transaction
+                    NewCurrentDebt = creditSummary?.CurrentDebt ?? 0,
+                    NewAvailableCredit = sale.MemberId.HasValue ? 
+                        await _memberService.CalculateAvailableCreditAsync(sale.MemberId.Value) : 0,
+                    NewCreditStatus = sale.MemberId.HasValue ? 
+                        await _memberService.DetermineCreditStatusAsync(sale.MemberId.Value) : "Unknown",
+                    
+                    // Display properties
+                    CreditAmountDisplay = _memberService.FormatCreditAmount(sale.CreditAmount ?? 0),
+                    NewCurrentDebtDisplay = _memberService.FormatCreditAmount(creditSummary?.CurrentDebt ?? 0),
+                    NewAvailableCreditDisplay = sale.MemberId.HasValue ? 
+                        _memberService.FormatCreditAmount(await _memberService.CalculateAvailableCreditAsync(sale.MemberId.Value)) : "N/A"
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting sale credit info: {SaleId}", saleId);
+                return null;
+            }
+        }
+
+        public async Task<MemberCreditEligibilityDto?> CheckMemberCreditEligibilityAsync(int memberId)
+        {
+            try
+            {
+                var member = await _context.Members.FindAsync(memberId);
+                if (member == null) return null;
+
+                var creditSummary = await _memberService.GetCreditSummaryAsync(memberId);
+                var availableCredit = await _memberService.CalculateAvailableCreditAsync(memberId);
+                var hasOverdue = await _memberService.HasOverduePaymentsAsync(memberId);
+                var creditStatus = await _memberService.DetermineCreditStatusAsync(memberId);
+
+                var restrictions = new List<string>();
+                var warnings = new List<string>();
+
+                if (!creditSummary.IsEligible)
+                    restrictions.Add("Not eligible for credit");
+                
+                if (hasOverdue)
+                {
+                    restrictions.Add("Has overdue payments");
+                    warnings.Add("Member has overdue payments");
+                }
+
+                if (creditSummary.CreditUtilization > 80)
+                    warnings.Add("High credit utilization");
+
+                return new MemberCreditEligibilityDto
+                {
+                    MemberId = memberId,
+                    MemberName = member.Name,
+                    MemberNumber = member.MemberNumber,
+                    IsEligibleForCredit = creditSummary.IsEligible && !hasOverdue,
+                    EligibilityReason = creditSummary.IsEligible ? 
+                        (hasOverdue ? "Has overdue payments" : "Eligible") : "Not eligible",
+                    CreditLimit = creditSummary.CreditLimit,
+                    CurrentDebt = creditSummary.CurrentDebt,
+                    AvailableCredit = availableCredit,
+                    CreditStatus = creditStatus,
+                    CreditScore = await _memberService.CalculateCreditScoreAsync(memberId),
+                    MaxTransactionAmount = await _memberService.CalculateMaxTransactionAmountAsync(memberId),
+                    RequiresManagerApproval = false, // Calculate based on business rules
+                    CreditUtilization = await _memberService.CalculateCreditUtilizationAsync(memberId),
+                    HasOverduePayments = hasOverdue,
+                    Restrictions = restrictions,
+                    Warnings = warnings,
+                    
+                    // Display properties
+                    CreditLimitDisplay = _memberService.FormatCreditAmount(creditSummary.CreditLimit),
+                    AvailableCreditDisplay = _memberService.FormatCreditAmount(availableCredit),
+                    StatusColor = _memberService.GetCreditStatusColor(creditStatus)
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error checking member credit eligibility: {MemberId}", memberId);
+                return null;
+            }
+        }
+
+        public async Task<bool> ValidateCreditAmountAsync(int memberId, decimal requestedAmount, List<SaleItemDto> items)
+        {
+            try
+            {
+                var availableCredit = await _memberService.CalculateAvailableCreditAsync(memberId);
+                var maxTransactionAmount = await _memberService.CalculateMaxTransactionAmountAsync(memberId);
+                
+                return requestedAmount <= availableCredit && requestedAmount <= maxTransactionAmount;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error validating credit amount: {MemberId}", memberId);
+                return false;
+            }
+        }
+
+        public async Task<(int riskScore, string riskLevel)> CalculateTransactionRiskAsync(int memberId, decimal amount, List<SaleItemDto> items)
+        {
+            try
+            {
+                var creditSummary = await _memberService.GetCreditSummaryAsync(memberId);
+                var creditUtilization = await _memberService.CalculateCreditUtilizationAsync(memberId);
+                
+                int riskScore = 0;
+                
+                // Base risk on credit utilization
+                riskScore += (int)(creditUtilization * 0.5m); // 0-50 points
+                
+                // Risk based on transaction amount vs credit limit
+                var amountRatio = (amount / creditSummary.CreditLimit) * 100;
+                riskScore += (int)(amountRatio * 0.3m); // 0-30 points
+                
+                // Risk based on payment history
+                riskScore += creditSummary.TotalDelayedPayments * 2; // 2 points per delay
+                
+                // Determine risk level
+                string riskLevel = riskScore switch
+                {
+                    < 30 => "Low",
+                    < 60 => "Medium", 
+                    < 80 => "High",
+                    _ => "Critical"
+                };
+                
+                return (Math.Min(100, riskScore), riskLevel);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error calculating transaction risk: {MemberId}", memberId);
+                return (50, "Medium"); // Default to medium risk
+            }
+        }
+
+        public async Task<int> GetMemberPaymentTermsAsync(int memberId)
+        {
+            try
+            {
+                var member = await _context.Members.FindAsync(memberId);
+                if (member == null) return 30; // Default terms
+                
+                // Payment terms based on tier
+                return member.Tier switch
+                {
+                    MembershipTier.Platinum => 45,
+                    MembershipTier.Gold => 35,
+                    MembershipTier.Silver => 30,
+                    MembershipTier.Bronze => 15,
+                    _ => 30
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting member payment terms: {MemberId}", memberId);
+                return 30; // Default terms
+            }
+        }
+
+        public async Task<bool> UpdateSaleWithCreditDetailsAsync(int saleId, int creditTransactionId, decimal creditAmount)
+        {
+            try
+            {
+                var sale = await _context.Sales.FindAsync(saleId);
+                if (sale == null) return false;
+                
+                sale.CreditTransactionId = creditTransactionId;
+                sale.CreditAmount = creditAmount;
+                sale.IsCreditTransaction = true;
+                sale.UpdatedAt = _timezoneService.Now;
+                
+                await _context.SaveChangesAsync();
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error updating sale with credit details: {SaleId}", saleId);
+                return false;
+            }
+        }
+
     }
 }

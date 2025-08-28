@@ -493,6 +493,27 @@ builder.Services.AddAuthorization(options =>
         {
             return ValidateBranchHierarchyAccess(context);
         }));
+
+    // ===== MEMBER CREDIT - POS INTEGRATION POLICIES ===== //
+
+    // POS credit transaction policies
+    options.AddPolicy("POS.CreditTransaction", policy => 
+        policy.RequireRole("Cashier", "Manager", "BranchManager", "HeadManager", "Admin"));
+        
+    options.AddPolicy("POS.CreditValidation", policy => 
+        policy.RequireRole("Cashier", "Manager", "BranchManager", "HeadManager", "Admin"));
+
+    // Member credit information access for different modules
+    options.AddPolicy("Member.CreditInfo", policy => 
+        policy.RequireRole("User", "Manager", "BranchManager", "HeadManager", "Admin"));
+
+    // High-value credit transaction approval
+    options.AddPolicy("POS.CreditApproval", policy => 
+        policy.RequireRole("Manager", "BranchManager", "HeadManager", "Admin"));
+
+    // Credit payment processing
+    options.AddPolicy("POS.CreditPayment", policy => 
+        policy.RequireRole("Cashier", "Manager", "BranchManager", "HeadManager", "Admin"));
 });
 
 // ===== CUSTOM AUTHORIZATION HELPER FUNCTIONS ===== //

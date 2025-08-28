@@ -30,7 +30,7 @@ namespace Berca_Backend.Models
     }
 
     /// <summary>
-    /// Payment Method enumeration for supplier payments
+    /// Payment Method enumeration for all payment types (supplier and POS)
     /// </summary>
     public enum PaymentMethod
     {
@@ -38,7 +38,10 @@ namespace Berca_Backend.Models
         Check = 1,
         Cash = 2,
         CreditCard = 3,
-        DigitalPayment = 4
+        DigitalPayment = 4,
+        MemberCredit = 5,    // NEW: Member credit payment for POS
+        Mixed = 6,           // NEW: Combination payment (cash + credit)
+        Points = 7           // Member points payment
     }
 
     /// <summary>

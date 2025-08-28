@@ -105,12 +105,23 @@ namespace Berca_Backend.DTOs
         public DateTime? LastReminderDate { get; set; }
         
         // Computed Properties
+        public bool IsEligible { get; set; } // ✅ Added: Alternative name for IsEligibleForCredit
         public bool IsEligibleForCredit { get; set; }
         public string RiskLevel { get; set; } = string.Empty;
         public bool RequiresAttention { get; set; }
         public string FormattedCreditLimit { get; set; } = string.Empty;
         public string FormattedCurrentDebt { get; set; } = string.Empty;
         public string FormattedAvailableCredit { get; set; } = string.Empty;
+        
+        // ✅ Added: Additional properties referenced in POSService
+        public int PaymentTermDays { get; set; } = 30; // Default 30 days payment term
+        public int TotalDelayedPayments { get; set; } = 0;
+        
+        // ✅ Added: Additional properties referenced in MemberService
+        public DateTime? NextPaymentDue { get; set; }
+        public DateTime? LastCreditDate { get; set; }
+        public int TotalTransactions { get; set; } = 0;
+        public decimal TotalCreditUsed { get; set; } = 0;
     }
 
     // ==================== DEBT MANAGEMENT DTOs ==================== //

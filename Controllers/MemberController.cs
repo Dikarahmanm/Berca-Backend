@@ -1,6 +1,7 @@
-// Controllers/MemberController.cs - Sprint 2 Member Controller Implementation (FIXED)
+// Controllers/MemberController.cs - Enhanced with Member Credit Integration
 using Berca_Backend.DTOs;
 using Berca_Backend.Services;
+using Berca_Backend.Services.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System.Security.Claims;
@@ -12,6 +13,7 @@ namespace Berca_Backend.Controllers
     public class MemberController : ControllerBase
     {
         private readonly IMemberService _memberService;
+        // TODO: Add IMemberCreditService when implementation is complete
         private readonly ILogger<MemberController> _logger;
 
         public MemberController(IMemberService memberService, ILogger<MemberController> logger)
@@ -588,6 +590,198 @@ namespace Berca_Backend.Controllers
                 });
             }
         }
+
+        // ==================== MEMBER CREDIT INTEGRATION ENDPOINTS ==================== //
+
+        /// <summary>
+        /// Get member with credit information for membership module
+        /// </summary>
+        [HttpGet("{id}/with-credit")]
+        [Authorize(Policy = "Member.CreditInfo")]
+        public async Task<ActionResult<ApiResponse<MemberWithCreditDto>>> GetMemberWithCredit(int id)
+        {
+            try
+            {
+                var memberWithCredit = await _memberService.GetMemberWithCreditAsync(id);
+                if (memberWithCredit == null)
+                {
+                    return NotFound(new ApiResponse<MemberWithCreditDto>
+                    {
+                        Success = false,
+                        Message = "Member not found"
+                    });
+                }
+
+                return Ok(new ApiResponse<MemberWithCreditDto>
+                {
+                    Success = true,
+                    Data = memberWithCredit,
+                    Message = "Member with credit information retrieved successfully"
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error retrieving member with credit: {MemberId}", id);
+                return StatusCode(500, new ApiResponse<MemberWithCreditDto>
+                {
+                    Success = false,
+                    Message = "Internal server error"
+                });
+            }
+        }
+
+        /// <summary>
+        /// Search members with credit information and filters
+        /// </summary>
+        [HttpGet("search-with-credit")]
+        [Authorize(Policy = "Member.CreditInfo")]
+        public async Task<ActionResult<ApiResponse<PagedResult<MemberWithCreditDto>>>> SearchMembersWithCredit([FromQuery] MemberSearchWithCreditDto filter)
+        {
+            try
+            {
+                if (filter.PageSize > 100) filter.PageSize = 100; // Limit page size
+
+                var result = await _memberService.SearchMembersWithCreditAsync(filter);
+
+                return Ok(new ApiResponse<PagedResult<MemberWithCreditDto>>
+                {
+                    Success = true,
+                    Data = result,
+                    Message = $"Retrieved {result.Items.Count} members with credit information"
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error searching members with credit");
+                return StatusCode(500, new ApiResponse<PagedResult<MemberWithCreditDto>>
+                {
+                    Success = false,
+                    Message = "Internal server error"
+                });
+            }
+        }
+
+        /// <summary>
+        /// Get quick credit status for UI components
+        /// </summary>
+        [HttpGet("{id}/credit-status")]
+        [Authorize(Policy = "Member.CreditInfo")]
+        public async Task<ActionResult<ApiResponse<MemberCreditStatusDto>>> GetMemberCreditStatus(int id)
+        {
+            try
+            {
+                var creditStatus = await _memberService.GetMemberCreditStatusAsync(id);
+                if (creditStatus == null)
+                {
+                    return NotFound(new ApiResponse<MemberCreditStatusDto>
+                    {
+                        Success = false,
+                        Message = "Member not found"
+                    });
+                }
+
+                return Ok(new ApiResponse<MemberCreditStatusDto>
+                {
+                    Success = true,
+                    Data = creditStatus,
+                    Message = "Member credit status retrieved successfully"
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error retrieving member credit status: {MemberId}", id);
+                return StatusCode(500, new ApiResponse<MemberCreditStatusDto>
+                {
+                    Success = false,
+                    Message = "Internal server error"
+                });
+            }
+        }
+
+        /// <summary>
+        /// Get member credit info for POS lookup (supports phone, member number, or ID)
+        /// </summary>
+        [HttpGet("credit-lookup/{identifier}")]
+        [Authorize(Policy = "POS.CreditValidation")]
+        public async Task<ActionResult<ApiResponse<POSMemberCreditDto>>> GetMemberCreditForPOS(string identifier)
+        {
+            try
+            {
+                var memberCreditInfo = await _memberService.GetMemberCreditForPOSAsync(identifier);
+                if (memberCreditInfo == null)
+                {
+                    return NotFound(new ApiResponse<POSMemberCreditDto>
+                    {
+                        Success = false,
+                        Message = "Member not found with the provided identifier"
+                    });
+                }
+
+                _logger.LogInformation("POS member credit lookup successful for identifier: {Identifier}", identifier);
+
+                return Ok(new ApiResponse<POSMemberCreditDto>
+                {
+                    Success = true,
+                    Data = memberCreditInfo,
+                    Message = "Member credit information retrieved successfully"
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error retrieving member credit for POS lookup: {Identifier}", identifier);
+                return StatusCode(500, new ApiResponse<POSMemberCreditDto>
+                {
+                    Success = false,
+                    Message = "Internal server error"
+                });
+            }
+        }
+
+        /// <summary>
+        /// Update member statistics after credit transaction
+        /// </summary>
+        [HttpPost("{id}/update-after-credit")]
+        [Authorize(Policy = "POS.CreditTransaction")]
+        public async Task<ActionResult<ApiResponse<bool>>> UpdateMemberAfterCreditTransaction(
+            int id, 
+            [FromBody] UpdateMemberAfterCreditRequest request)
+        {
+            try
+            {
+                var result = await _memberService.UpdateMemberAfterCreditTransactionAsync(
+                    id, 
+                    request.Amount, 
+                    request.SaleId);
+
+                if (!result)
+                {
+                    return NotFound(new ApiResponse<bool>
+                    {
+                        Success = false,
+                        Message = "Member not found"
+                    });
+                }
+
+                _logger.LogInformation("Member updated after credit transaction. Member: {MemberId}, Amount: {Amount}, Sale: {SaleId}", 
+                    id, request.Amount, request.SaleId);
+
+                return Ok(new ApiResponse<bool>
+                {
+                    Success = true,
+                    Data = true,
+                    Message = "Member statistics updated successfully after credit transaction"
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error updating member after credit transaction: {MemberId}", id);
+                return StatusCode(500, new ApiResponse<bool>
+                {
+                    Success = false,
+                    Message = "Internal server error"
+                });
+            }
+        }
     }
 
     // Request DTOs
@@ -604,5 +798,11 @@ namespace Berca_Backend.Controllers
         public int Points { get; set; }
         public string Description { get; set; } = string.Empty;
         public string? ReferenceNumber { get; set; }
+    }
+
+    public class UpdateMemberAfterCreditRequest
+    {
+        public decimal Amount { get; set; }
+        public int SaleId { get; set; }
     }
 }

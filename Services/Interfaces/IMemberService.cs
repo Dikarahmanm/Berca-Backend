@@ -143,5 +143,114 @@ namespace Berca_Backend.Services
         /// <param name="memberId">Member ID</param>
         /// <returns>New credit limit amount</returns>
         Task<decimal> UpdateCreditLimitAsync(int memberId);
+
+        // ==================== MEMBER CREDIT INTEGRATION METHODS ==================== //
+
+        /// <summary>
+        /// Get member with comprehensive credit information
+        /// </summary>
+        /// <param name="memberId">Member ID</param>
+        /// <returns>Member with complete credit details</returns>
+        Task<MemberWithCreditDto?> GetMemberWithCreditAsync(int memberId);
+
+        /// <summary>
+        /// Search members with credit information and advanced filters
+        /// </summary>
+        /// <param name="filter">Search criteria including credit filters</param>
+        /// <returns>Paginated result of members with credit info</returns>
+        Task<PagedResult<MemberWithCreditDto>> SearchMembersWithCreditAsync(MemberSearchWithCreditDto filter);
+
+        /// <summary>
+        /// Get quick credit status for UI components
+        /// </summary>
+        /// <param name="memberId">Member ID</param>
+        /// <returns>Concise credit status information</returns>
+        Task<MemberCreditStatusDto?> GetMemberCreditStatusAsync(int memberId);
+
+        /// <summary>
+        /// Get member credit information optimized for POS display
+        /// </summary>
+        /// <param name="identifier">Phone, member number, or ID as string</param>
+        /// <returns>POS-optimized member credit information</returns>
+        Task<POSMemberCreditDto?> GetMemberCreditForPOSAsync(string identifier);
+
+        /// <summary>
+        /// Update member statistics after credit transaction
+        /// </summary>
+        /// <param name="memberId">Member ID</param>
+        /// <param name="amount">Credit amount granted</param>
+        /// <param name="saleId">Related sale ID</param>
+        /// <returns>Success status</returns>
+        Task<bool> UpdateMemberAfterCreditTransactionAsync(int memberId, decimal amount, int saleId);
+
+        /// <summary>
+        /// Find member by various identifiers (phone, member number, ID)
+        /// </summary>
+        /// <param name="identifier">Search identifier</param>
+        /// <returns>Member or null if not found</returns>
+        Task<Member?> FindMemberAsync(string identifier);
+
+        /// <summary>
+        /// Calculate available credit considering current debt and limits
+        /// </summary>
+        /// <param name="memberId">Member ID</param>
+        /// <returns>Available credit amount</returns>
+        Task<decimal> CalculateAvailableCreditAsync(int memberId);
+
+        /// <summary>
+        /// Get member credit utilization percentage
+        /// </summary>
+        /// <param name="memberId">Member ID</param>
+        /// <returns>Credit utilization as percentage (0-100)</returns>
+        Task<decimal> CalculateCreditUtilizationAsync(int memberId);
+
+        /// <summary>
+        /// Determine member credit status based on payment behavior
+        /// </summary>
+        /// <param name="memberId">Member ID</param>
+        /// <returns>Credit status (Good, Warning, Bad)</returns>
+        Task<string> DetermineCreditStatusAsync(int memberId);
+
+        /// <summary>
+        /// Check if member has any overdue payments
+        /// </summary>
+        /// <param name="memberId">Member ID</param>
+        /// <returns>True if has overdue payments</returns>
+        Task<bool> HasOverduePaymentsAsync(int memberId);
+
+        /// <summary>
+        /// Get days until next payment due
+        /// </summary>
+        /// <param name="memberId">Member ID</param>
+        /// <returns>Days until next payment (negative if overdue)</returns>
+        Task<int> GetDaysUntilNextPaymentAsync(int memberId);
+
+        /// <summary>
+        /// Calculate maximum allowed transaction for member
+        /// </summary>
+        /// <param name="memberId">Member ID</param>
+        /// <returns>Maximum transaction amount</returns>
+        Task<decimal> CalculateMaxTransactionAmountAsync(int memberId);
+
+        /// <summary>
+        /// Get member credit status color for UI display
+        /// </summary>
+        /// <param name="creditStatus">Credit status string</param>
+        /// <returns>Color code (Green, Orange, Red)</returns>
+        string GetCreditStatusColor(string creditStatus);
+
+        /// <summary>
+        /// Format credit amount for display with currency
+        /// </summary>
+        /// <param name="amount">Amount to format</param>
+        /// <returns>Formatted currency string</returns>
+        string FormatCreditAmount(decimal amount);
+
+        /// <summary>
+        /// Get member credit status message for POS display
+        /// </summary>
+        /// <param name="memberCredit">Member credit summary</param>
+        /// <returns>User-friendly status message</returns>
+        string GetCreditStatusMessage(MemberCreditSummaryDto memberCredit);
     }
 }
