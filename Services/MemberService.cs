@@ -1283,5 +1283,425 @@ namespace Berca_Backend.Services
             await Task.CompletedTask;
             return 0;
         }
+
+        // ==================== MEMBER CREDIT INTEGRATION METHODS ==================== //
+
+        public async Task<MemberWithCreditDto?> GetMemberWithCreditAsync(int memberId)
+        {
+            try
+            {
+                var member = await _context.Members
+                    .Where(m => m.Id == memberId)
+                    .FirstOrDefaultAsync();
+
+                if (member == null) return null;
+
+                var memberDto = await GetMemberByIdAsync(memberId);
+                if (memberDto == null) return null;
+
+                var creditSummary = await GetCreditSummaryAsync(memberId);
+
+                return new MemberWithCreditDto
+                {
+                    // Base member properties
+                    Id = memberDto.Id,
+                    Name = memberDto.Name,
+                    Phone = memberDto.Phone,
+                    Email = memberDto.Email,
+                    MemberNumber = memberDto.MemberNumber,
+                    Tier = memberDto.Tier,
+                    TotalPoints = memberDto.TotalPoints,
+                    TotalSpent = memberDto.TotalSpent,
+                    LastTransactionDate = memberDto.LastTransactionDate,
+                    IsActive = memberDto.IsActive,
+                    JoinDate = memberDto.JoinDate,
+
+                    // Credit properties
+                    CreditLimit = creditSummary.CreditLimit,
+                    CurrentDebt = creditSummary.CurrentDebt,
+                    AvailableCredit = await CalculateAvailableCreditAsync(memberId),
+                    CreditStatus = await DetermineCreditStatusAsync(memberId),
+                    CreditScore = await CalculateCreditScoreAsync(memberId),
+                    NextPaymentDueDate = creditSummary.NextPaymentDue,
+                    IsEligibleForCredit = creditSummary.IsEligible,
+                    CreditUtilization = await CalculateCreditUtilizationAsync(memberId),
+                    PaymentDelays = creditSummary.TotalDelayedPayments,
+                    LifetimeDebt = creditSummary.TotalCreditUsed,
+                    PaymentTerms = creditSummary.PaymentTermDays,
+                    LastCreditUsed = creditSummary.LastCreditDate,
+                    LastPaymentDate = creditSummary.LastPaymentDate,
+
+                    // Display properties
+                    CreditLimitDisplay = FormatCreditAmount(creditSummary.CreditLimit),
+                    CurrentDebtDisplay = FormatCreditAmount(creditSummary.CurrentDebt),
+                    AvailableCreditDisplay = FormatCreditAmount(await CalculateAvailableCreditAsync(memberId)),
+                    CreditUtilizationDisplay = $"{await CalculateCreditUtilizationAsync(memberId):F1}%"
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting member with credit info: {MemberId}", memberId);
+                return null;
+            }
+        }
+
+        public async Task<PagedResult<MemberWithCreditDto>> SearchMembersWithCreditAsync(MemberSearchWithCreditDto filter)
+        {
+            try
+            {
+                var query = _context.Members.AsQueryable();
+
+                // Apply base filters
+                if (!string.IsNullOrEmpty(filter.Search))
+                {
+                    query = query.Where(m => m.Name.Contains(filter.Search) || 
+                                           m.Phone.Contains(filter.Search) || 
+                                           m.MemberNumber.Contains(filter.Search));
+                }
+
+                if (filter.IsActive.HasValue)
+                {
+                    query = query.Where(m => m.IsActive == filter.IsActive.Value);
+                }
+
+                if (!string.IsNullOrEmpty(filter.Tier) && Enum.TryParse<MembershipTier>(filter.Tier, true, out var tierEnum))
+                {
+                    query = query.Where(m => m.Tier == tierEnum);
+                }
+
+                // For credit filters, we'll need to join with credit data
+                // For now, get all matching members and filter in memory
+                // TODO: Optimize with proper SQL joins
+                
+                var totalCount = await query.CountAsync();
+                
+                var members = await query
+                    .OrderBy(m => m.Name)
+                    .Skip((filter.Page - 1) * filter.PageSize)
+                    .Take(filter.PageSize)
+                    .ToListAsync();
+
+                var membersWithCredit = new List<MemberWithCreditDto>();
+                
+                foreach (var member in members)
+                {
+                    var memberWithCredit = await GetMemberWithCreditAsync(member.Id);
+                    if (memberWithCredit != null)
+                    {
+                        // Apply credit-specific filters
+                        if (filter.HasOutstandingDebt.HasValue && 
+                            (memberWithCredit.CurrentDebt > 0) != filter.HasOutstandingDebt.Value)
+                            continue;
+
+                        if (!string.IsNullOrEmpty(filter.CreditStatus) && 
+                            memberWithCredit.CreditStatus != filter.CreditStatus)
+                            continue;
+
+                        if (filter.IsOverdue.HasValue && 
+                            await HasOverduePaymentsAsync(member.Id) != filter.IsOverdue.Value)
+                            continue;
+
+                        membersWithCredit.Add(memberWithCredit);
+                    }
+                }
+
+                return new PagedResult<MemberWithCreditDto>(membersWithCredit, totalCount, filter.Page, filter.PageSize);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error searching members with credit");
+                return new PagedResult<MemberWithCreditDto>(new List<MemberWithCreditDto>(), 0, filter.Page, filter.PageSize);
+            }
+        }
+
+        public async Task<MemberCreditStatusDto?> GetMemberCreditStatusAsync(int memberId)
+        {
+            try
+            {
+                var creditSummary = await GetCreditSummaryAsync(memberId);
+                var availableCredit = await CalculateAvailableCreditAsync(memberId);
+                var creditStatus = await DetermineCreditStatusAsync(memberId);
+                var hasOverdue = await HasOverduePaymentsAsync(memberId);
+
+                return new MemberCreditStatusDto
+                {
+                    MemberId = memberId,
+                    CreditLimit = creditSummary.CreditLimit,
+                    CurrentDebt = creditSummary.CurrentDebt,
+                    AvailableCredit = availableCredit,
+                    CreditStatus = creditStatus,
+                    CreditScore = await CalculateCreditScoreAsync(memberId),
+                    IsEligibleForCredit = creditSummary.IsEligible,
+                    HasOverduePayments = hasOverdue,
+                    NextPaymentDueDate = creditSummary.NextPaymentDue,
+                    CreditUtilization = await CalculateCreditUtilizationAsync(memberId),
+                    StatusMessage = GetCreditStatusMessage(creditSummary),
+                    StatusColor = GetCreditStatusColor(creditStatus),
+                    CanUseCredit = creditSummary.IsEligible && availableCredit > 0 && !hasOverdue,
+                    MaxAllowedTransaction = await CalculateMaxTransactionAmountAsync(memberId)
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting member credit status: {MemberId}", memberId);
+                return null;
+            }
+        }
+
+        public async Task<POSMemberCreditDto?> GetMemberCreditForPOSAsync(string identifier)
+        {
+            try
+            {
+                var member = await FindMemberAsync(identifier);
+                if (member == null) return null;
+
+                var creditSummary = await GetCreditSummaryAsync(member.Id);
+                var creditStatus = await DetermineCreditStatusAsync(member.Id);
+                var availableCredit = await CalculateAvailableCreditAsync(member.Id);
+                var hasOverdue = await HasOverduePaymentsAsync(member.Id);
+
+                return new POSMemberCreditDto
+                {
+                    MemberId = member.Id,
+                    MemberNumber = member.MemberNumber,
+                    Name = member.Name,
+                    Phone = member.Phone,
+                    Email = member.Email ?? string.Empty,
+                    Tier = member.Tier.ToString(),
+                    TotalPoints = member.TotalPoints,
+
+                    // Credit information
+                    CreditLimit = creditSummary.CreditLimit,
+                    CurrentDebt = creditSummary.CurrentDebt,
+                    AvailableCredit = availableCredit,
+                    CreditStatus = creditStatus,
+                    CreditScore = await CalculateCreditScoreAsync(member.Id),
+                    CanUseCredit = creditSummary.IsEligible && availableCredit > 0 && !hasOverdue,
+                    IsEligibleForCredit = creditSummary.IsEligible,
+                    MaxTransactionAmount = await CalculateMaxTransactionAmountAsync(member.Id),
+
+                    // Status indicators
+                    StatusMessage = GetCreditStatusMessage(creditSummary),
+                    StatusColor = GetCreditStatusColor(creditStatus),
+                    HasWarnings = hasOverdue || creditSummary.CreditUtilization > 80,
+                    Warnings = hasOverdue ? new List<string> { "Has overdue payments" } : new(),
+
+                    // Payment information
+                    HasOverduePayments = hasOverdue,
+                    NextPaymentDueDate = creditSummary.NextPaymentDue,
+                    DaysUntilNextPayment = await GetDaysUntilNextPaymentAsync(member.Id),
+
+                    // Display properties for POS UI
+                    CreditLimitDisplay = FormatCreditAmount(creditSummary.CreditLimit),
+                    AvailableCreditDisplay = FormatCreditAmount(availableCredit),
+                    CurrentDebtDisplay = FormatCreditAmount(creditSummary.CurrentDebt),
+
+                    // Usage stats
+                    CreditUtilization = await CalculateCreditUtilizationAsync(member.Id),
+                    LastCreditUsed = creditSummary.LastCreditDate,
+                    LastPaymentDate = creditSummary.LastPaymentDate,
+                    TotalCreditTransactions = creditSummary.TotalTransactions
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting member credit for POS: {Identifier}", identifier);
+                return null;
+            }
+        }
+
+        public async Task<bool> UpdateMemberAfterCreditTransactionAsync(int memberId, decimal amount, int saleId)
+        {
+            try
+            {
+                var member = await _context.Members.FindAsync(memberId);
+                if (member == null) return false;
+
+                // Update member statistics
+                member.TotalSpent += amount;
+                member.TotalTransactions++;
+                member.LastTransactionDate = DateTime.UtcNow;
+                member.UpdatedAt = DateTime.UtcNow;
+
+                // Update tier if needed
+                await UpdateMemberTierAsync(memberId);
+
+                await _context.SaveChangesAsync();
+
+                _logger.LogInformation("Member {MemberId} updated after credit transaction {SaleId}, amount {Amount}", 
+                    memberId, saleId, amount);
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error updating member after credit transaction: {MemberId}", memberId);
+                return false;
+            }
+        }
+
+        public async Task<Member?> FindMemberAsync(string identifier)
+        {
+            try
+            {
+                // Try to parse as ID first
+                if (int.TryParse(identifier, out int memberId))
+                {
+                    var memberById = await _context.Members.FindAsync(memberId);
+                    if (memberById != null) return memberById;
+                }
+
+                // Search by phone or member number
+                return await _context.Members
+                    .Where(m => m.Phone == identifier || m.MemberNumber == identifier)
+                    .FirstOrDefaultAsync();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error finding member: {Identifier}", identifier);
+                return null;
+            }
+        }
+
+        public async Task<decimal> CalculateAvailableCreditAsync(int memberId)
+        {
+            try
+            {
+                var creditSummary = await GetCreditSummaryAsync(memberId);
+                return Math.Max(0, creditSummary.CreditLimit - creditSummary.CurrentDebt);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error calculating available credit: {MemberId}", memberId);
+                return 0;
+            }
+        }
+
+        public async Task<decimal> CalculateCreditUtilizationAsync(int memberId)
+        {
+            try
+            {
+                var creditSummary = await GetCreditSummaryAsync(memberId);
+                if (creditSummary.CreditLimit == 0) return 0;
+                
+                return (creditSummary.CurrentDebt / creditSummary.CreditLimit) * 100;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error calculating credit utilization: {MemberId}", memberId);
+                return 0;
+            }
+        }
+
+        public async Task<string> DetermineCreditStatusAsync(int memberId)
+        {
+            try
+            {
+                var hasOverdue = await HasOverduePaymentsAsync(memberId);
+                var utilization = await CalculateCreditUtilizationAsync(memberId);
+
+                if (hasOverdue) return "Bad";
+                if (utilization > 80) return "Warning";
+                return "Good";
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error determining credit status: {MemberId}", memberId);
+                return "Unknown";
+            }
+        }
+
+        public async Task<bool> HasOverduePaymentsAsync(int memberId)
+        {
+            try
+            {
+                var now = DateTime.UtcNow;
+                return await _context.MemberCreditTransactions
+                    .Where(t => t.MemberId == memberId && 
+                               t.Status == CreditTransactionStatus.Pending &&
+                               t.DueDate.HasValue && t.DueDate < now)
+                    .AnyAsync();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error checking overdue payments: {MemberId}", memberId);
+                return false;
+            }
+        }
+
+        public async Task<int> GetDaysUntilNextPaymentAsync(int memberId)
+        {
+            try
+            {
+                var now = DateTime.UtcNow;
+                var nextPayment = await _context.MemberCreditTransactions
+                    .Where(t => t.MemberId == memberId && 
+                               t.Status == CreditTransactionStatus.Pending &&
+                               t.DueDate >= now)
+                    .OrderBy(t => t.DueDate)
+                    .FirstOrDefaultAsync();
+
+                if (nextPayment == null || !nextPayment.DueDate.HasValue) return int.MaxValue;
+                
+                return (int)(nextPayment.DueDate.Value - now).TotalDays;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting days until next payment: {MemberId}", memberId);
+                return 0;
+            }
+        }
+
+        public async Task<decimal> CalculateMaxTransactionAmountAsync(int memberId)
+        {
+            try
+            {
+                var availableCredit = await CalculateAvailableCreditAsync(memberId);
+                var hasOverdue = await HasOverduePaymentsAsync(memberId);
+
+                if (hasOverdue) return 0; // No credit if overdue
+
+                // Limit to 50% of available credit for single transaction
+                return availableCredit * 0.5m;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error calculating max transaction amount: {MemberId}", memberId);
+                return 0;
+            }
+        }
+
+        public string GetCreditStatusColor(string creditStatus)
+        {
+            return creditStatus.ToLower() switch
+            {
+                "good" => "Green",
+                "warning" => "Orange",
+                "bad" => "Red",
+                _ => "Gray"
+            };
+        }
+
+        public string FormatCreditAmount(decimal amount)
+        {
+            return amount.ToString("C", new System.Globalization.CultureInfo("id-ID"));
+        }
+
+        public string GetCreditStatusMessage(MemberCreditSummaryDto memberCredit)
+        {
+            if (!memberCredit.IsEligible)
+                return "Not eligible for credit";
+            
+            if (memberCredit.CurrentDebt == 0)
+                return "No outstanding debt";
+            
+            if (memberCredit.CreditUtilization > 80)
+                return "High credit utilization";
+            
+            if (memberCredit.NextPaymentDue.HasValue && memberCredit.NextPaymentDue < DateTime.UtcNow)
+                return "Payment overdue";
+            
+            return "Credit in good standing";
+        }
     }
 }

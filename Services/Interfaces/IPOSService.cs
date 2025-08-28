@@ -40,6 +40,93 @@ namespace Berca_Backend.Services
 
         // Batch summary for completed sales
         Task<List<SaleItemWithBatchDto>> GetSaleBatchSummaryAsync(int saleId);
+
+        // ==================== MEMBER CREDIT INTEGRATION METHODS ==================== //
+
+        /// <summary>
+        /// Validate member credit for POS transaction
+        /// </summary>
+        /// <param name="request">Credit validation request</param>
+        /// <returns>Validation result with approval status</returns>
+        Task<CreditValidationResultDto> ValidateMemberCreditAsync(CreditValidationRequestDto request);
+
+        /// <summary>
+        /// Create sale with member credit payment
+        /// </summary>
+        /// <param name="request">Sale with credit request</param>
+        /// <returns>Created sale details</returns>
+        Task<SaleDto> CreateSaleWithCreditAsync(CreateSaleWithCreditDto request);
+
+        /// <summary>
+        /// Apply credit payment to existing sale
+        /// </summary>
+        /// <param name="request">Credit payment request</param>
+        /// <returns>Payment processing result</returns>
+        Task<PaymentResultDto> ApplyCreditPaymentAsync(ApplyCreditPaymentDto request);
+
+        /// <summary>
+        /// Get member credit information for POS display
+        /// </summary>
+        /// <param name="identifier">Phone, member number, or ID</param>
+        /// <returns>POS-optimized member credit information</returns>
+        Task<POSMemberCreditDto?> GetMemberCreditForPOSAsync(string identifier);
+
+        /// <summary>
+        /// Process credit transaction for completed sale
+        /// </summary>
+        /// <param name="saleId">Sale ID</param>
+        /// <param name="memberId">Member ID</param>
+        /// <param name="creditAmount">Credit amount</param>
+        /// <returns>Success status</returns>
+        Task<bool> ProcessCreditTransactionAsync(int saleId, int memberId, decimal creditAmount);
+
+        /// <summary>
+        /// Get credit information for sale receipt
+        /// </summary>
+        /// <param name="saleId">Sale ID</param>
+        /// <returns>Credit information for receipt</returns>
+        Task<SaleCreditInfoDto?> GetSaleCreditInfoAsync(int saleId);
+
+        /// <summary>
+        /// Check member credit eligibility for POS operations
+        /// </summary>
+        /// <param name="memberId">Member ID</param>
+        /// <returns>Credit eligibility information</returns>
+        Task<MemberCreditEligibilityDto?> CheckMemberCreditEligibilityAsync(int memberId);
+
+        /// <summary>
+        /// Validate credit amount against member limits and business rules
+        /// </summary>
+        /// <param name="memberId">Member ID</param>
+        /// <param name="requestedAmount">Requested credit amount</param>
+        /// <param name="items">Sale items for risk assessment</param>
+        /// <returns>True if amount is valid</returns>
+        Task<bool> ValidateCreditAmountAsync(int memberId, decimal requestedAmount, List<SaleItemDto> items);
+
+        /// <summary>
+        /// Calculate credit transaction risk score
+        /// </summary>
+        /// <param name="memberId">Member ID</param>
+        /// <param name="amount">Transaction amount</param>
+        /// <param name="items">Sale items</param>
+        /// <returns>Risk score and level</returns>
+        Task<(int riskScore, string riskLevel)> CalculateTransactionRiskAsync(int memberId, decimal amount, List<SaleItemDto> items);
+
+        /// <summary>
+        /// Get credit payment terms for member
+        /// </summary>
+        /// <param name="memberId">Member ID</param>
+        /// <returns>Payment terms in days</returns>
+        Task<int> GetMemberPaymentTermsAsync(int memberId);
+
+        /// <summary>
+        /// Update sale with credit transaction details
+        /// </summary>
+        /// <param name="saleId">Sale ID</param>
+        /// <param name="creditTransactionId">Credit transaction ID</param>
+        /// <param name="creditAmount">Credit amount</param>
+        /// <returns>Success status</returns>
+        Task<bool> UpdateSaleWithCreditDetailsAsync(int saleId, int creditTransactionId, decimal creditAmount);
     }
 
     // Note: All DTOs have been moved to Berca_Backend.DTOs namespace to avoid duplicates
