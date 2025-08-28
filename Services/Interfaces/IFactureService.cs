@@ -275,6 +275,44 @@ namespace Berca_Backend.Services.Interfaces
         /// <returns>Aging analysis data</returns>
         Task<object> GetAgingAnalysisAsync(int requestingUserId, int? branchId = null);
 
+        /// <summary>
+        /// Get outstanding factures analytics
+        /// </summary>
+        /// <param name="requestingUserId">ID of user making the request</param>
+        /// <param name="branchId">Optional branch filter</param>
+        /// <param name="supplierId">Optional supplier filter</param>
+        /// <param name="limit">Maximum records to return</param>
+        /// <returns>Outstanding factures data</returns>
+        Task<List<FactureListDto>> GetOutstandingFacturesAsync(int requestingUserId, int? branchId = null, int? supplierId = null, int limit = 50);
+
+        /// <summary>
+        /// Get top suppliers by factures analytics
+        /// </summary>
+        /// <param name="requestingUserId">ID of user making the request</param>
+        /// <param name="branchId">Optional branch filter</param>
+        /// <param name="fromDate">Start date for analysis</param>
+        /// <param name="toDate">End date for analysis</param>
+        /// <param name="limit">Number of top suppliers to return</param>
+        /// <returns>Top suppliers data</returns>
+        Task<List<OutstandingBySupplierDto>> GetTopSuppliersByFacturesAsync(int requestingUserId, int? branchId = null, DateTime? fromDate = null, DateTime? toDate = null, int limit = 10);
+
+        /// <summary>
+        /// Get suppliers by branch analytics
+        /// </summary>
+        /// <param name="requestingUserId">ID of user making the request</param>
+        /// <param name="branchId">Optional specific branch filter</param>
+        /// <returns>Suppliers breakdown by branch</returns>
+        Task<List<SuppliersByBranchDto>> GetSuppliersByBranchAsync(int requestingUserId, int? branchId = null);
+
+        /// <summary>
+        /// Get supplier alerts system
+        /// </summary>
+        /// <param name="requestingUserId">ID of user making the request</param>
+        /// <param name="branchId">Optional branch filter</param>
+        /// <param name="priorityFilter">Optional priority filter (Critical, Warning, Info)</param>
+        /// <returns>Supplier alerts data</returns>
+        Task<SupplierAlertsDto> GetSupplierAlertsAsync(int requestingUserId, int? branchId = null, string? priorityFilter = null);
+
         // ==================== DELIVERY & RECEIVING WORKFLOW ==================== //
 
         /// <summary>

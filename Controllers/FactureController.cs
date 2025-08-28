@@ -28,7 +28,7 @@ namespace Berca_Backend.Controllers
         private int GetCurrentUserId()
         {
             var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-            return int.TryParse(userIdClaim, out var userId) ? userId : 1; // Use admin user (ID=1) for testing
+            return int.TryParse(userIdClaim, out var userId) ? userId : 0;
         }
 
         // ==================== FACTURE RECEIVING & WORKFLOW ==================== //
@@ -329,7 +329,7 @@ namespace Berca_Backend.Controllers
         /// Schedule payment for facture
         /// </summary>
         [HttpPost("{id}/payments/schedule")]
-        [AllowAnonymous] // Temporarily disabled for testing
+        [Authorize(Policy = "Facture.SchedulePayment")]
         public async Task<ActionResult<FacturePaymentDto>> SchedulePayment(int id, [FromBody] SchedulePaymentDto scheduleDto)
         {
             try
@@ -687,6 +687,100 @@ namespace Berca_Backend.Controllers
             {
                 _logger.LogError(ex, "Error retrieving aging analysis");
                 return StatusCode(500, new { message = "An error occurred while retrieving aging analysis." });
+            }
+        }
+
+        /// <summary>
+        /// Get outstanding factures analytics
+        /// </summary>
+        [HttpGet("outstanding-factures")]
+        [Authorize(Policy = "Facture.Read")]
+        public async Task<ActionResult<List<FactureListDto>>> GetOutstandingFactures(
+            [FromQuery] int? branchId = null, 
+            [FromQuery] int? supplierId = null, 
+            [FromQuery] int limit = 50)
+        {
+            try
+            {
+                var currentUserId = GetCurrentUserId();
+                var outstandingFactures = await _factureService.GetOutstandingFacturesAsync(currentUserId, branchId, supplierId, limit);
+
+                return Ok(outstandingFactures);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error retrieving outstanding factures");
+                return StatusCode(500, new { message = "An error occurred while retrieving outstanding factures." });
+            }
+        }
+
+        /// <summary>
+        /// Get top suppliers by factures analytics
+        /// </summary>
+        [HttpGet("top-suppliers-by-factures")]
+        [Authorize(Policy = "Facture.Read")]
+        public async Task<ActionResult<List<OutstandingBySupplierDto>>> GetTopSuppliersByFactures(
+            [FromQuery] int? branchId = null,
+            [FromQuery] DateTime? fromDate = null,
+            [FromQuery] DateTime? toDate = null,
+            [FromQuery] int limit = 10)
+        {
+            try
+            {
+                var currentUserId = GetCurrentUserId();
+                var topSuppliers = await _factureService.GetTopSuppliersByFacturesAsync(currentUserId, branchId, fromDate, toDate, limit);
+
+                return Ok(topSuppliers);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error retrieving top suppliers by factures");
+                return StatusCode(500, new { message = "An error occurred while retrieving top suppliers analytics." });
+            }
+        }
+
+        /// <summary>
+        /// Get suppliers by branch analytics
+        /// </summary>
+        [HttpGet("suppliers-by-branch")]
+        [Authorize(Policy = "Facture.Read")]
+        public async Task<ActionResult<List<SuppliersByBranchDto>>> GetSuppliersByBranch(
+            [FromQuery] int? branchId = null)
+        {
+            try
+            {
+                var currentUserId = GetCurrentUserId();
+                var suppliersByBranch = await _factureService.GetSuppliersByBranchAsync(currentUserId, branchId);
+
+                return Ok(suppliersByBranch);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error retrieving suppliers by branch");
+                return StatusCode(500, new { message = "An error occurred while retrieving suppliers by branch analytics." });
+            }
+        }
+
+        /// <summary>
+        /// Get supplier alerts system
+        /// </summary>
+        [HttpGet("supplier-alerts")]
+        [Authorize(Policy = "Facture.Read")]
+        public async Task<ActionResult<SupplierAlertsDto>> GetSupplierAlerts(
+            [FromQuery] int? branchId = null,
+            [FromQuery] string? priorityFilter = null)
+        {
+            try
+            {
+                var currentUserId = GetCurrentUserId();
+                var alerts = await _factureService.GetSupplierAlertsAsync(currentUserId, branchId, priorityFilter);
+
+                return Ok(alerts);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error retrieving supplier alerts");
+                return StatusCode(500, new { message = "An error occurred while retrieving supplier alerts." });
             }
         }
 
