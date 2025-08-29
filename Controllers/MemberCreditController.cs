@@ -53,7 +53,7 @@ namespace Berca_Backend.Controllers
                     });
                 }
 
-                var success = await _memberService.GrantCreditAsync(memberId, request.Amount, request.Description, request.SaleId);
+                var success = await _memberService.GrantCreditAsync(memberId, request.Amount, request.Description, request.SaleId, request.PaymentTermDays, request.DueDate);
                 
                 if (!success)
                 {
@@ -264,19 +264,20 @@ namespace Berca_Backend.Controllers
         }
 
         /// <summary>
-        /// Update member credit limit based on tier and payment history
+        /// Update member credit limit with new value and reason
         /// </summary>
         /// <param name="memberId">Member ID</param>
+        /// <param name="request">Credit limit update request</param>
         [HttpPut("{memberId}/credit/limit")]
         [Authorize(Policy = "Membership.UpdateCredit")]
-        public async Task<IActionResult> UpdateCreditLimit(int memberId)
+        public async Task<IActionResult> UpdateCreditLimit(int memberId, [FromBody] UpdateCreditLimitDto request)
         {
             try
             {
-                var newLimit = await _memberService.UpdateCreditLimitAsync(memberId);
+                var newLimit = await _memberService.UpdateCreditLimitAsync(memberId, request.NewCreditLimit, request.Reason, request.Notes);
 
-                _logger.LogInformation("Updated credit limit for member {MemberId} to {NewLimit} IDR", 
-                    memberId, newLimit);
+                _logger.LogInformation("Updated credit limit for member {MemberId} to {NewLimit} IDR. Reason: {Reason}", 
+                    memberId, newLimit, request.Reason);
 
                 return Ok(new 
                 { 

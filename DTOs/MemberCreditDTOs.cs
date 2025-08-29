@@ -209,6 +209,18 @@ namespace Berca_Backend.DTOs
 
         [StringLength(1000)]
         public string? Notes { get; set; }
+
+        /// <summary>
+        /// Payment terms in days (optional - if not provided, uses member's default payment terms)
+        /// Example: 7 (1 week), 14 (2 weeks), 30 (1 month), 60 (2 months)
+        /// </summary>
+        [Range(1, 365, ErrorMessage = "Payment terms must be between 1 and 365 days")]
+        public int? PaymentTermDays { get; set; }
+
+        /// <summary>
+        /// Specific due date (optional - takes precedence over PaymentTermDays if both provided)
+        /// </summary>
+        public DateTime? DueDate { get; set; }
     }
 
     // ==================== CREDIT ELIGIBILITY DTOs ==================== //
