@@ -642,7 +642,7 @@ namespace Berca_Backend.Services
 
         // ==================== CREDIT MANAGEMENT IMPLEMENTATION ==================== //
 
-        public async Task<bool> GrantCreditAsync(int memberId, decimal amount, string description, int saleId)
+        public async Task<bool> GrantCreditAsync(int memberId, decimal amount, string description, int saleId, int? paymentTermDays = null, DateTime? dueDate = null)
         {
             try
             {
@@ -665,52 +665,84 @@ namespace Berca_Backend.Services
                     return false;
                 }
 
-                using var transaction = await _context.Database.BeginTransactionAsync();
-                try
+                // Use execution strategy to handle retryable transactions
+                var strategy = _context.Database.CreateExecutionStrategy();
+                var result = await strategy.ExecuteAsync(async () =>
                 {
-                    // 3. Calculate due date based on payment terms
-                    var dueDate = _timezoneService.Now.AddDays(member.PaymentTerms);
-
-                    // 4. Create credit transaction
-                    var creditTransaction = new MemberCreditTransaction
+                    using var transaction = await _context.Database.BeginTransactionAsync();
+                    try
                     {
-                        MemberId = memberId,
-                        Type = CreditTransactionType.CreditSale,
-                        Amount = amount,
-                        TransactionDate = _timezoneService.Now,
-                        DueDate = dueDate,
-                        Description = description,
-                        ReferenceNumber = $"SALE-{saleId}",
-                        Status = CreditTransactionStatus.Completed,
-                        CreatedBy = 1, // TODO: Get from current user context
-                        CreatedAt = _timezoneService.Now,
-                        UpdatedAt = _timezoneService.Now
-                    };
+                        // 3. Calculate due date based on payment terms
+                        DateTime calculatedDueDate;
+                        if (dueDate.HasValue)
+                        {
+                            // Use specific due date if provided
+                            calculatedDueDate = dueDate.Value;
+                            _logger.LogInformation("Using specific due date: {DueDate} for member {MemberId}", calculatedDueDate, memberId);
+                        }
+                        else if (paymentTermDays.HasValue)
+                        {
+                            // Use specific payment terms if provided
+                            calculatedDueDate = _timezoneService.Now.AddDays(paymentTermDays.Value);
+                            _logger.LogInformation("Using specific payment terms: {Days} days for member {MemberId}", paymentTermDays.Value, memberId);
+                        }
+                        else
+                        {
+                            // Fall back to member's default payment terms
+                            calculatedDueDate = _timezoneService.Now.AddDays(member.PaymentTerms);
+                            _logger.LogInformation("Using member default payment terms: {Days} days for member {MemberId}", member.PaymentTerms, memberId);
+                        }
 
-                    _context.MemberCreditTransactions.Add(creditTransaction);
+                        // 4. Create credit transaction
+                        var creditTransaction = new MemberCreditTransaction
+                        {
+                            MemberId = memberId,
+                            Type = CreditTransactionType.CreditSale,
+                            Amount = amount,
+                            TransactionDate = _timezoneService.Now,
+                            DueDate = calculatedDueDate,
+                            Description = description,
+                            ReferenceNumber = $"SALE-{saleId}",
+                            Status = CreditTransactionStatus.Completed,
+                            CreatedBy = 1, // TODO: Get from current user context
+                            CreatedAt = _timezoneService.Now,
+                            UpdatedAt = _timezoneService.Now
+                        };
 
-                    // 5. Update member debt information
-                    member.CurrentDebt += amount;
-                    member.LifetimeDebt += amount;
-                    member.NextPaymentDueDate = member.NextPaymentDueDate == null || dueDate < member.NextPaymentDueDate 
-                        ? dueDate : member.NextPaymentDueDate;
-                    member.UpdatedAt = _timezoneService.Now;
+                        _context.MemberCreditTransactions.Add(creditTransaction);
 
-                    // 6. Update credit status if needed
-                    await UpdateCreditStatusAsync(memberId);
+                        // 5. Update member debt information
+                        member.CurrentDebt += amount;
+                        member.LifetimeDebt += amount;
+                        member.NextPaymentDueDate = member.NextPaymentDueDate == null || calculatedDueDate < member.NextPaymentDueDate 
+                            ? calculatedDueDate : member.NextPaymentDueDate;
+                        member.UpdatedAt = _timezoneService.Now;
 
-                    await _context.SaveChangesAsync();
-                    await transaction.CommitAsync();
+                        // 6. Update credit status if needed (inline to avoid SaveChanges conflict)
+                        var oldStatus = member.CreditStatus;
+                        var newStatus = CalculateCreditStatus(member);
+                        if (oldStatus != newStatus)
+                        {
+                            member.CreditStatus = newStatus;
+                            _logger.LogInformation("Credit status updated: MemberId={MemberId}, Old={OldStatus}, New={NewStatus}", 
+                                memberId, oldStatus, newStatus);
+                        }
 
-                    _logger.LogInformation("Credit granted successfully: MemberId={MemberId}, Amount={Amount}", 
-                        memberId, amount);
-                    return true;
-                }
-                catch
-                {
-                    await transaction.RollbackAsync();
-                    throw;
-                }
+                        await _context.SaveChangesAsync();
+                        await transaction.CommitAsync();
+
+                        _logger.LogInformation("Credit granted successfully: MemberId={MemberId}, Amount={Amount}", 
+                            memberId, amount);
+                        return true;
+                    }
+                    catch
+                    {
+                        await transaction.RollbackAsync();
+                        throw;
+                    }
+                });
+
+                return result;
             }
             catch (Exception ex)
             {
@@ -741,66 +773,80 @@ namespace Berca_Backend.Services
                     return false;
                 }
 
-                using var transaction = await _context.Database.BeginTransactionAsync();
-                try
+                // Use execution strategy to handle retryable transactions
+                var strategy = _context.Database.CreateExecutionStrategy();
+                var result = await strategy.ExecuteAsync(async () =>
                 {
-                    // 2. Create payment transaction
-                    var paymentTransaction = new MemberCreditTransaction
+                    using var transaction = await _context.Database.BeginTransactionAsync();
+                    try
                     {
-                        MemberId = memberId,
-                        Type = CreditTransactionType.Payment,
-                        Amount = -amount, // Negative to reduce debt
-                        TransactionDate = _timezoneService.Now,
-                        Description = $"Payment via {paymentMethod}",
-                        ReferenceNumber = reference,
-                        Status = CreditTransactionStatus.Completed,
-                        CreatedBy = 1, // TODO: Get from current user context
-                        Notes = $"Payment method: {paymentMethod}",
-                        CreatedAt = _timezoneService.Now,
-                        UpdatedAt = _timezoneService.Now
-                    };
+                        // 2. Create payment transaction
+                        var paymentTransaction = new MemberCreditTransaction
+                        {
+                            MemberId = memberId,
+                            Type = CreditTransactionType.Payment,
+                            Amount = -amount, // Negative to reduce debt
+                            TransactionDate = _timezoneService.Now,
+                            Description = $"Payment via {paymentMethod}",
+                            ReferenceNumber = reference,
+                            Status = CreditTransactionStatus.Completed,
+                            CreatedBy = 1, // TODO: Get from current user context
+                            Notes = $"Payment method: {paymentMethod}",
+                            CreatedAt = _timezoneService.Now,
+                            UpdatedAt = _timezoneService.Now
+                        };
 
-                    _context.MemberCreditTransactions.Add(paymentTransaction);
+                        _context.MemberCreditTransactions.Add(paymentTransaction);
 
-                    // 3. Update member debt (cannot go below 0)
-                    var actualPayment = Math.Min(amount, member.CurrentDebt);
-                    member.CurrentDebt -= actualPayment;
-                    member.LastPaymentDate = _timezoneService.Now;
+                        // 3. Update member debt (cannot go below 0)
+                        var actualPayment = Math.Min(amount, member.CurrentDebt);
+                        member.CurrentDebt -= actualPayment;
+                        member.LastPaymentDate = _timezoneService.Now;
 
-                    // 4. Recalculate next payment due date
-                    if (member.CurrentDebt > 0)
-                    {
-                        var oldestUnpaidTransaction = await _context.MemberCreditTransactions
-                            .Where(t => t.MemberId == memberId && 
-                                   t.Type == CreditTransactionType.CreditSale && 
-                                   t.DueDate.HasValue)
-                            .OrderBy(t => t.DueDate)
-                            .FirstOrDefaultAsync();
+                        // 4. Recalculate next payment due date
+                        if (member.CurrentDebt > 0)
+                        {
+                            var oldestUnpaidTransaction = await _context.MemberCreditTransactions
+                                .Where(t => t.MemberId == memberId && 
+                                       t.Type == CreditTransactionType.CreditSale && 
+                                       t.DueDate.HasValue)
+                                .OrderBy(t => t.DueDate)
+                                .FirstOrDefaultAsync();
 
-                        member.NextPaymentDueDate = oldestUnpaidTransaction?.DueDate;
+                            member.NextPaymentDueDate = oldestUnpaidTransaction?.DueDate;
+                        }
+                        else
+                        {
+                            member.NextPaymentDueDate = null;
+                        }
+
+                        member.UpdatedAt = _timezoneService.Now;
+
+                        // 5. Update credit status (inline to avoid SaveChanges conflict)
+                        var oldStatus = member.CreditStatus;
+                        var newStatus = CalculateCreditStatus(member);
+                        if (oldStatus != newStatus)
+                        {
+                            member.CreditStatus = newStatus;
+                            _logger.LogInformation("Credit status updated: MemberId={MemberId}, Old={OldStatus}, New={NewStatus}", 
+                                memberId, oldStatus, newStatus);
+                        }
+
+                        await _context.SaveChangesAsync();
+                        await transaction.CommitAsync();
+
+                        _logger.LogInformation("Payment recorded successfully: MemberId={MemberId}, Amount={Amount}", 
+                            memberId, actualPayment);
+                        return true;
                     }
-                    else
+                    catch
                     {
-                        member.NextPaymentDueDate = null;
+                        await transaction.RollbackAsync();
+                        throw;
                     }
+                });
 
-                    member.UpdatedAt = _timezoneService.Now;
-
-                    // 5. Update credit status
-                    await UpdateCreditStatusAsync(memberId);
-
-                    await _context.SaveChangesAsync();
-                    await transaction.CommitAsync();
-
-                    _logger.LogInformation("Payment recorded successfully: MemberId={MemberId}, Amount={Amount}", 
-                        memberId, actualPayment);
-                    return true;
-                }
-                catch
-                {
-                    await transaction.RollbackAsync();
-                    throw;
-                }
+                return result;
             }
             catch (Exception ex)
             {
@@ -1277,11 +1323,48 @@ namespace Berca_Backend.Services
             return new CreditAnalyticsDto();
         }
 
-        public async Task<decimal> UpdateCreditLimitAsync(int memberId)
+        public async Task<decimal> UpdateCreditLimitAsync(int memberId, decimal newCreditLimit, string reason, string? notes = null)
         {
-            // TODO: Implement credit limit update logic based on tier and payment history
-            await Task.CompletedTask;
-            return 0;
+            try
+            {
+                var member = await _context.Members
+                    .FirstOrDefaultAsync(m => m.Id == memberId);
+
+                if (member == null)
+                {
+                    throw new InvalidOperationException($"Member with ID {memberId} not found");
+                }
+
+                // Update member's credit limit
+                member.CreditLimit = newCreditLimit;
+                member.UpdatedAt = _timezoneService.UtcToLocal(DateTime.UtcNow);
+
+                // Create credit transaction record for the limit update
+                var transaction = new MemberCreditTransaction
+                {
+                    MemberId = memberId,
+                    Type = CreditTransactionType.Adjustment,
+                    Amount = 0, // No amount change, just limit adjustment
+                    Description = $"Credit limit updated. Reason: {reason}",
+                    Notes = notes,
+                    Status = CreditTransactionStatus.Completed,
+                    CreatedAt = _timezoneService.UtcToLocal(DateTime.UtcNow),
+                    CreatedBy = 1 // System user - should be replaced with actual user ID
+                };
+
+                _context.MemberCreditTransactions.Add(transaction);
+                await _context.SaveChangesAsync();
+
+                _logger.LogInformation("Credit limit updated for member {MemberId} from previous limit to {NewLimit} IDR. Reason: {Reason}", 
+                    memberId, newCreditLimit, reason);
+
+                return newCreditLimit;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error updating credit limit for member {MemberId}", memberId);
+                throw;
+            }
         }
 
         // ==================== MEMBER CREDIT INTEGRATION METHODS ==================== //

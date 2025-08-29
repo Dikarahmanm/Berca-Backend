@@ -44,8 +44,10 @@ namespace Berca_Backend.Services
         /// <param name="amount">Credit amount in IDR</param>
         /// <param name="description">Transaction description</param>
         /// <param name="saleId">Reference to sale transaction</param>
+        /// <param name="paymentTermDays">Payment terms in days (optional)</param>
+        /// <param name="dueDate">Specific due date (optional, takes precedence over paymentTermDays)</param>
         /// <returns>Success status</returns>
-        Task<bool> GrantCreditAsync(int memberId, decimal amount, string description, int saleId);
+        Task<bool> GrantCreditAsync(int memberId, decimal amount, string description, int saleId, int? paymentTermDays = null, DateTime? dueDate = null);
 
         /// <summary>
         /// Record debt payment from member (reduces debt)
@@ -138,11 +140,14 @@ namespace Berca_Backend.Services
         Task<CreditAnalyticsDto> GetCreditAnalyticsAsync(int? branchId = null, DateTime? startDate = null, DateTime? endDate = null);
 
         /// <summary>
-        /// Update member credit limit based on tier and payment history
+        /// Update member credit limit with new value and reason
         /// </summary>
         /// <param name="memberId">Member ID</param>
-        /// <returns>New credit limit amount</returns>
-        Task<decimal> UpdateCreditLimitAsync(int memberId);
+        /// <param name="newCreditLimit">New credit limit amount</param>
+        /// <param name="reason">Reason for credit limit change</param>
+        /// <param name="notes">Additional notes</param>
+        /// <returns>Updated credit limit amount</returns>
+        Task<decimal> UpdateCreditLimitAsync(int memberId, decimal newCreditLimit, string reason, string? notes = null);
 
         // ==================== MEMBER CREDIT INTEGRATION METHODS ==================== //
 
