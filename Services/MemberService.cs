@@ -959,6 +959,7 @@ namespace Berca_Backend.Services
                     RecentTransactions = recentTransactions,
                     RemindersSent = member.PaymentReminders.Count,
                     LastReminderDate = member.PaymentReminders.FirstOrDefault()?.ReminderDate,
+                    IsEligible = member.CreditStatus == CreditStatus.Good || member.CreditStatus == CreditStatus.Warning, // ✅ ADDED: Same logic as IsEligibleForCredit
                     IsEligibleForCredit = member.CreditStatus == CreditStatus.Good || member.CreditStatus == CreditStatus.Warning,
                     RiskLevel = GetRiskLevel(member.CreditScore, member.DaysOverdue),
                     RequiresAttention = member.DaysOverdue > 0 || member.CreditUtilization > 80,
