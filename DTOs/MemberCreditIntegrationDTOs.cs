@@ -160,6 +160,12 @@ namespace Berca_Backend.DTOs
         public decimal? DiscountAmount { get; set; }
         public decimal? TaxAmount { get; set; }
         public string? ReceiptNumber { get; set; }
+        
+        // Flexible due date
+        [DataType(DataType.Date)]
+        public DateTime? CustomDueDate { get; set; } // Override member payment terms
+        
+        public bool UseCustomDueDate { get; set; } = false;
     }
 
     /// <summary>

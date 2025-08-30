@@ -35,12 +35,16 @@ namespace Berca_Backend.Services
         // ✅ BACKEND FIX: Services/POSService.cs - CreateSaleAsync Method
         public async Task<SaleDto> CreateSaleAsync(CreateSaleRequest request, int cashierId)
         {
-            using var transaction = await _context.Database.BeginTransactionAsync();
-            try
+            // Use execution strategy to handle retry logic properly
+            var executionStrategy = _context.Database.CreateExecutionStrategy();
+            return await executionStrategy.ExecuteAsync(async () =>
             {
-                // Validate stock availability
-                if (!await ValidateStockAvailabilityAsync(request.Items))
-                    throw new InvalidOperationException("Insufficient stock for one or more items");
+                using var transaction = await _context.Database.BeginTransactionAsync();
+                try
+                {
+                    // Validate stock availability
+                    if (!await ValidateStockAvailabilityAsync(request.Items))
+                        throw new InvalidOperationException("Insufficient stock for one or more items");
 
                 // Generate sale number
                 var saleNumber = await GenerateSaleNumberAsync();
@@ -193,6 +197,7 @@ namespace Berca_Backend.Services
                 _logger.LogError(ex, "Error creating sale");
                 throw;
             }
+            });
         }
 
         public async Task<SaleDto?> GetSaleByIdAsync(int id)
@@ -445,10 +450,13 @@ namespace Berca_Backend.Services
 
         public async Task<bool> CancelSaleAsync(int saleId, string reason)
         {
-            using var transaction = await _context.Database.BeginTransactionAsync();
-
-            try
+            // Use execution strategy to handle retry logic properly
+            var executionStrategy = _context.Database.CreateExecutionStrategy();
+            return await executionStrategy.ExecuteAsync(async () =>
             {
+                using var transaction = await _context.Database.BeginTransactionAsync();
+                try
+                {
                 var sale = await _context.Sales
                     .Include(s => s.SaleItems)
                     .FirstOrDefaultAsync(s => s.Id == saleId);
@@ -531,14 +539,18 @@ namespace Berca_Backend.Services
                 _logger.LogError(ex, "Error cancelling sale: {SaleId}", saleId);
                 throw;
             }
+            });
         }
 
         public async Task<SaleDto> RefundSaleAsync(int saleId, string reason, int processedBy)
         {
-            using var transaction = await _context.Database.BeginTransactionAsync();
-
-            try
+            // Use execution strategy to handle retry logic properly
+            var executionStrategy = _context.Database.CreateExecutionStrategy();
+            return await executionStrategy.ExecuteAsync(async () =>
             {
+                using var transaction = await _context.Database.BeginTransactionAsync();
+                try
+                {
                 var originalSale = await _context.Sales
                     .Include(s => s.SaleItems)
                     .FirstOrDefaultAsync(s => s.Id == saleId);
@@ -662,6 +674,7 @@ namespace Berca_Backend.Services
                 _logger.LogError(ex, "Error processing refund for sale: {SaleId}", saleId);
                 throw;
             }
+            });
         }
 
         public async Task<SaleSummaryDto> GetSalesSummaryAsync(DateTime startDate, DateTime endDate)
@@ -1132,9 +1145,13 @@ namespace Berca_Backend.Services
             if (!validation.IsValid)
                 throw new InvalidOperationException(validation.ErrorMessage ?? "Batch allocation validation failed");
 
-            using var transaction = await _context.Database.BeginTransactionAsync();
-            try
+            // Use execution strategy to handle retry logic properly
+            var executionStrategy = _context.Database.CreateExecutionStrategy();
+            return await executionStrategy.ExecuteAsync(async () =>
             {
+                using var transaction = await _context.Database.BeginTransactionAsync();
+                try
+                {
                 // Create the main sale record
                 var sale = new Sale
                 {
@@ -1304,6 +1321,7 @@ namespace Berca_Backend.Services
                 await transaction.RollbackAsync();
                 throw;
             }
+            });
         }
 
         /// <summary>
@@ -1588,23 +1606,28 @@ namespace Berca_Backend.Services
 
         public async Task<SaleDto> CreateSaleWithCreditAsync(CreateSaleWithCreditDto request)
         {
-            using var transaction = await _context.Database.BeginTransactionAsync();
-            try
+            // Validate credit BEFORE starting transaction
+            var validation = await ValidateMemberCreditAsync(new CreditValidationRequestDto
             {
-                // Validate credit first
-                var validation = await ValidateMemberCreditAsync(new CreditValidationRequestDto
-                {
-                    MemberId = request.MemberId,
-                    RequestedAmount = request.CreditAmount,
-                    Items = request.Items,
-                    BranchId = request.BranchId,
-                    OverrideWarnings = request.IsManagerApproved
-                });
+                MemberId = request.MemberId,
+                RequestedAmount = request.CreditAmount,
+                Items = request.Items,
+                BranchId = request.BranchId,
+                OverrideWarnings = request.IsManagerApproved
+            });
 
-                if (!validation.IsApproved)
+            if (!validation.IsApproved)
+            {
+                throw new InvalidOperationException($"Credit validation failed: {validation.DecisionReason}");
+            }
+
+            // Use execution strategy to handle retry logic properly
+            var executionStrategy = _context.Database.CreateExecutionStrategy();
+            return await executionStrategy.ExecuteAsync(async () =>
+            {
+                using var transaction = await _context.Database.BeginTransactionAsync();
+                try
                 {
-                    throw new InvalidOperationException($"Credit validation failed: {validation.DecisionReason}");
-                }
 
                 // Create the sale
                 var saleNumber = await GenerateSaleNumberAsync();
@@ -1657,20 +1680,70 @@ namespace Berca_Backend.Services
 
                 await _context.SaveChangesAsync();
 
-                // Grant credit to member
-                var creditGranted = await _memberService.GrantCreditAsync(
-                    request.MemberId, 
-                    request.CreditAmount, 
-                    request.Description ?? $"POS Purchase - Sale #{sale.SaleNumber}",
-                    sale.Id);
-
-                if (!creditGranted)
+                // Grant credit directly (avoid nested transaction)
+                var member = await _context.Members.FindAsync(request.MemberId);
+                if (member == null)
                 {
-                    throw new InvalidOperationException("Failed to grant credit to member");
+                    throw new InvalidOperationException($"Member {request.MemberId} not found");
                 }
 
-                // Update member statistics
-                await _memberService.UpdateMemberAfterCreditTransactionAsync(request.MemberId, request.CreditAmount, sale.Id);
+                // Calculate due date - use custom date if provided, otherwise use member payment terms
+                DateTime dueDate;
+                if (request.UseCustomDueDate && request.CustomDueDate.HasValue)
+                {
+                    // Use custom due date provided by user
+                    dueDate = request.CustomDueDate.Value;
+                    
+                    // Validation: Custom due date must be in the future and reasonable
+                    if (dueDate <= DateTime.Now.Date)
+                    {
+                        throw new InvalidOperationException("Custom due date must be in the future");
+                    }
+                    
+                    // Optional: Add maximum allowed payment terms (e.g., 180 days)
+                    var maxDaysAllowed = 180; // 6 months max
+                    if (dueDate > DateTime.Now.AddDays(maxDaysAllowed))
+                    {
+                        throw new InvalidOperationException($"Due date cannot exceed {maxDaysAllowed} days from today");
+                    }
+                }
+                else
+                {
+                    // Use member's default payment terms (default: 30 days)
+                    var paymentTermDays = member.PaymentTerms > 0 ? member.PaymentTerms : 30;
+                    dueDate = DateTime.Now.AddDays(paymentTermDays);
+                }
+
+                // Create credit transaction record
+                var creditTransaction = new MemberCreditTransaction
+                {
+                    MemberId = request.MemberId,
+                    Amount = request.CreditAmount,
+                    Type = CreditTransactionType.CreditSale,
+                    Description = request.Description ?? $"POS Purchase - Sale #{sale.SaleNumber}",
+                    DueDate = dueDate,
+                    Status = CreditTransactionStatus.Pending,
+                    TransactionDate = DateTime.Now,
+                    BranchId = request.BranchId,
+                    CreatedBy = request.CashierId,
+                    CreatedAt = DateTime.Now,
+                    ReferenceNumber = $"CR-{DateTime.Now:yyyyMMdd}-{sale.Id}"
+                };
+
+                _context.MemberCreditTransactions.Add(creditTransaction);
+
+                // Update member debt and statistics
+                member.CurrentDebt += request.CreditAmount;
+                member.LifetimeDebt += request.CreditAmount;
+                member.TotalSpent += request.TotalAmount;
+                member.TotalTransactions += 1;
+                member.LastTransactionDate = DateTime.Now;
+                member.UpdatedAt = DateTime.Now;
+                member.UpdatedBy = request.CashierId.ToString();
+
+                // Update sale with credit transaction reference
+                await _context.SaveChangesAsync();
+                sale.CreditTransactionId = creditTransaction.Id;
 
                 await transaction.CommitAsync();
 
@@ -1686,6 +1759,7 @@ namespace Berca_Backend.Services
                 _logger.LogError(ex, "Error creating credit sale for member {MemberId}", request.MemberId);
                 throw;
             }
+            });
         }
 
         public async Task<PaymentResultDto> ApplyCreditPaymentAsync(ApplyCreditPaymentDto request)

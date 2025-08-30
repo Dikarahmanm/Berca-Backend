@@ -133,7 +133,7 @@ namespace Berca_Backend.Migrations
                     b.HasIndex("Province", "City")
                         .HasDatabaseName("IX_Branches_Province_City");
 
-                    b.ToTable("Branches");
+                    b.ToTable("Branches", (string)null);
                 });
 
             modelBuilder.Entity("Berca_Backend.Models.CalendarEvent", b =>
@@ -227,7 +227,7 @@ namespace Berca_Backend.Migrations
 
                     b.HasIndex("CreatedByUserId");
 
-                    b.ToTable("CalendarEvents");
+                    b.ToTable("CalendarEvents", (string)null);
                 });
 
             modelBuilder.Entity("Berca_Backend.Models.CalendarEventReminder", b =>
@@ -274,7 +274,7 @@ namespace Berca_Backend.Migrations
 
                     b.HasIndex("UserId");
 
-                    b.ToTable("CalendarEventReminders");
+                    b.ToTable("CalendarEventReminders", (string)null);
                 });
 
             modelBuilder.Entity("Berca_Backend.Models.Category", b =>
@@ -324,7 +324,7 @@ namespace Berca_Backend.Migrations
                         .IsUnique()
                         .HasDatabaseName("IX_Categories_Name");
 
-                    b.ToTable("Categories");
+                    b.ToTable("Categories", (string)null);
 
                     b.HasData(
                         new
@@ -974,7 +974,7 @@ namespace Berca_Backend.Migrations
                         .IsUnique()
                         .HasDatabaseName("IX_Factures_Supplier_InvoiceNumber");
 
-                    b.ToTable("Factures");
+                    b.ToTable("Factures", (string)null);
                 });
 
             modelBuilder.Entity("Berca_Backend.Models.FactureItem", b =>
@@ -1062,7 +1062,7 @@ namespace Berca_Backend.Migrations
 
                     b.HasIndex("VerifiedBy");
 
-                    b.ToTable("FactureItems");
+                    b.ToTable("FactureItems", (string)null);
                 });
 
             modelBuilder.Entity("Berca_Backend.Models.FacturePayment", b =>
@@ -1196,7 +1196,7 @@ namespace Berca_Backend.Migrations
                     b.HasIndex("Status", "PaymentDate")
                         .HasDatabaseName("IX_FacturePayments_Status_PaymentDate");
 
-                    b.ToTable("FacturePayments");
+                    b.ToTable("FacturePayments", (string)null);
                 });
 
             modelBuilder.Entity("Berca_Backend.Models.InventoryMutation", b =>
@@ -1261,7 +1261,7 @@ namespace Berca_Backend.Migrations
                     b.HasIndex("Type")
                         .HasDatabaseName("IX_InventoryMutations_Type");
 
-                    b.ToTable("InventoryMutations");
+                    b.ToTable("InventoryMutations", (string)null);
                 });
 
             modelBuilder.Entity("Berca_Backend.Models.InventoryTransfer", b =>
@@ -1399,7 +1399,7 @@ namespace Berca_Backend.Migrations
                         .IsUnique()
                         .HasDatabaseName("IX_InventoryTransfers_TransferNumber");
 
-                    b.ToTable("InventoryTransfers");
+                    b.ToTable("InventoryTransfers", (string)null);
                 });
 
             modelBuilder.Entity("Berca_Backend.Models.InventoryTransferItem", b =>
@@ -1460,7 +1460,7 @@ namespace Berca_Backend.Migrations
                     b.HasIndex("ProductId")
                         .HasDatabaseName("IX_InventoryTransferItems_ProductId");
 
-                    b.ToTable("InventoryTransferItems");
+                    b.ToTable("InventoryTransferItems", (string)null);
                 });
 
             modelBuilder.Entity("Berca_Backend.Models.InventoryTransferStatusHistory", b =>
@@ -1501,7 +1501,7 @@ namespace Berca_Backend.Migrations
                     b.HasIndex("InventoryTransferId")
                         .HasDatabaseName("IX_InventoryTransferStatusHistories_InventoryTransferId");
 
-                    b.ToTable("InventoryTransferStatusHistories");
+                    b.ToTable("InventoryTransferStatusHistories", (string)null);
                 });
 
             modelBuilder.Entity("Berca_Backend.Models.LogActivity", b =>
@@ -1529,7 +1529,7 @@ namespace Berca_Backend.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("LogActivities");
+                    b.ToTable("LogActivities", (string)null);
                 });
 
             modelBuilder.Entity("Berca_Backend.Models.Member", b =>
@@ -1653,7 +1653,7 @@ namespace Berca_Backend.Migrations
                         .IsUnique()
                         .HasDatabaseName("IX_Members_Phone");
 
-                    b.ToTable("Members");
+                    b.ToTable("Members", (string)null);
                 });
 
             modelBuilder.Entity("Berca_Backend.Models.MemberCreditTransaction", b =>
@@ -1734,7 +1734,7 @@ namespace Berca_Backend.Migrations
                     b.HasIndex("MemberId", "Type", "Status")
                         .HasDatabaseName("IX_MemberCreditTransactions_Member_Type_Status");
 
-                    b.ToTable("MemberCreditTransactions");
+                    b.ToTable("MemberCreditTransactions", (string)null);
                 });
 
             modelBuilder.Entity("Berca_Backend.Models.MemberPaymentReminder", b =>
@@ -1830,7 +1830,7 @@ namespace Berca_Backend.Migrations
                     b.HasIndex("NextReminderDate", "Status")
                         .HasDatabaseName("IX_MemberPaymentReminders_NextReminder_Status");
 
-                    b.ToTable("MemberPaymentReminders");
+                    b.ToTable("MemberPaymentReminders", (string)null);
                 });
 
             modelBuilder.Entity("Berca_Backend.Models.MemberPoint", b =>
@@ -1895,7 +1895,7 @@ namespace Berca_Backend.Migrations
                     b.HasIndex("Type")
                         .HasDatabaseName("IX_MemberPoints_Type");
 
-                    b.ToTable("MemberPoints");
+                    b.ToTable("MemberPoints", (string)null);
                 });
 
             modelBuilder.Entity("Berca_Backend.Models.Notification", b =>
@@ -1983,7 +1983,7 @@ namespace Berca_Backend.Migrations
                     b.HasIndex("UserId")
                         .HasDatabaseName("IX_Notifications_UserId");
 
-                    b.ToTable("Notifications");
+                    b.ToTable("Notifications", (string)null);
                 });
 
             modelBuilder.Entity("Berca_Backend.Models.NotificationSettings", b =>
@@ -2053,7 +2053,7 @@ namespace Berca_Backend.Migrations
                         .IsUnique()
                         .HasDatabaseName("IX_NotificationSettings_UserId");
 
-                    b.ToTable("NotificationSettings");
+                    b.ToTable("NotificationSettings", (string)null);
                 });
 
             modelBuilder.Entity("Berca_Backend.Models.NotificationTemplate", b =>
@@ -2115,7 +2115,7 @@ namespace Berca_Backend.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("NotificationTemplates");
+                    b.ToTable("NotificationTemplates", (string)null);
                 });
 
             modelBuilder.Entity("Berca_Backend.Models.Product", b =>
@@ -2200,7 +2200,7 @@ namespace Berca_Backend.Migrations
                     b.HasIndex("Name")
                         .HasDatabaseName("IX_Products_Name");
 
-                    b.ToTable("Products");
+                    b.ToTable("Products", (string)null);
 
                     b.HasData(
                         new
@@ -2674,7 +2674,7 @@ namespace Berca_Backend.Migrations
                     b.HasIndex("ProductId", "ExpiryDate")
                         .HasDatabaseName("IX_ProductBatches_ProductId_ExpiryDate");
 
-                    b.ToTable("ProductBatches");
+                    b.ToTable("ProductBatches", (string)null);
                 });
 
             modelBuilder.Entity("Berca_Backend.Models.PushNotificationLog", b =>
@@ -2733,7 +2733,7 @@ namespace Berca_Backend.Migrations
 
                     b.HasIndex("PushSubscriptionId");
 
-                    b.ToTable("PushNotificationLogs");
+                    b.ToTable("PushNotificationLogs", (string)null);
                 });
 
             modelBuilder.Entity("Berca_Backend.Models.PushSubscription", b =>
@@ -2788,7 +2788,7 @@ namespace Berca_Backend.Migrations
 
                     b.HasIndex("UserId");
 
-                    b.ToTable("PushSubscriptions");
+                    b.ToTable("PushSubscriptions", (string)null);
                 });
 
             modelBuilder.Entity("Berca_Backend.Models.Report", b =>
@@ -2856,7 +2856,7 @@ namespace Berca_Backend.Migrations
 
                     b.HasIndex("UpdatedByUserId");
 
-                    b.ToTable("Reports");
+                    b.ToTable("Reports", (string)null);
                 });
 
             modelBuilder.Entity("Berca_Backend.Models.ReportExecution", b =>
@@ -2913,7 +2913,7 @@ namespace Berca_Backend.Migrations
 
                     b.HasIndex("ReportId");
 
-                    b.ToTable("ReportExecutions");
+                    b.ToTable("ReportExecutions", (string)null);
                 });
 
             modelBuilder.Entity("Berca_Backend.Models.ReportTemplate", b =>
@@ -2964,7 +2964,7 @@ namespace Berca_Backend.Migrations
 
                     b.HasIndex("CreatedByUserId");
 
-                    b.ToTable("ReportTemplates");
+                    b.ToTable("ReportTemplates", (string)null);
                 });
 
             modelBuilder.Entity("Berca_Backend.Models.Sale", b =>
@@ -3083,7 +3083,7 @@ namespace Berca_Backend.Migrations
                     b.HasIndex("Status")
                         .HasDatabaseName("IX_Sales_Status");
 
-                    b.ToTable("Sales");
+                    b.ToTable("Sales", (string)null);
                 });
 
             modelBuilder.Entity("Berca_Backend.Models.SaleItem", b =>
@@ -3149,7 +3149,7 @@ namespace Berca_Backend.Migrations
                     b.HasIndex("SaleId")
                         .HasDatabaseName("IX_SaleItems_SaleId");
 
-                    b.ToTable("SaleItems");
+                    b.ToTable("SaleItems", (string)null);
                 });
 
             modelBuilder.Entity("Berca_Backend.Models.Supplier", b =>
@@ -3244,7 +3244,7 @@ namespace Berca_Backend.Migrations
                     b.HasIndex("BranchId", "IsActive")
                         .HasDatabaseName("IX_Suppliers_Branch_Status");
 
-                    b.ToTable("Suppliers");
+                    b.ToTable("Suppliers", (string)null);
                 });
 
             modelBuilder.Entity("Berca_Backend.Models.User", b =>
@@ -3308,7 +3308,7 @@ namespace Berca_Backend.Migrations
                     b.HasIndex("BranchId", "Role")
                         .HasDatabaseName("IX_Users_BranchId_Role");
 
-                    b.ToTable("Users");
+                    b.ToTable("Users", (string)null);
                 });
 
             modelBuilder.Entity("Berca_Backend.Models.UserNotificationSettings", b =>
@@ -3370,7 +3370,7 @@ namespace Berca_Backend.Migrations
                     b.HasIndex("UserId")
                         .IsUnique();
 
-                    b.ToTable("UserNotificationSettings");
+                    b.ToTable("UserNotificationSettings", (string)null);
                 });
 
             modelBuilder.Entity("Berca_Backend.Models.UserProfile", b =>
@@ -3437,7 +3437,7 @@ namespace Berca_Backend.Migrations
                     b.HasIndex("UserId")
                         .IsUnique();
 
-                    b.ToTable("UserProfiles");
+                    b.ToTable("UserProfiles", (string)null);
                 });
 
             modelBuilder.Entity("Berca_Backend.Models.Branch", b =>

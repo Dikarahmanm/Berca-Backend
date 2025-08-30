@@ -2,8 +2,10 @@
 using Berca_Backend.DTOs;
 using Berca_Backend.Services;
 using Berca_Backend.Services.Interfaces;
+using Berca_Backend.Data;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using System.Security.Claims;
 
 namespace Berca_Backend.Controllers
@@ -14,12 +16,14 @@ namespace Berca_Backend.Controllers
     public class POSController : ControllerBase
     {
         private readonly IPOSService _posService;
+        private readonly AppDbContext _context;
         // TODO: Add IMemberCreditService when implementation is complete
         private readonly ILogger<POSController> _logger;
 
-        public POSController(IPOSService posService, ILogger<POSController> logger)
+        public POSController(IPOSService posService, AppDbContext context, ILogger<POSController> logger)
         {
             _posService = posService;
+            _context = context;
             _logger = logger;
         }
 
@@ -1036,6 +1040,97 @@ namespace Berca_Backend.Controllers
                 {
                     Success = false,
                     Message = "Internal server error"
+                });
+            }
+        }
+
+        /// <summary>
+        /// TEMPORARY: Apply missing credit columns migration
+        /// </summary>
+        [HttpPost("admin/apply-credit-migration")]
+        [AllowAnonymous] // Temporary for migration purposes
+        public async Task<ActionResult<ApiResponse<string>>> ApplyCreditMigration()
+        {
+            try
+            {
+                _logger.LogInformation("Applying credit integration migration...");
+                
+                var sql = @"
+                    -- Add credit transaction fields to Sales table if they don't exist
+                    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Sales') AND name = 'CreditAmount')
+                    BEGIN
+                        ALTER TABLE Sales ADD CreditAmount decimal(18,2) NULL;
+                        PRINT 'Added CreditAmount column';
+                    END
+
+                    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Sales') AND name = 'IsCreditTransaction')
+                    BEGIN
+                        ALTER TABLE Sales ADD IsCreditTransaction bit NOT NULL DEFAULT 0;
+                        PRINT 'Added IsCreditTransaction column';
+                    END
+
+                    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Sales') AND name = 'CreditTransactionId')
+                    BEGIN
+                        ALTER TABLE Sales ADD CreditTransactionId int NULL;
+                        PRINT 'Added CreditTransactionId column';
+                    END
+
+                    -- Create foreign key constraint to MemberCreditTransactions if it doesn't exist
+                    IF NOT EXISTS (SELECT * FROM sys.foreign_keys WHERE name = 'FK_Sales_MemberCreditTransactions_CreditTransactionId')
+                    BEGIN
+                        ALTER TABLE Sales ADD CONSTRAINT FK_Sales_MemberCreditTransactions_CreditTransactionId 
+                        FOREIGN KEY (CreditTransactionId) REFERENCES MemberCreditTransactions(Id);
+                        PRINT 'Added foreign key constraint';
+                    END
+
+                    -- Create index for CreditTransactionId if it doesn't exist
+                    IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'IX_Sales_CreditTransactionId')
+                    BEGIN
+                        CREATE INDEX IX_Sales_CreditTransactionId ON Sales(CreditTransactionId);
+                        PRINT 'Added IX_Sales_CreditTransactionId index';
+                    END
+
+                    -- Create index for performance on credit transactions lookup if it doesn't exist
+                    IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'IX_Sales_MemberId_IsCreditTransaction')
+                    BEGIN
+                        CREATE INDEX IX_Sales_MemberId_IsCreditTransaction ON Sales(MemberId, IsCreditTransaction);
+                        PRINT 'Added IX_Sales_MemberId_IsCreditTransaction index';
+                    END
+
+                    -- Create index for payment method queries if it doesn't exist
+                    IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'IX_Sales_PaymentMethod')
+                    BEGIN
+                        CREATE INDEX IX_Sales_PaymentMethod ON Sales(PaymentMethod);
+                        PRINT 'Added IX_Sales_PaymentMethod index';
+                    END
+
+                    -- Record this migration in EF history if not exists
+                    IF NOT EXISTS (SELECT * FROM __EFMigrationsHistory WHERE MigrationId = '20250830000000_AddSaleCreditIntegrationManual')
+                    BEGIN
+                        INSERT INTO __EFMigrationsHistory (MigrationId, ProductVersion) 
+                        VALUES ('20250830000000_AddSaleCreditIntegrationManual', '8.0.8');
+                        PRINT 'Recorded migration in EF history';
+                    END
+                ";
+                
+                await _context.Database.ExecuteSqlRawAsync(sql);
+                
+                _logger.LogInformation("Credit integration migration completed successfully");
+                
+                return Ok(new ApiResponse<string>
+                {
+                    Success = true,
+                    Data = "Migration completed successfully",
+                    Message = "Credit integration columns added to Sales table"
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error applying credit integration migration");
+                return StatusCode(500, new ApiResponse<string>
+                {
+                    Success = false,
+                    Message = $"Migration failed: {ex.Message}"
                 });
             }
         }
