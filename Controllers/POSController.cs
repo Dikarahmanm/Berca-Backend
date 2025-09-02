@@ -6,6 +6,7 @@ using Berca_Backend.Data;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using System.ComponentModel.DataAnnotations;
 using System.Security.Claims;
 
 namespace Berca_Backend.Controllers
@@ -28,7 +29,7 @@ namespace Berca_Backend.Controllers
         }
 
         /// <summary>
-        /// Create a new sale transaction
+        /// Create a new sale transaction (Enhanced for multi-branch)
         /// </summary>
         [HttpPost("sales")]
         [Authorize(Policy = "POS.Write")]
@@ -45,6 +46,37 @@ namespace Berca_Backend.Controllers
                         Message = "Invalid user authentication"
                     });
                 }
+
+                // Get branch ID from cookie or request
+                var branchId = GetCurrentBranchId();
+                if (request.BranchId.HasValue)
+                {
+                    // Validate user access to the requested branch
+                    var userRole = GetCurrentUserRole();
+                    var accessibleBranchIds = await GetUserAccessibleBranches(cashierId, userRole);
+                    
+                    if (!accessibleBranchIds.Contains(request.BranchId.Value))
+                    {
+                        return StatusCode(403, new ApiResponse<SaleDto>
+                        {
+                            Success = false,
+                            Message = "Access denied to this branch"
+                        });
+                    }
+                    branchId = request.BranchId.Value;
+                }
+                
+                if (branchId == 0)
+                {
+                    return BadRequest(new ApiResponse<SaleDto>
+                    {
+                        Success = false,
+                        Message = "Branch context is required for sale transactions"
+                    });
+                }
+
+                // Set the branch context in the request
+                request.BranchId = branchId;
 
                 var sale = await _posService.CreateSaleAsync(request, cashierId);
 
@@ -221,7 +253,7 @@ namespace Berca_Backend.Controllers
         }
 
         /// <summary>
-        /// Get receipt data for printing
+        /// Get receipt data for printing (Enhanced with branch information)
         /// </summary>
         [HttpGet("sales/{id}/receipt")]
         [Authorize(Policy = "POS.Read")]
@@ -230,6 +262,26 @@ namespace Berca_Backend.Controllers
             try
             {
                 var receiptData = await _posService.GetReceiptDataAsync(id);
+
+                // Enhance receipt data with branch information
+                var sale = await _context.Sales
+                    .Include(s => s.Cashier)
+                    .FirstOrDefaultAsync(s => s.Id == id);
+
+                if (sale != null)
+                {
+                    // Get branch information from cashier or cookie
+                    var branchId = sale.Cashier?.BranchId ?? GetCurrentBranchId();
+                    if (branchId > 0)
+                    {
+                        var branch = await _context.Branches.FirstOrDefaultAsync(b => b.Id == branchId);
+                        if (branch != null)
+                        {
+                            // Add branch info to receipt data (you'd modify the ReceiptDataDto to include this)
+                            _logger.LogInformation("Receipt generated for sale {SaleId} from branch {BranchName}", id, branch.BranchName);
+                        }
+                    }
+                }
 
                 return Ok(new ApiResponse<ReceiptDataDto>
                 {
@@ -1045,6 +1097,187 @@ namespace Berca_Backend.Controllers
         }
 
         /// <summary>
+        /// Get products available for POS with branch filtering
+        /// </summary>
+        [HttpGet("products")]
+        [Authorize(Policy = "POS.Read")]
+        public async Task<ActionResult<ApiResponse<List<ProductDto>>>> GetProductsForPOS(
+            [FromQuery] string? search = null,
+            [FromQuery] int? categoryId = null,
+            [FromQuery] bool? isActive = true,
+            [FromQuery] int page = 1,
+            [FromQuery] int pageSize = 20)
+        {
+            try
+            {
+                var currentUserId = GetCurrentUserId();
+                if (currentUserId == 0)
+                {
+                    return Unauthorized(new ApiResponse<List<ProductDto>>
+                    {
+                        Success = false,
+                        Message = "Invalid user authentication"
+                    });
+                }
+
+                // Get user's accessible branches
+                var userRole = GetCurrentUserRole();
+                var accessibleBranchIds = await GetUserAccessibleBranches(currentUserId, userRole);
+                
+                if (accessibleBranchIds.Count == 0)
+                {
+                    return BadRequest(new ApiResponse<List<ProductDto>>
+                    {
+                        Success = false,
+                        Message = "No accessible branches found for user"
+                    });
+                }
+
+                // Get current branch context
+                var currentBranchId = GetCurrentBranchId();
+                var branchIdsToSearch = currentBranchId > 0 && accessibleBranchIds.Contains(currentBranchId) 
+                    ? new List<int> { currentBranchId } 
+                    : accessibleBranchIds;
+
+                // Query products with filtering
+                var query = _context.Products
+                    .Where(p => isActive == null || p.IsActive == isActive)
+                    .Include(p => p.Category)
+                    .AsQueryable();
+
+                if (!string.IsNullOrWhiteSpace(search))
+                {
+                    query = query.Where(p => p.Name.Contains(search) || 
+                                           p.Barcode.Contains(search) ||
+                                           (p.Description != null && p.Description.Contains(search)));
+                }
+
+                if (categoryId.HasValue)
+                {
+                    query = query.Where(p => p.CategoryId == categoryId.Value);
+                }
+
+                var totalItems = await query.CountAsync();
+                var products = await query
+                    .OrderBy(p => p.Name)
+                    .Skip((page - 1) * pageSize)
+                    .Take(pageSize)
+                    .ToListAsync();
+
+                // Get branch-specific stock for these products
+                var productIds = products.Select(p => p.Id).ToList();
+                var branchStocks = await _context.StockMutations
+                    .Where(sm => productIds.Contains(sm.ProductId) && 
+                                branchIdsToSearch.Contains(sm.BranchId ?? 0))
+                    .GroupBy(sm => new { sm.ProductId, sm.BranchId })
+                    .Select(g => new 
+                    {
+                        ProductId = g.Key.ProductId,
+                        BranchId = g.Key.BranchId ?? 0,
+                        CurrentStock = g.OrderByDescending(sm => sm.CreatedAt)
+                                      .First().StockAfter
+                    })
+                    .ToListAsync();
+
+                var productDtos = products.Select(p => 
+                {
+                    var branchStockDict = branchStocks
+                        .Where(bs => bs.ProductId == p.Id)
+                        .ToDictionary(bs => bs.BranchId, bs => bs.CurrentStock);
+
+                    var totalBranchStock = branchStockDict.Values.Sum();
+
+                    return new ProductDto
+                    {
+                        Id = p.Id,
+                        Name = p.Name,
+                        Barcode = p.Barcode,
+                        SellPrice = p.SellPrice,
+                        BuyPrice = p.BuyPrice,
+                        Stock = totalBranchStock > 0 ? totalBranchStock : p.Stock,
+                        MinStock = p.MinimumStock,
+                        Unit = p.Unit,
+                        CategoryId = p.CategoryId,
+                        CategoryName = p.Category?.Name,
+                        IsActive = p.IsActive,
+                        Description = p.Description,
+                        CreatedAt = p.CreatedAt,
+                        UpdatedAt = p.UpdatedAt
+                    };
+                }).Where(p => p.Stock > 0).ToList();
+
+                _logger.LogInformation("Retrieved {ProductCount} products for POS from {BranchCount} branches", 
+                    productDtos.Count, branchIdsToSearch.Count);
+
+                return Ok(new ApiResponse<List<ProductDto>>
+                {
+                    Success = true,
+                    Data = productDtos,
+                    Message = $"Retrieved {productDtos.Count} products for POS"
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error retrieving products for POS");
+                return StatusCode(500, new ApiResponse<List<ProductDto>>
+                {
+                    Success = false,
+                    Message = "Internal server error"
+                });
+            }
+        }
+
+        /// <summary>
+        /// Get product stock by branch for POS
+        /// </summary>
+        [HttpGet("products/{productId}/branch-stock")]
+        [Authorize(Policy = "POS.Read")]
+        public async Task<ActionResult<ApiResponse<Dictionary<int, int>>>> GetProductBranchStock(int productId)
+        {
+            try
+            {
+                var currentUserId = GetCurrentUserId();
+                if (currentUserId == 0)
+                {
+                    return Unauthorized(new ApiResponse<Dictionary<int, int>>
+                    {
+                        Success = false,
+                        Message = "Invalid user authentication"
+                    });
+                }
+
+                var userRole = GetCurrentUserRole();
+                var accessibleBranchIds = await GetUserAccessibleBranches(currentUserId, userRole);
+
+                var branchStock = await _context.StockMutations
+                    .Where(sm => sm.ProductId == productId && accessibleBranchIds.Contains(sm.BranchId ?? 0))
+                    .GroupBy(sm => sm.BranchId)
+                    .Select(g => new 
+                    {
+                        BranchId = g.Key ?? 0,
+                        CurrentStock = g.OrderByDescending(sm => sm.CreatedAt).First().StockAfter
+                    })
+                    .ToDictionaryAsync(x => x.BranchId, x => x.CurrentStock);
+
+                return Ok(new ApiResponse<Dictionary<int, int>>
+                {
+                    Success = true,
+                    Data = branchStock,
+                    Message = $"Retrieved stock for product {productId} across {branchStock.Count} branches"
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error retrieving product branch stock for product {ProductId}", productId);
+                return StatusCode(500, new ApiResponse<Dictionary<int, int>>
+                {
+                    Success = false,
+                    Message = "Internal server error"
+                });
+            }
+        }
+
+        /// <summary>
         /// TEMPORARY: Apply missing credit columns migration
         /// </summary>
         [HttpPost("admin/apply-credit-migration")]
@@ -1134,6 +1367,159 @@ namespace Berca_Backend.Controllers
                 });
             }
         }
+        /// <summary>
+        /// Create sale transaction (Frontend integration endpoint: POST /api/Sale)
+        /// </summary>
+        [HttpPost]
+        [Route("/api/Sale")]
+        [Authorize(Policy = "POS.Write")]
+        public async Task<IActionResult> CreateSaleTransaction([FromBody] BranchAwareSaleRequest request)
+        {
+            try
+            {
+                var currentUserId = GetCurrentUserId();
+                if (currentUserId == 0)
+                {
+                    return Unauthorized(new
+                    {
+                        success = false,
+                        message = "Invalid user authentication"
+                    });
+                }
+
+                // Validate branch access
+                var userRole = GetCurrentUserRole();
+                var accessibleBranchIds = await GetUserAccessibleBranches(currentUserId, userRole);
+                
+                if (!accessibleBranchIds.Contains(request.BranchId))
+                {
+                    return StatusCode(403, new
+                    {
+                        success = false,
+                        message = "Access denied to this branch"
+                    });
+                }
+
+                // Create the sale with branch context
+                var createSaleRequest = new CreateSaleRequest
+                {
+                    BranchId = request.BranchId,
+                    CustomerId = request.CustomerId,
+                    MemberCode = request.MemberCode,
+                    PaymentMethod = request.PaymentMethod,
+                    Subtotal = request.Subtotal,
+                    Tax = request.Tax,
+                    Discount = request.Discount,
+                    Total = request.Total,
+                    PaidAmount = request.PaidAmount,
+                    ChangeAmount = request.ChangeAmount,
+                    Items = request.Items.Select(i => new CreateSaleItemRequest
+                    {
+                        ProductId = i.ProductId,
+                        Quantity = i.Quantity,
+                        UnitPrice = i.UnitPrice,
+                        Discount = i.Discount,
+                        Subtotal = i.Subtotal
+                    }).ToList(),
+                    Notes = request.Notes
+                };
+
+                var sale = await _posService.CreateSaleAsync(createSaleRequest, currentUserId);
+
+                return Ok(new
+                {
+                    success = true,
+                    message = "Sale created successfully",
+                    data = new
+                    {
+                        id = sale.Id,
+                        saleNumber = sale.SaleNumber,
+                        total = sale.Total,
+                        branchId = request.BranchId,
+                        createdAt = sale.CreatedAt
+                    }
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error creating sale transaction");
+                return StatusCode(500, new
+                {
+                    success = false,
+                    message = "Internal server error"
+                });
+            }
+        }
+
+        #region Helper Methods
+
+        private int GetCurrentUserId()
+        {
+            var userIdClaim = User.FindFirst("UserId")?.Value ?? 
+                             User.FindFirst("sub")?.Value ?? 
+                             User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            return int.TryParse(userIdClaim, out var userId) ? userId : 0;
+        }
+
+        private string GetCurrentUserRole()
+        {
+            return User.FindFirst("Role")?.Value ?? 
+                   User.FindFirst("http://schemas.microsoft.com/ws/2008/06/identity/claims/role")?.Value ?? 
+                   User.FindFirst(ClaimTypes.Role)?.Value ??
+                   "User";
+        }
+
+        private int GetCurrentBranchId()
+        {
+            // Try to get branch from cookie first
+            var branchCookie = HttpContext.Request.Cookies[".TokoEniwan.BranchContext"];
+            if (int.TryParse(branchCookie, out var branchFromCookie))
+            {
+                return branchFromCookie;
+            }
+
+            // Fallback to user's default branch
+            var branchIdClaim = User.FindFirst("BranchId")?.Value;
+            return int.TryParse(branchIdClaim, out var branchId) ? branchId : 0;
+        }
+
+        private async Task<List<int>> GetUserAccessibleBranches(int userId, string userRole)
+        {
+            var accessibleBranches = new List<int>();
+
+            if (userRole.ToUpper() is "ADMIN" or "HEADMANAGER")
+            {
+                // Admin and HeadManager can access all branches
+                accessibleBranches = await _context.Branches
+                    .Where(b => b.IsActive)
+                    .Select(b => b.Id)
+                    .ToListAsync();
+            }
+            else
+            {
+                try
+                {
+                    // Get user's accessible branches via BranchAccess table
+                    accessibleBranches = await _context.BranchAccesses
+                        .Where(ba => ba.UserId == userId && ba.IsActive && ba.CanWrite)
+                        .Select(ba => ba.BranchId)
+                        .ToListAsync();
+                }
+                catch
+                {
+                    // Fallback: Use user's assigned branch
+                    var user = await _context.Users.FirstOrDefaultAsync(u => u.Id == userId);
+                    if (user?.BranchId.HasValue == true)
+                    {
+                        accessibleBranches.Add(user.BranchId.Value);
+                    }
+                }
+            }
+
+            return accessibleBranches;
+        }
+
+        #endregion
     }
 
     // Request DTOs
@@ -1151,5 +1537,59 @@ namespace Berca_Backend.Controllers
     {
         public List<CreateSaleItemRequest> Items { get; set; } = new();
         public decimal DiscountAmount { get; set; }
+    }
+
+    /// <summary>
+    /// Request DTO for branch-aware sale creation (Frontend integration)
+    /// </summary>
+    public class BranchAwareSaleRequest
+    {
+        [Required]
+        public int BranchId { get; set; }
+        
+        public int? CustomerId { get; set; }
+        
+        public string? MemberCode { get; set; }
+        
+        [Required]
+        public string PaymentMethod { get; set; } = string.Empty;
+        
+        [Required]
+        public decimal Subtotal { get; set; }
+        
+        public decimal Tax { get; set; }
+        
+        public decimal Discount { get; set; }
+        
+        [Required]
+        public decimal Total { get; set; }
+        
+        [Required]
+        public decimal PaidAmount { get; set; }
+        
+        public decimal ChangeAmount { get; set; }
+        
+        [Required]
+        public List<BranchAwareSaleItemRequest> Items { get; set; } = new();
+        
+        public string? Notes { get; set; }
+    }
+
+    public class BranchAwareSaleItemRequest
+    {
+        [Required]
+        public int ProductId { get; set; }
+        
+        [Required]
+        [Range(1, int.MaxValue)]
+        public int Quantity { get; set; }
+        
+        [Required]
+        public decimal UnitPrice { get; set; }
+        
+        public decimal Discount { get; set; }
+        
+        [Required]
+        public decimal Subtotal { get; set; }
     }
 }

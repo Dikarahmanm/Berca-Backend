@@ -64,6 +64,9 @@ namespace Berca_Backend.Models
         public int CashierId { get; set; }
         public virtual User Cashier { get; set; } = null!;
 
+        // Legacy: Database has UserId column, map it to CashierId for backward compatibility
+        public int? UserId { get; set; }
+
         // Status
         public SaleStatus Status { get; set; } = SaleStatus.Completed;
 

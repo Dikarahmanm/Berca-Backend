@@ -379,54 +379,57 @@ namespace Berca_Backend.Services
             return highDemandBranches;
         }
 
-        private async Task<InterBranchTransferRecommendationDto?> CreateTransferRecommendationAsync(Branch sourceBranch, Branch targetBranch, ProductBatch batch)
+        private Task<InterBranchTransferRecommendationDto?> CreateTransferRecommendationAsync(Branch sourceBranch, Branch targetBranch, ProductBatch batch)
         {
-            try
+            return Task.Run(() =>
             {
-                var transferQuantity = Math.Min(batch.CurrentStock, batch.CurrentStock / 2); // Transfer up to half
-                var transferCost = CalculateTransferCost(sourceBranch.Id, targetBranch.Id, transferQuantity);
-                var potentialRevenue = transferQuantity * batch.Product.SellPrice;
-                var potentialSavings = potentialRevenue - transferCost - (transferQuantity * batch.CostPerUnit);
-
-                if (potentialSavings > transferCost * 0.2m) // 20% minimum ROI
+                try
                 {
-                    return new InterBranchTransferRecommendationDto
-                    {
-                        FromBranchId = sourceBranch.Id,
-                        FromBranchName = sourceBranch.BranchName,
-                        ToBranchId = targetBranch.Id,
-                        ToBranchName = targetBranch.BranchName,
-                        ProductId = batch.ProductId,
-                        ProductName = batch.Product.Name,
-                        BatchId = batch.Id,
-                        BatchNumber = batch.BatchNumber,
-                        RecommendedQuantity = transferQuantity,
-                        TransferCost = transferCost,
-                        PotentialSavings = potentialSavings,
-                        UrgencyScore = CalculateTransferUrgency(batch),
-                        RecommendedTransferDate = DateTime.UtcNow.AddDays(1),
-                        TransferReasons = new List<string>
-                        {
-                            "Prevent expiry waste at source branch",
-                            "Meet demand at target branch",
-                            "Optimize inventory distribution"
-                        },
-                        Logistics = new TransferLogistics
-                        {
-                            EstimatedTransitTime = "1-2 days",
-                            RequiredVehicle = "Standard delivery",
-                            SpecialHandling = batch.Product.Category?.RequiresExpiryDate == true ? "Temperature controlled" : "Standard"
-                        }
-                    };
-                }
+                    var transferQuantity = Math.Min(batch.CurrentStock, batch.CurrentStock / 2); // Transfer up to half
+                    var transferCost = CalculateTransferCost(sourceBranch.Id, targetBranch.Id, transferQuantity);
+                    var potentialRevenue = transferQuantity * batch.Product.SellPrice;
+                    var potentialSavings = potentialRevenue - transferCost - (transferQuantity * batch.CostPerUnit);
 
-                return null;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error creating transfer recommendation for batch {BatchId}", batch.Id);
-                return null;
-            }
+                    if (potentialSavings > transferCost * 0.2m) // 20% minimum ROI
+                    {
+                        return (InterBranchTransferRecommendationDto?)new InterBranchTransferRecommendationDto
+                        {
+                            FromBranchId = sourceBranch.Id,
+                            FromBranchName = sourceBranch.BranchName,
+                            ToBranchId = targetBranch.Id,
+                            ToBranchName = targetBranch.BranchName,
+                            ProductId = batch.ProductId,
+                            ProductName = batch.Product.Name,
+                            BatchId = batch.Id,
+                            BatchNumber = batch.BatchNumber,
+                            RecommendedQuantity = transferQuantity,
+                            TransferCost = transferCost,
+                            PotentialSavings = potentialSavings,
+                            UrgencyScore = CalculateTransferUrgency(batch),
+                            RecommendedTransferDate = DateTime.UtcNow.AddDays(1),
+                            TransferReasons = new List<string>
+                            {
+                                "Prevent expiry waste at source branch",
+                                "Meet demand at target branch",
+                                "Optimize inventory distribution"
+                            },
+                            Logistics = new TransferLogistics
+                            {
+                                EstimatedTransitTime = "1-2 days",
+                                RequiredVehicle = "Standard delivery",
+                                SpecialHandling = batch.Product?.Category?.RequiresExpiryDate == true ? "Temperature controlled" : "Standard"
+                            }
+                        };
+                    }
+
+                    return null;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Error creating transfer recommendation for batch {BatchId}", batch.Id);
+                    return null;
+                }
+            });
         }
 
         private async Task<List<InterBranchTransferRecommendationDto>> GetStockImbalanceRecommendationsAsync(List<Branch> branches)
@@ -522,15 +525,15 @@ namespace Berca_Backend.Services
             };
         }
 
-        private async Task<BranchInventoryData> GetBranchInventoryDataAsync(int branchId)
+        private Task<BranchInventoryData> GetBranchInventoryDataAsync(int branchId)
         {
             // Simplified implementation
-            return new BranchInventoryData
+            return Task.FromResult(new BranchInventoryData
             {
                 InventoryTurnover = 12m, // 12x per year
                 StockoutRate = 5m, // 5%
                 ExcessStockValue = 0m
-            };
+            });
         }
 
         private async Task<BranchExpiryData> GetBranchExpiryDataAsync(int branchId)
@@ -640,10 +643,10 @@ namespace Berca_Backend.Services
             }
         }
 
-        private async Task<List<DTOs.CrossBranchOpportunityDto>> IdentifyInventoryOptimizationOpportunities()
+        private Task<List<DTOs.CrossBranchOpportunityDto>> IdentifyInventoryOptimizationOpportunities()
         {
             // Simplified implementation
-            return new List<DTOs.CrossBranchOpportunityDto>
+            return Task.Run(() => new List<DTOs.CrossBranchOpportunityDto>
             {
                 new DTOs.CrossBranchOpportunityDto
                 {
@@ -654,13 +657,13 @@ namespace Berca_Backend.Services
                     PotentialSavings = 5000000m,
                     RecommendedImplementationDate = DateTime.UtcNow.AddMonths(2)
                 }
-            };
+            });
         }
 
-        private async Task<List<DTOs.CrossBranchOpportunityDto>> IdentifyStaffOptimizationOpportunities()
+        private Task<List<DTOs.CrossBranchOpportunityDto>> IdentifyStaffOptimizationOpportunities()
         {
             // Simplified implementation
-            return new List<DTOs.CrossBranchOpportunityDto>
+            return Task.Run(() => new List<DTOs.CrossBranchOpportunityDto>
             {
                 new DTOs.CrossBranchOpportunityDto
                 {
@@ -671,7 +674,7 @@ namespace Berca_Backend.Services
                     PotentialSavings = 3000000m,
                     RecommendedImplementationDate = DateTime.UtcNow.AddMonths(1)
                 }
-            };
+            });
         }
 
         private async Task<decimal> CalculateProductSalesVelocity(int productId, int branchId)
@@ -779,69 +782,75 @@ namespace Berca_Backend.Services
             return await GetCrossBranchOpportunitiesAsync();
         }
 
-        public async Task<List<BranchDemandForecastDto>> GetDemandForecastAsync(int forecastDays, int? productId = null)
+        public Task<List<BranchDemandForecastDto>> GetDemandForecastAsync(int forecastDays, int? productId = null)
         {
-            try
+            return Task.Run(async () =>
             {
-                var branches = await _context.Branches.Where(b => b.IsActive).ToListAsync();
-                var forecasts = new List<BranchDemandForecastDto>();
-
-                foreach (var branch in branches)
+                try
                 {
-                    var forecast = new BranchDemandForecastDto
-                    {
-                        BranchId = branch.Id,
-                        BranchName = branch.BranchName,
-                        GeneratedAt = DateTime.UtcNow,
-                        ForecastPeriodStart = DateTime.UtcNow,
-                        ForecastPeriodEnd = DateTime.UtcNow.AddDays(forecastDays),
-                        TotalForecastedDemand = 100, // Mock calculation
-                        ForecastConfidence = 85.0m,
-                        ProductForecasts = new List<ProductDemandForecastDto>()
-                    };
-                    forecasts.Add(forecast);
-                }
+                    var branches = await _context.Branches.Where(b => b.IsActive).ToListAsync();
+                    var forecasts = new List<BranchDemandForecastDto>();
 
-                return forecasts;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error generating demand forecast");
-                throw;
-            }
+                    foreach (var branch in branches)
+                    {
+                        var forecast = new BranchDemandForecastDto
+                        {
+                            BranchId = branch.Id,
+                            BranchName = branch.BranchName,
+                            GeneratedAt = DateTime.UtcNow,
+                            ForecastPeriodStart = DateTime.UtcNow,
+                            ForecastPeriodEnd = DateTime.UtcNow.AddDays(forecastDays),
+                            TotalForecastedDemand = 100, // Mock calculation
+                            ForecastConfidence = 85.0m,
+                            ProductForecasts = new List<ProductDemandForecastDto>()
+                        };
+                        forecasts.Add(forecast);
+                    }
+
+                    return forecasts;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Error generating demand forecast");
+                    throw;
+                }
+            });
         }
 
-        public async Task<OptimizationExecutionResultDto> ExecuteAutomaticOptimizationAsync(bool dryRun, int userId)
+        public Task<OptimizationExecutionResultDto> ExecuteAutomaticOptimizationAsync(bool dryRun, int userId)
         {
-            try
+            return Task.Run(() =>
             {
-                var result = new OptimizationExecutionResultDto
+                try
                 {
-                    ExecutedAt = DateTime.UtcNow,
-                    WasDryRun = dryRun,
-                    ExecutedByUserId = userId,
-                    IsSuccess = true,
-                    ExecutedActions = new List<ExecutedActionDto>(),
-                    Errors = new List<string>(),
-                    Warnings = new List<string>()
-                };
+                    var result = new OptimizationExecutionResultDto
+                    {
+                        ExecutedAt = DateTime.UtcNow,
+                        WasDryRun = dryRun,
+                        ExecutedByUserId = userId,
+                        IsSuccess = true,
+                        ExecutedActions = new List<ExecutedActionDto>(),
+                        Errors = new List<string>(),
+                        Warnings = new List<string>()
+                    };
 
-                return result;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error executing automatic optimization");
-                return new OptimizationExecutionResultDto
+                    return result;
+                }
+                catch (Exception ex)
                 {
-                    ExecutedAt = DateTime.UtcNow,
-                    WasDryRun = dryRun,
-                    ExecutedByUserId = userId,
-                    IsSuccess = false,
-                    ExecutedActions = new List<ExecutedActionDto>(),
-                    Errors = new List<string> { ex.Message },
-                    Warnings = new List<string>()
-                };
-            }
+                    _logger.LogError(ex, "Error executing automatic optimization");
+                    return new OptimizationExecutionResultDto
+                    {
+                        ExecutedAt = DateTime.UtcNow,
+                        WasDryRun = dryRun,
+                        ExecutedByUserId = userId,
+                        IsSuccess = false,
+                        ExecutedActions = new List<ExecutedActionDto>(),
+                        Errors = new List<string> { ex.Message },
+                        Warnings = new List<string>()
+                    };
+                }
+            });
         }
 
         // Overload method implementation

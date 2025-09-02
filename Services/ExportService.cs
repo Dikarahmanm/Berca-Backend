@@ -34,8 +34,8 @@ namespace Berca_Backend.Services
         {
             _logger = logger;
             _configuration = configuration;
-            _outputDirectory = _configuration["Reporting:OutputDirectory"] ?? "C:\\Reports\\";
-            _tempDirectory = _configuration["Reporting:TempDirectory"] ?? "C:\\Reports\\Temp\\";
+            _outputDirectory = _configuration["Reporting:OutputDirectory"] ?? "C:\\Reports\\\\";
+            _tempDirectory = _configuration["Reporting:TempDirectory"] ?? "C:\\Reports\\Temp\\\\";
             
             // Ensure directories exist
             Directory.CreateDirectory(_outputDirectory);
@@ -907,40 +907,43 @@ namespace Berca_Backend.Services
             worksheet.Cells.AutoFitColumns();
         }
 
-        private async Task CreateCategoryBreakdownSheet(ExcelWorksheet worksheet, List<CategoryInventoryBreakdownDto> categoryBreakdown)
+        private Task CreateCategoryBreakdownSheet(ExcelWorksheet worksheet, List<CategoryInventoryBreakdownDto> categoryBreakdown)
         {
-            worksheet.Cells["A1"].Value = "BREAKDOWN KATEGORI";
-            worksheet.Cells["A1"].Style.Font.Size = 16;
-            worksheet.Cells["A1"].Style.Font.Bold = true;
-            worksheet.Cells["A1:E1"].Merge = true;
-
-            var headerRow = 3;
-            worksheet.Cells[headerRow, 1].Value = "Kategori";
-            worksheet.Cells[headerRow, 2].Value = "Jumlah Produk";
-            worksheet.Cells[headerRow, 3].Value = "Total Stok";
-            worksheet.Cells[headerRow, 4].Value = "Nilai Total";
-            worksheet.Cells[headerRow, 5].Value = "Stok Rendah";
-
-            // Style headers
-            using (var range = worksheet.Cells[headerRow, 1, headerRow, 5])
+            return Task.Run(() =>
             {
-                range.Style.Font.Bold = true;
-                range.Style.Fill.PatternType = ExcelFillStyle.Solid;
-                range.Style.Fill.BackgroundColor.SetColor(System.Drawing.Color.LightBlue);
-            }
+                worksheet.Cells["A1"].Value = "BREAKDOWN KATEGORI";
+                worksheet.Cells["A1"].Style.Font.Size = 16;
+                worksheet.Cells["A1"].Style.Font.Bold = true;
+                worksheet.Cells["A1:E1"].Merge = true;
 
-            var dataRow = headerRow + 1;
-            foreach (var category in categoryBreakdown)
-            {
-                worksheet.Cells[dataRow, 1].Value = category.CategoryName;
-                worksheet.Cells[dataRow, 2].Value = category.ProductCount;
-                worksheet.Cells[dataRow, 3].Value = category.TotalStock;
-                worksheet.Cells[dataRow, 4].Value = category.TotalValueDisplay;
-                worksheet.Cells[dataRow, 5].Value = category.LowStockCount;
-                dataRow++;
-            }
+                var headerRow = 3;
+                worksheet.Cells[headerRow, 1].Value = "Kategori";
+                worksheet.Cells[headerRow, 2].Value = "Jumlah Produk";
+                worksheet.Cells[headerRow, 3].Value = "Total Stok";
+                worksheet.Cells[headerRow, 4].Value = "Nilai Total";
+                worksheet.Cells[headerRow, 5].Value = "Stok Rendah";
 
-            worksheet.Cells.AutoFitColumns();
+                // Style headers
+                using (var range = worksheet.Cells[headerRow, 1, headerRow, 5])
+                {
+                    range.Style.Font.Bold = true;
+                    range.Style.Fill.PatternType = ExcelFillStyle.Solid;
+                    range.Style.Fill.BackgroundColor.SetColor(System.Drawing.Color.LightBlue);
+                }
+
+                var dataRow = headerRow + 1;
+                foreach (var category in categoryBreakdown)
+                {
+                    worksheet.Cells[dataRow, 1].Value = category.CategoryName;
+                    worksheet.Cells[dataRow, 2].Value = category.ProductCount;
+                    worksheet.Cells[dataRow, 3].Value = category.TotalStock;
+                    worksheet.Cells[dataRow, 4].Value = category.TotalValueDisplay;
+                    worksheet.Cells[dataRow, 5].Value = category.LowStockCount;
+                    dataRow++;
+                }
+
+                worksheet.Cells.AutoFitColumns();
+            });
         }
 
         private string SanitizeFileName(string fileName)

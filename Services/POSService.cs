@@ -46,6 +46,15 @@ namespace Berca_Backend.Services
                     if (!await ValidateStockAvailabilityAsync(request.Items))
                         throw new InvalidOperationException("Insufficient stock for one or more items");
 
+                    // Validate cashier exists
+                    var cashierExists = await _context.Users.AnyAsync(u => u.Id == cashierId);
+                    if (!cashierExists)
+                    {
+                        var allUserIds = await _context.Users.Select(u => u.Id).ToListAsync();
+                        var userIdsStr = string.Join(", ", allUserIds);
+                        throw new InvalidOperationException($"Cashier with ID {cashierId} not found. Available user IDs: [{userIdsStr}]");
+                    }
+
                 // Generate sale number
                 var saleNumber = await GenerateSaleNumberAsync();
 
@@ -54,7 +63,7 @@ namespace Berca_Backend.Services
                 {
                     SaleNumber = saleNumber,
                     SaleDate = _timezoneService.Now,
-                    Subtotal = request.SubTotal,
+                    Subtotal = request.Subtotal,
                     DiscountAmount = request.DiscountAmount,
                     DiscountPercentage = request.DiscountPercentage,
                     TaxAmount = 0,
@@ -64,6 +73,7 @@ namespace Berca_Backend.Services
                     ChangeAmount = request.ChangeAmount,
                     MemberId = request.MemberId,
                     CashierId = cashierId,
+                    UserId = cashierId, // Set UserId to match CashierId for database compatibility
                     Notes = request.Notes,
                     Status = SaleStatus.Completed,
                     ReceiptPrinted = false,
@@ -1646,6 +1656,7 @@ namespace Berca_Backend.Services
                     MemberId = request.MemberId,
                     CustomerName = validation.MemberName,
                     CashierId = request.CashierId,
+                    UserId = request.CashierId, // Set UserId to match CashierId for database compatibility
                     Status = SaleStatus.Completed,
                     Notes = request.Description,
                     

@@ -487,7 +487,7 @@ namespace Berca_Backend.Services
                 var value = batch.CurrentStock * batch.CostPerUnit;
                 var notification = new CreateNotificationDto
                 {
-                    Title = $"High Value Expiry Risk: {batch.Product.Name}",
+                    Title = $"High Value Expiry Risk: {batch.Product?.Name}",
                     Message = $"High value batch (Rp {value:N0}) expires soon",
                     Priority = "Critical",
                     Type = "HighValueRisk",

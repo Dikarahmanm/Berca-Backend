@@ -40,6 +40,12 @@ namespace Berca_Backend.Models
         [Range(0.01, 999999999.99)]
         public decimal UnitPrice { get; set; }
 
+        [Column(TypeName = "decimal(18,2)")]
+        public decimal TotalPrice { get; set; } = 0;
+
+        [Range(0, 999999.99)]
+        public decimal? VerifiedQuantity { get; set; }
+
         // Delivery verification quantities
         [Range(0, 999999.99)]
         public decimal? ReceivedQuantity { get; set; }

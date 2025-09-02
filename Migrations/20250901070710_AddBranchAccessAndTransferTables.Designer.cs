@@ -4,6 +4,7 @@ using Berca_Backend.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -11,9 +12,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace Berca_Backend.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20250901070710_AddBranchAccessAndTransferTables")]
+    partial class AddBranchAccessAndTransferTables
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -105,9 +108,6 @@ namespace Berca_Backend.Migrations
                         .HasColumnType("nvarchar(20)")
                         .HasDefaultValue("Medium");
 
-                    b.Property<int?>("SupplierId")
-                        .HasColumnType("int");
-
                     b.Property<DateTime>("UpdatedAt")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("datetime2")
@@ -132,8 +132,6 @@ namespace Berca_Backend.Migrations
 
                     b.HasIndex("Province")
                         .HasDatabaseName("IX_Branches_Province");
-
-                    b.HasIndex("SupplierId");
 
                     b.HasIndex("Province", "City")
                         .HasDatabaseName("IX_Branches_Province_City");
@@ -188,6 +186,10 @@ namespace Berca_Backend.Migrations
 
                     b.HasIndex("UserId")
                         .HasDatabaseName("IX_BranchAccess_UserId");
+
+                    b.HasIndex("UserId", "BranchId")
+                        .IsUnique()
+                        .HasDatabaseName("IX_BranchAccess_User_Branch");
 
                     b.ToTable("BranchAccesses");
                 });
@@ -1104,9 +1106,6 @@ namespace Berca_Backend.Migrations
                         .HasColumnType("decimal(5,2)")
                         .HasDefaultValue(0m);
 
-                    b.Property<decimal>("TotalPrice")
-                        .HasColumnType("decimal(18,2)");
-
                     b.Property<decimal>("UnitPrice")
                         .HasColumnType("decimal(18,2)");
 
@@ -1124,9 +1123,6 @@ namespace Berca_Backend.Migrations
 
                     b.Property<int?>("VerifiedBy")
                         .HasColumnType("int");
-
-                    b.Property<decimal?>("VerifiedQuantity")
-                        .HasColumnType("decimal(18,2)");
 
                     b.HasKey("Id");
 
@@ -1490,7 +1486,8 @@ namespace Berca_Backend.Migrations
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
 
                     b.Property<string>("BatchNumber")
-                        .HasColumnType("nvarchar(max)");
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
 
                     b.Property<int?>("DestinationStockAfter")
                         .HasColumnType("int");
@@ -1511,10 +1508,8 @@ namespace Berca_Backend.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("nvarchar(200)");
 
-                    b.Property<decimal>("Quantity")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("decimal(18,4)")
-                        .HasDefaultValue(0m);
+                    b.Property<int>("Quantity")
+                        .HasColumnType("int");
 
                     b.Property<int>("SourceStockAfter")
                         .HasColumnType("int");
@@ -2797,102 +2792,6 @@ namespace Berca_Backend.Migrations
                     b.ToTable("ProductBatches");
                 });
 
-            modelBuilder.Entity("Berca_Backend.Models.PurchaseOrder", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("int");
-
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
-
-                    b.Property<int?>("BranchId")
-                        .HasColumnType("int");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<int>("CreatedBy")
-                        .HasColumnType("int");
-
-                    b.Property<int>("CreatedByUserId")
-                        .HasColumnType("int");
-
-                    b.Property<DateTime?>("DeliveryDate")
-                        .HasColumnType("datetime2");
-
-                    b.Property<string>("Notes")
-                        .IsRequired()
-                        .HasMaxLength(1000)
-                        .HasColumnType("nvarchar(1000)");
-
-                    b.Property<DateTime>("OrderDate")
-                        .HasColumnType("datetime2");
-
-                    b.Property<string>("PurchaseOrderNumber")
-                        .IsRequired()
-                        .HasMaxLength(20)
-                        .HasColumnType("nvarchar(20)");
-
-                    b.Property<int>("Status")
-                        .HasColumnType("int");
-
-                    b.Property<int>("SupplierId")
-                        .HasColumnType("int");
-
-                    b.Property<decimal>("TotalAmount")
-                        .HasColumnType("decimal(18,2)");
-
-                    b.Property<DateTime>("UpdatedAt")
-                        .HasColumnType("datetime2");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("BranchId");
-
-                    b.HasIndex("CreatedByUserId");
-
-                    b.HasIndex("SupplierId");
-
-                    b.ToTable("PurchaseOrders");
-                });
-
-            modelBuilder.Entity("Berca_Backend.Models.PurchaseOrderItem", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("int");
-
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
-
-                    b.Property<string>("Notes")
-                        .IsRequired()
-                        .HasMaxLength(200)
-                        .HasColumnType("nvarchar(200)");
-
-                    b.Property<int>("ProductId")
-                        .HasColumnType("int");
-
-                    b.Property<int>("PurchaseOrderId")
-                        .HasColumnType("int");
-
-                    b.Property<int>("Quantity")
-                        .HasColumnType("int");
-
-                    b.Property<decimal>("TotalPrice")
-                        .HasColumnType("decimal(18,2)");
-
-                    b.Property<decimal>("UnitPrice")
-                        .HasColumnType("decimal(18,2)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("ProductId");
-
-                    b.HasIndex("PurchaseOrderId");
-
-                    b.ToTable("PurchaseOrderItem");
-                });
-
             modelBuilder.Entity("Berca_Backend.Models.PushNotificationLog", b =>
                 {
                     b.Property<int>("Id")
@@ -3288,9 +3187,6 @@ namespace Berca_Backend.Migrations
                         .HasColumnType("datetime2")
                         .HasDefaultValueSql("GETUTCDATE()");
 
-                    b.Property<int>("UserId")
-                        .HasColumnType("int");
-
                     b.HasKey("Id");
 
                     b.HasIndex("CashierId");
@@ -3311,8 +3207,6 @@ namespace Berca_Backend.Migrations
 
                     b.HasIndex("Status")
                         .HasDatabaseName("IX_Sales_Status");
-
-                    b.HasIndex("UserId");
 
                     b.ToTable("Sales");
                 });
@@ -3439,72 +3333,6 @@ namespace Berca_Backend.Migrations
                     b.ToTable("SaleItemBatches");
                 });
 
-            modelBuilder.Entity("Berca_Backend.Models.StockMutation", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("int");
-
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
-
-                    b.Property<int?>("BranchId")
-                        .HasColumnType("int");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<int>("MutationType")
-                        .HasColumnType("int");
-
-                    b.Property<string>("Notes")
-                        .IsRequired()
-                        .HasMaxLength(500)
-                        .HasColumnType("nvarchar(500)");
-
-                    b.Property<int>("ProductId")
-                        .HasColumnType("int");
-
-                    b.Property<int>("Quantity")
-                        .HasColumnType("int");
-
-                    b.Property<string>("ReferenceNumber")
-                        .HasMaxLength(50)
-                        .HasColumnType("nvarchar(50)");
-
-                    b.Property<int?>("SaleId")
-                        .HasColumnType("int");
-
-                    b.Property<int>("StockAfter")
-                        .HasColumnType("int");
-
-                    b.Property<int>("StockBefore")
-                        .HasColumnType("int");
-
-                    b.Property<decimal?>("TotalCost")
-                        .HasColumnType("decimal(18,2)");
-
-                    b.Property<decimal?>("UnitCost")
-                        .HasColumnType("decimal(18,2)");
-
-                    b.Property<DateTime>("UpdatedAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<int>("UserId")
-                        .HasColumnType("int");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("BranchId");
-
-                    b.HasIndex("ProductId");
-
-                    b.HasIndex("SaleId");
-
-                    b.HasIndex("UserId");
-
-                    b.ToTable("StockMutations");
-                });
-
             modelBuilder.Entity("Berca_Backend.Models.Supplier", b =>
                 {
                     b.Property<int>("Id")
@@ -3518,30 +3346,10 @@ namespace Berca_Backend.Migrations
                         .HasMaxLength(500)
                         .HasColumnType("nvarchar(500)");
 
-                    b.Property<string>("BankAccount")
-                        .IsRequired()
-                        .HasMaxLength(50)
-                        .HasColumnType("nvarchar(50)");
-
-                    b.Property<string>("BankName")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
-
                     b.Property<int?>("BranchId")
                         .HasColumnType("int");
 
-                    b.Property<string>("City")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
-
                     b.Property<string>("CompanyName")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
-
-                    b.Property<string>("ContactEmail")
                         .IsRequired()
                         .HasMaxLength(100)
                         .HasColumnType("nvarchar(100)");
@@ -3550,16 +3358,6 @@ namespace Berca_Backend.Migrations
                         .IsRequired()
                         .HasMaxLength(50)
                         .HasColumnType("nvarchar(50)");
-
-                    b.Property<string>("ContactPhone")
-                        .IsRequired()
-                        .HasMaxLength(20)
-                        .HasColumnType("nvarchar(20)");
-
-                    b.Property<string>("Country")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
 
                     b.Property<DateTime>("CreatedAt")
                         .ValueGeneratedOnAdd()
@@ -3572,9 +3370,6 @@ namespace Berca_Backend.Migrations
                     b.Property<decimal>("CreditLimit")
                         .HasColumnType("decimal(18,2)");
 
-                    b.Property<decimal>("CurrentBalance")
-                        .HasColumnType("decimal(18,2)");
-
                     b.Property<string>("Email")
                         .IsRequired()
                         .HasMaxLength(100)
@@ -3582,16 +3377,6 @@ namespace Berca_Backend.Migrations
 
                     b.Property<bool>("IsActive")
                         .HasColumnType("bit");
-
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
-
-                    b.Property<string>("Notes")
-                        .IsRequired()
-                        .HasMaxLength(1000)
-                        .HasColumnType("nvarchar(1000)");
 
                     b.Property<int>("PaymentTerms")
                         .HasColumnType("int");
@@ -3601,25 +3386,10 @@ namespace Berca_Backend.Migrations
                         .HasMaxLength(15)
                         .HasColumnType("nvarchar(15)");
 
-                    b.Property<string>("PostalCode")
-                        .IsRequired()
-                        .HasMaxLength(10)
-                        .HasColumnType("nvarchar(10)");
-
-                    b.Property<string>("Province")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
-
                     b.Property<string>("SupplierCode")
                         .IsRequired()
                         .HasMaxLength(20)
                         .HasColumnType("nvarchar(20)");
-
-                    b.Property<string>("TaxNumber")
-                        .IsRequired()
-                        .HasMaxLength(50)
-                        .HasColumnType("nvarchar(50)");
 
                     b.Property<DateTime>("UpdatedAt")
                         .ValueGeneratedOnAdd()
@@ -3676,15 +3446,11 @@ namespace Berca_Backend.Migrations
                     b.Property<int>("ProductId")
                         .HasColumnType("int");
 
-                    b.Property<decimal>("RequestedQuantity")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("decimal(18,4)")
-                        .HasDefaultValue(0m);
+                    b.Property<int>("RequestedQuantity")
+                        .HasColumnType("int");
 
                     b.Property<decimal>("TotalPrice")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("decimal(18,2)")
-                        .HasDefaultValue(0m);
+                        .HasColumnType("decimal(18,2)");
 
                     b.Property<int>("TransferRequestId")
                         .HasColumnType("int");
@@ -3693,9 +3459,7 @@ namespace Berca_Backend.Migrations
                         .HasColumnType("int");
 
                     b.Property<decimal>("UnitPrice")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("decimal(18,2)")
-                        .HasDefaultValue(0m);
+                        .HasColumnType("decimal(18,2)");
 
                     b.HasKey("Id");
 
@@ -3837,11 +3601,6 @@ namespace Berca_Backend.Migrations
 
                     b.Property<bool>("IsDeleted")
                         .HasColumnType("bit");
-
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
 
                     b.Property<string>("PasswordHash")
                         .IsRequired()
@@ -4068,10 +3827,6 @@ namespace Berca_Backend.Migrations
                         .WithMany("SubBranches")
                         .HasForeignKey("ParentBranchId")
                         .OnDelete(DeleteBehavior.Restrict);
-
-                    b.HasOne("Berca_Backend.Models.Supplier", null)
-                        .WithMany("Branches")
-                        .HasForeignKey("SupplierId");
 
                     b.Navigation("ParentBranch");
                 });
@@ -4526,50 +4281,6 @@ namespace Berca_Backend.Migrations
                     b.Navigation("UpdatedByUser");
                 });
 
-            modelBuilder.Entity("Berca_Backend.Models.PurchaseOrder", b =>
-                {
-                    b.HasOne("Berca_Backend.Models.Branch", "Branch")
-                        .WithMany()
-                        .HasForeignKey("BranchId");
-
-                    b.HasOne("Berca_Backend.Models.User", "CreatedByUser")
-                        .WithMany()
-                        .HasForeignKey("CreatedByUserId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.HasOne("Berca_Backend.Models.Supplier", "Supplier")
-                        .WithMany()
-                        .HasForeignKey("SupplierId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Branch");
-
-                    b.Navigation("CreatedByUser");
-
-                    b.Navigation("Supplier");
-                });
-
-            modelBuilder.Entity("Berca_Backend.Models.PurchaseOrderItem", b =>
-                {
-                    b.HasOne("Berca_Backend.Models.Product", "Product")
-                        .WithMany()
-                        .HasForeignKey("ProductId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.HasOne("Berca_Backend.Models.PurchaseOrder", "PurchaseOrder")
-                        .WithMany("Items")
-                        .HasForeignKey("PurchaseOrderId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Product");
-
-                    b.Navigation("PurchaseOrder");
-                });
-
             modelBuilder.Entity("Berca_Backend.Models.PushNotificationLog", b =>
                 {
                     b.HasOne("Berca_Backend.Models.NotificationTemplate", "NotificationTemplate")
@@ -4672,19 +4383,11 @@ namespace Berca_Backend.Migrations
                         .HasForeignKey("MemberId")
                         .OnDelete(DeleteBehavior.SetNull);
 
-                    b.HasOne("Berca_Backend.Models.User", "User")
-                        .WithMany()
-                        .HasForeignKey("UserId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
                     b.Navigation("Cashier");
 
                     b.Navigation("CreditTransaction");
 
                     b.Navigation("Member");
-
-                    b.Navigation("User");
                 });
 
             modelBuilder.Entity("Berca_Backend.Models.SaleItem", b =>
@@ -4723,37 +4426,6 @@ namespace Berca_Backend.Migrations
                     b.Navigation("Batch");
 
                     b.Navigation("SaleItem");
-                });
-
-            modelBuilder.Entity("Berca_Backend.Models.StockMutation", b =>
-                {
-                    b.HasOne("Berca_Backend.Models.Branch", "Branch")
-                        .WithMany()
-                        .HasForeignKey("BranchId");
-
-                    b.HasOne("Berca_Backend.Models.Product", "Product")
-                        .WithMany()
-                        .HasForeignKey("ProductId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.HasOne("Berca_Backend.Models.Sale", "Sale")
-                        .WithMany()
-                        .HasForeignKey("SaleId");
-
-                    b.HasOne("Berca_Backend.Models.User", "User")
-                        .WithMany()
-                        .HasForeignKey("UserId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Branch");
-
-                    b.Navigation("Product");
-
-                    b.Navigation("Sale");
-
-                    b.Navigation("User");
                 });
 
             modelBuilder.Entity("Berca_Backend.Models.Supplier", b =>
@@ -4916,11 +4588,6 @@ namespace Berca_Backend.Migrations
                     b.Navigation("SaleItems");
                 });
 
-            modelBuilder.Entity("Berca_Backend.Models.PurchaseOrder", b =>
-                {
-                    b.Navigation("Items");
-                });
-
             modelBuilder.Entity("Berca_Backend.Models.Report", b =>
                 {
                     b.Navigation("ReportExecutions");
@@ -4933,8 +4600,6 @@ namespace Berca_Backend.Migrations
 
             modelBuilder.Entity("Berca_Backend.Models.Supplier", b =>
                 {
-                    b.Navigation("Branches");
-
                     b.Navigation("Factures");
                 });
 

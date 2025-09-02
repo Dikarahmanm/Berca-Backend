@@ -1,8 +1,10 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.EntityFrameworkCore;
 using Berca_Backend.DTOs;
 using Berca_Backend.Services.Interfaces;
 using Berca_Backend.Models;
+using Berca_Backend.Data;
 using System.Security.Claims;
 
 namespace Berca_Backend.Controllers
@@ -18,17 +20,65 @@ namespace Berca_Backend.Controllers
     {
         private readonly IFactureService _factureService;
         private readonly ILogger<FactureController> _logger;
+        private readonly AppDbContext _context;
 
-        public FactureController(IFactureService factureService, ILogger<FactureController> logger)
+        public FactureController(IFactureService factureService, ILogger<FactureController> logger, AppDbContext context)
         {
             _factureService = factureService;
             _logger = logger;
+            _context = context;
         }
 
         private int GetCurrentUserId()
         {
-            var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            var userIdClaim = User.FindFirst("UserId")?.Value ?? 
+                             User.FindFirst("sub")?.Value ?? 
+                             User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
             return int.TryParse(userIdClaim, out var userId) ? userId : 0;
+        }
+
+        private string GetCurrentUserRole()
+        {
+            return User.FindFirst("Role")?.Value ?? 
+                   User.FindFirst("http://schemas.microsoft.com/ws/2008/06/identity/claims/role")?.Value ?? 
+                   User.FindFirst(ClaimTypes.Role)?.Value ??
+                   "User";
+        }
+
+        private async Task<List<int>> GetUserAccessibleBranches(int userId, string userRole)
+        {
+            var accessibleBranches = new List<int>();
+
+            if (userRole.ToUpper() is "ADMIN" or "HEADMANAGER")
+            {
+                // Admin and HeadManager can access all branches
+                accessibleBranches = await _context.Branches
+                    .Where(b => b.IsActive)
+                    .Select(b => b.Id)
+                    .ToListAsync();
+            }
+            else
+            {
+                try
+                {
+                    // Get user's accessible branches via BranchAccess table
+                    accessibleBranches = await _context.BranchAccesses
+                        .Where(ba => ba.UserId == userId && ba.IsActive && ba.CanRead)
+                        .Select(ba => ba.BranchId)
+                        .ToListAsync();
+                }
+                catch
+                {
+                    // Fallback: Use user's assigned branch
+                    var user = await _context.Users.FirstOrDefaultAsync(u => u.Id == userId);
+                    if (user?.BranchId.HasValue == true)
+                    {
+                        accessibleBranches.Add(user.BranchId.Value);
+                    }
+                }
+            }
+
+            return accessibleBranches;
         }
 
         // ==================== FACTURE RECEIVING & WORKFLOW ==================== //
@@ -179,47 +229,298 @@ namespace Berca_Backend.Controllers
         // ==================== FACTURE CRUD OPERATIONS ==================== //
 
         /// <summary>
-        /// Get factures with filtering, searching and pagination
+        /// Get factures with filtering, searching and pagination (Required by frontend integration)
         /// </summary>
         [HttpGet]
         [Authorize(Policy = "Facture.Read")]
-        public async Task<ActionResult<FacturePagedResponseDto>> GetFactures([FromQuery] FactureQueryParams queryParams)
+        public async Task<IActionResult> GetFactures(
+            [FromQuery] string? search = null,
+            [FromQuery] string? branchIds = null,
+            [FromQuery] string? status = null,
+            [FromQuery] int? supplierId = null,
+            [FromQuery] DateTime? fromDate = null,
+            [FromQuery] DateTime? toDate = null,
+            [FromQuery] int page = 1,
+            [FromQuery] int pageSize = 20,
+            [FromQuery] string sortBy = "CreatedAt",
+            [FromQuery] string sortOrder = "desc")
         {
             try
             {
                 var currentUserId = GetCurrentUserId();
-                var factures = await _factureService.GetFacturesAsync(queryParams, currentUserId);
+                var currentUserRole = GetCurrentUserRole();
+                
+                if (currentUserId == 0)
+                {
+                    return Unauthorized(new
+                    {
+                        success = false,
+                        message = "Invalid user session"
+                    });
+                }
 
-                return Ok(factures);
+                // Parse and validate branch IDs
+                var requestedBranchIds = new List<int>();
+                if (!string.IsNullOrEmpty(branchIds))
+                {
+                    requestedBranchIds = branchIds.Split(',')
+                        .Where(id => int.TryParse(id.Trim(), out _))
+                        .Select(id => int.Parse(id.Trim()))
+                        .ToList();
+                }
+
+                // Get user's accessible branches
+                var accessibleBranchIds = await GetUserAccessibleBranches(currentUserId, currentUserRole);
+                
+                // Filter requested branches by user access
+                if (requestedBranchIds.Any())
+                {
+                    requestedBranchIds = requestedBranchIds.Intersect(accessibleBranchIds).ToList();
+                }
+                else
+                {
+                    requestedBranchIds = accessibleBranchIds;
+                }
+
+                if (!requestedBranchIds.Any())
+                {
+                    return StatusCode(403, new
+                    {
+                        success = false,
+                        message = "No accessible branches found"
+                    });
+                }
+
+                // Build factures query with branch filtering
+                var facturesQuery = _context.Factures
+                    .Include(f => f.Supplier)
+                    .Include(f => f.CreatedByUser)
+                    .ThenInclude(u => u.Branch)
+                    .Where(f => requestedBranchIds.Contains(f.CreatedByUser.BranchId ?? 0));
+
+                // Apply search filter
+                if (!string.IsNullOrEmpty(search))
+                {
+                    facturesQuery = facturesQuery.Where(f =>
+                        (f.SupplierInvoiceNumber != null && f.SupplierInvoiceNumber.Contains(search)) ||
+                        (f.InternalReferenceNumber != null && f.InternalReferenceNumber.Contains(search)) ||
+                        (f.Supplier != null && f.Supplier.Name != null && f.Supplier.Name.Contains(search)) ||
+                        (f.Supplier != null && f.Supplier.CompanyName != null && f.Supplier.CompanyName.Contains(search)));
+                }
+
+                // Apply status filter
+                if (!string.IsNullOrEmpty(status))
+                {
+                    if (Enum.TryParse<FactureStatus>(status, true, out var factureStatus))
+                    {
+                        facturesQuery = facturesQuery.Where(f => f.Status == factureStatus);
+                    }
+                }
+
+                // Apply supplier filter
+                if (supplierId.HasValue)
+                {
+                    facturesQuery = facturesQuery.Where(f => f.SupplierId == supplierId.Value);
+                }
+
+                // Apply date filters
+                if (fromDate.HasValue)
+                {
+                    facturesQuery = facturesQuery.Where(f => f.InvoiceDate >= fromDate.Value.Date);
+                }
+                if (toDate.HasValue)
+                {
+                    facturesQuery = facturesQuery.Where(f => f.InvoiceDate <= toDate.Value.Date);
+                }
+
+                // Apply sorting
+                facturesQuery = sortBy.ToLower() switch
+                {
+                    "invoicedate" => sortOrder.ToLower() == "desc" ? 
+                        facturesQuery.OrderByDescending(f => f.InvoiceDate) : 
+                        facturesQuery.OrderBy(f => f.InvoiceDate),
+                    "duedate" => sortOrder.ToLower() == "desc" ? 
+                        facturesQuery.OrderByDescending(f => f.DueDate) : 
+                        facturesQuery.OrderBy(f => f.DueDate),
+                    "totalamount" => sortOrder.ToLower() == "desc" ? 
+                        facturesQuery.OrderByDescending(f => f.TotalAmount) : 
+                        facturesQuery.OrderBy(f => f.TotalAmount),
+                    "status" => sortOrder.ToLower() == "desc" ? 
+                        facturesQuery.OrderByDescending(f => f.Status) : 
+                        facturesQuery.OrderBy(f => f.Status),
+                    _ => sortOrder.ToLower() == "desc" ? 
+                        facturesQuery.OrderByDescending(f => f.CreatedAt) : 
+                        facturesQuery.OrderBy(f => f.CreatedAt)
+                };
+
+                // Get total count
+                var totalCount = await facturesQuery.CountAsync();
+                var totalPages = (int)Math.Ceiling((double)totalCount / pageSize);
+
+                // Apply pagination
+                var factures = await facturesQuery
+                    .Skip((page - 1) * pageSize)
+                    .Take(pageSize)
+                    .Select(f => new
+                    {
+                        id = f.Id,
+                        supplierInvoiceNumber = f.SupplierInvoiceNumber,
+                        internalReferenceNumber = f.InternalReferenceNumber,
+                        supplier = f.Supplier != null ? new
+                        {
+                            id = f.Supplier.Id,
+                            name = f.Supplier.Name,
+                            companyName = f.Supplier.CompanyName
+                        } : null,
+                        invoiceDate = f.InvoiceDate,
+                        dueDate = f.DueDate,
+                        totalAmount = f.TotalAmount,
+                        paidAmount = f.PaidAmount,
+                        remainingAmount = f.TotalAmount - f.PaidAmount,
+                        status = f.Status.ToString(),
+                        branch = f.CreatedByUser != null && f.CreatedByUser.Branch != null ? new
+                        {
+                            id = f.CreatedByUser.Branch.Id,
+                            name = f.CreatedByUser.Branch.BranchName
+                        } : null,
+                        createdAt = f.CreatedAt,
+                        updatedAt = f.UpdatedAt
+                    })
+                    .ToListAsync();
+
+                return Ok(new
+                {
+                    success = true,
+                    data = factures,
+                    pagination = new
+                    {
+                        currentPage = page,
+                        totalPages = totalPages,
+                        totalItems = totalCount,
+                        itemsPerPage = pageSize
+                    }
+                });
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error retrieving factures");
-                return StatusCode(500, new { message = "An error occurred while retrieving factures." });
+                return StatusCode(500, new
+                {
+                    success = false,
+                    message = "Internal server error"
+                });
             }
         }
 
         /// <summary>
-        /// Get facture by ID with access validation
+        /// Get facture by ID with access validation (Required by frontend integration)
         /// </summary>
         [HttpGet("{id}")]
         [Authorize(Policy = "Facture.Read")]
-        public async Task<ActionResult<FactureDto>> GetFactureById(int id)
+        public async Task<IActionResult> GetFactureById(int id)
         {
             try
             {
                 var currentUserId = GetCurrentUserId();
-                var facture = await _factureService.GetFactureByIdAsync(id, currentUserId);
+                var currentUserRole = GetCurrentUserRole();
+                
+                if (currentUserId == 0)
+                {
+                    return Unauthorized(new
+                    {
+                        success = false,
+                        message = "Invalid user session"
+                    });
+                }
+
+                // Get user's accessible branches
+                var accessibleBranchIds = await GetUserAccessibleBranches(currentUserId, currentUserRole);
+
+                var facture = await _context.Factures
+                    .Include(f => f.Supplier)
+                    .Include(f => f.CreatedByUser)
+                    .ThenInclude(u => u.Branch)
+                    .Include(f => f.Items)
+                    .ThenInclude(fi => fi.Product)
+                    .Where(f => f.Id == id)
+                    .Where(f => accessibleBranchIds.Contains(f.CreatedByUser.BranchId ?? 0))
+                    .Select(f => new
+                    {
+                        id = f.Id,
+                        supplierInvoiceNumber = f.SupplierInvoiceNumber,
+                        internalReferenceNumber = f.InternalReferenceNumber,
+                        supplier = f.Supplier != null ? new
+                        {
+                            id = f.Supplier.Id,
+                            name = f.Supplier.Name,
+                            companyName = f.Supplier.CompanyName,
+                            email = f.Supplier.Email,
+                            phone = f.Supplier.Phone
+                        } : null,
+                        invoiceDate = f.InvoiceDate,
+                        dueDate = f.DueDate,
+                        deliveryDate = f.DeliveryDate,
+                        totalAmount = f.TotalAmount,
+                        paidAmount = f.PaidAmount,
+                        remainingAmount = f.TotalAmount - f.PaidAmount,
+                        taxAmount = f.Tax,
+                        discountAmount = f.Discount,
+                        status = f.Status.ToString(),
+                        notes = f.Notes,
+                        items = f.Items.Select(fi => new
+                        {
+                            id = fi.Id,
+                            product = fi.Product != null ? new
+                            {
+                                id = fi.Product.Id,
+                                name = fi.Product.Name,
+                                barcode = fi.Product.Barcode
+                            } : null,
+                            quantity = fi.Quantity,
+                            unitPrice = fi.UnitPrice,
+                            totalPrice = fi.TotalPrice,
+                            receivedQuantity = fi.ReceivedQuantity,
+                            verifiedQuantity = fi.VerifiedQuantity
+                        }).ToList(),
+                        branch = f.CreatedByUser != null && f.CreatedByUser.Branch != null ? new
+                        {
+                            id = f.CreatedByUser.Branch.Id,
+                            name = f.CreatedByUser.Branch.BranchName,
+                            type = f.CreatedByUser.Branch.BranchType.ToString()
+                        } : null,
+                        createdBy = f.CreatedByUser != null ? new
+                        {
+                            id = f.CreatedByUser.Id,
+                            name = f.CreatedByUser.Name
+                        } : null,
+                        createdAt = f.CreatedAt,
+                        updatedAt = f.UpdatedAt
+                    })
+                    .FirstOrDefaultAsync();
 
                 if (facture == null)
-                    return NotFound(new { message = "Facture not found." });
+                {
+                    return NotFound(new
+                    {
+                        success = false,
+                        message = "Facture not found or not accessible"
+                    });
+                }
 
-                return Ok(facture);
+                return Ok(new
+                {
+                    success = true,
+                    data = facture
+                });
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error retrieving facture {FactureId}", id);
-                return StatusCode(500, new { message = "An error occurred while retrieving the facture." });
+                return StatusCode(500, new
+                {
+                    success = false,
+                    message = "Internal server error"
+                });
             }
         }
 

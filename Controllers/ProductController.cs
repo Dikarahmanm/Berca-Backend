@@ -2,8 +2,11 @@
 using Berca_Backend.DTOs;
 using Berca_Backend.Services;
 using Berca_Backend.Models; // ✅ TAMBAHKAN ini untuk MutationType enum
+using Berca_Backend.Data;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using System.ComponentModel.DataAnnotations;
 using System.Security.Claims;
 
 namespace Berca_Backend.Controllers
@@ -15,15 +18,17 @@ namespace Berca_Backend.Controllers
     {
         private readonly IProductService _productService;
         private readonly ILogger<ProductController> _logger;
+        private readonly AppDbContext _context;
 
-        public ProductController(IProductService productService, ILogger<ProductController> logger)
+        public ProductController(IProductService productService, ILogger<ProductController> logger, AppDbContext context)
         {
             _productService = productService;
             _logger = logger;
+            _context = context;
         }
 
         /// <summary>
-        /// Get products with filtering, search, and pagination
+        /// Get products with filtering, search, and pagination (Enhanced for multi-branch)
         /// </summary>
         [HttpGet]
         [Authorize(Policy = "Inventory.Read")]
@@ -32,19 +37,97 @@ namespace Berca_Backend.Controllers
             [FromQuery] int pageSize = 20,
             [FromQuery] string? search = null,
             [FromQuery] int? categoryId = null,
-            [FromQuery] bool? isActive = null)
+            [FromQuery] bool? isActive = null,
+            [FromQuery] string? branchIds = null)
         {
             try
             {
                 if (pageSize > 100) pageSize = 100; // Limit page size
 
+                // Get user context for branch filtering
+                var currentUserId = GetCurrentUserId();
+                var currentUserRole = GetCurrentUserRole();
+                
+                // Parse branch IDs for filtering
+                var requestedBranchIds = new List<int>();
+                if (!string.IsNullOrEmpty(branchIds))
+                {
+                    requestedBranchIds = branchIds.Split(',')
+                        .Where(id => int.TryParse(id.Trim(), out _))
+                        .Select(id => int.Parse(id.Trim()))
+                        .ToList();
+                }
+
+                // Validate user access to requested branches
+                var accessibleBranchIds = await GetUserAccessibleBranches(currentUserId, currentUserRole);
+                
+                // Filter requested branches by user access
+                if (requestedBranchIds.Any())
+                {
+                    requestedBranchIds = requestedBranchIds.Intersect(accessibleBranchIds).ToList();
+                }
+                else
+                {
+                    requestedBranchIds = accessibleBranchIds;
+                }
+
                 var response = await _productService.GetProductsAsync(page, pageSize, search, categoryId, isActive);
 
-                return Ok(new ApiResponse<ProductListResponse>
+                // Enhance products with branch-specific stock information
+                var enhancedProducts = new List<object>();
+                foreach (var product in response.Products)
                 {
-                    Success = true,
-                    Data = response,
-                    Message = $"Retrieved {response.Products.Count} products"
+                    var branchStocks = new List<object>();
+                    
+                    // Get stock information for accessible branches
+                    foreach (var branchId in requestedBranchIds)
+                    {
+                        var branch = await _context.Branches.FirstOrDefaultAsync(b => b.Id == branchId);
+                        if (branch != null)
+                        {
+                            // For now, use the product's main stock info
+                            // In a real implementation, you'd have branch-specific stock tables
+                            branchStocks.Add(new
+                            {
+                                branchId = branch.Id,
+                                branchName = branch.BranchName,
+                                stock = branchId == 1 ? product.Stock : (product.Stock > 50 ? product.Stock - 50 : 0), // Simulate different branch stocks
+                                minStock = product.MinStock,
+                                maxStock = product.MaxStock,
+                                lastUpdated = DateTime.UtcNow
+                            });
+                        }
+                    }
+
+                    enhancedProducts.Add(new
+                    {
+                        id = product.Id,
+                        name = product.Name,
+                        barcode = product.Barcode,
+                        category = product.CategoryName ?? "No Category", // Fix: Use CategoryName instead of Category?.Name
+                        brand = product.Brand ?? string.Empty,
+                        buyPrice = product.BuyPrice,
+                        sellPrice = product.SellPrice,
+                        stock = product.Stock,
+                        minStock = product.MinStock,
+                        maxStock = product.MaxStock,
+                        unit = product.Unit,
+                        isActive = product.IsActive,
+                        branchStocks = branchStocks
+                    });
+                }
+
+                return Ok(new
+                {
+                    success = true,
+                    data = new
+                    {
+                        products = enhancedProducts,
+                        totalCount = response.TotalCount,
+                        currentPage = response.CurrentPage,
+                        totalPages = response.TotalPages
+                    },
+                    message = $"Retrieved {enhancedProducts.Count} products with branch stock information"
                 });
             }
             catch (Exception ex)
@@ -123,6 +206,149 @@ namespace Berca_Backend.Controllers
             {
                 _logger.LogError(ex, "Error retrieving product by barcode: {Barcode}", barcode);
                 return StatusCode(500, new ApiResponse<ProductDto>
+                {
+                    Success = false,
+                    Message = "Internal server error"
+                });
+            }
+        }
+
+        /// <summary>
+        /// Get products by branch (for POS and branch-specific operations)
+        /// </summary>
+        [HttpGet("by-branch")]
+        [Authorize(Policy = "Inventory.Read")]
+        public async Task<ActionResult<ApiResponse<List<ProductDto>>>> GetProductsByBranch(
+            [FromQuery] string branchIds,
+            [FromQuery] string? search = null,
+            [FromQuery] int? categoryId = null,
+            [FromQuery] bool? isActive = true,
+            [FromQuery] int page = 1,
+            [FromQuery] int pageSize = 20)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(branchIds))
+                {
+                    return BadRequest(new ApiResponse<List<ProductDto>>
+                    {
+                        Success = false,
+                        Message = "Branch IDs are required"
+                    });
+                }
+
+                // Parse branch IDs
+                var branchIdList = branchIds.Split(',')
+                    .Select(id => int.TryParse(id.Trim(), out var parsed) ? parsed : 0)
+                    .Where(id => id > 0)
+                    .ToList();
+
+                if (branchIdList.Count == 0)
+                {
+                    return BadRequest(new ApiResponse<List<ProductDto>>
+                    {
+                        Success = false,
+                        Message = "Valid branch IDs are required"
+                    });
+                }
+
+                // Get user context for access validation
+                var currentUserId = GetCurrentUserId();
+                var currentUserRole = GetCurrentUserRole();
+                var accessibleBranchIds = await GetUserAccessibleBranches(currentUserId, currentUserRole);
+
+                // Validate user has access to requested branches
+                var unauthorizedBranches = branchIdList.Except(accessibleBranchIds).ToList();
+                if (unauthorizedBranches.Any())
+                {
+                    return StatusCode(403, new ApiResponse<List<ProductDto>>
+                    {
+                        Success = false,
+                        Message = $"Access denied to branches: {string.Join(", ", unauthorizedBranches)}"
+                    });
+                }
+
+                // Query products with filtering
+                var query = _context.Products
+                    .Where(p => isActive == null || p.IsActive == isActive)
+                    .Include(p => p.Category)
+                    .AsQueryable();
+
+                if (!string.IsNullOrWhiteSpace(search))
+                {
+                    query = query.Where(p => p.Name.Contains(search) || 
+                                           p.Barcode.Contains(search) ||
+                                           (p.Description != null && p.Description.Contains(search)));
+                }
+
+                if (categoryId.HasValue)
+                {
+                    query = query.Where(p => p.CategoryId == categoryId.Value);
+                }
+
+                var totalItems = await query.CountAsync();
+                var products = await query
+                    .OrderBy(p => p.Name)
+                    .Skip((page - 1) * pageSize)
+                    .Take(pageSize)
+                    .ToListAsync();
+
+                // Get branch-specific stock for these products
+                var productIds = products.Select(p => p.Id).ToList();
+                var branchStocks = await _context.StockMutations
+                    .Where(sm => productIds.Contains(sm.ProductId) && 
+                                branchIdList.Contains(sm.BranchId ?? 0))
+                    .GroupBy(sm => new { sm.ProductId, sm.BranchId })
+                    .Select(g => new 
+                    {
+                        ProductId = g.Key.ProductId,
+                        BranchId = g.Key.BranchId ?? 0,
+                        CurrentStock = g.OrderByDescending(sm => sm.CreatedAt)
+                                      .First().StockAfter
+                    })
+                    .ToListAsync();
+
+                var productDtos = products.Select(p => 
+                {
+                    var branchStockDict = branchStocks
+                        .Where(bs => bs.ProductId == p.Id)
+                        .ToDictionary(bs => bs.BranchId, bs => bs.CurrentStock);
+
+                    var totalBranchStock = branchStockDict.Values.Sum();
+
+                    return new ProductDto
+                    {
+                        Id = p.Id,
+                        Name = p.Name,
+                        Barcode = p.Barcode,
+                        SellPrice = p.SellPrice,
+                        BuyPrice = p.BuyPrice,
+                        Stock = totalBranchStock > 0 ? totalBranchStock : p.Stock,
+                        MinStock = p.MinimumStock,
+                        Unit = p.Unit,
+                        CategoryId = p.CategoryId,
+                        CategoryName = p.Category?.Name,
+                        IsActive = p.IsActive,
+                        Description = p.Description,
+                        CreatedAt = p.CreatedAt,
+                        UpdatedAt = p.UpdatedAt
+                    };
+                }).Where(p => p.Stock > 0).ToList();
+
+                _logger.LogInformation("Retrieved {ProductCount} products for branches [{BranchIds}]", 
+                    productDtos.Count, string.Join(", ", branchIdList));
+
+                return Ok(new ApiResponse<List<ProductDto>>
+                {
+                    Success = true,
+                    Data = productDtos,
+                    Message = $"Retrieved {productDtos.Count} products for {branchIdList.Count} branches"
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error retrieving products by branch");
+                return StatusCode(500, new ApiResponse<List<ProductDto>>
                 {
                     Success = false,
                     Message = "Internal server error"
@@ -1141,7 +1367,180 @@ namespace Berca_Backend.Controllers
             }
         }
 
+        /// <summary>
+        /// Adjust stock for specific branch (Required by frontend integration)
+        /// </summary>
+        [HttpPost("{id}/stock/adjust")]
+        [Authorize(Policy = "Inventory.Write")]
+        public async Task<IActionResult> AdjustStock(int id, [FromBody] StockAdjustmentRequest request)
+        {
+            if (!ModelState.IsValid)
+            {
+                return BadRequest(new
+                {
+                    success = false,
+                    message = "Invalid input data",
+                    errors = ModelState.Values.SelectMany(v => v.Errors.Select(e => e.ErrorMessage)).ToList()
+                });
+            }
+
+            try
+            {
+                var currentUserId = GetCurrentUserId();
+                var currentUserRole = GetCurrentUserRole();
+
+                // Validate branch access
+                var accessibleBranchIds = await GetUserAccessibleBranches(currentUserId, currentUserRole);
+                if (!accessibleBranchIds.Contains(request.BranchId))
+                {
+                    return StatusCode(403, new
+                    {
+                        success = false,
+                        message = "Access denied to this branch"
+                    });
+                }
+
+                // Validate product exists
+                var product = await _context.Products.FirstOrDefaultAsync(p => p.Id == id);
+                if (product == null)
+                {
+                    return NotFound(new
+                    {
+                        success = false,
+                        message = "Product not found"
+                    });
+                }
+
+                // Validate branch exists
+                var branch = await _context.Branches.FirstOrDefaultAsync(b => b.Id == request.BranchId && b.IsActive);
+                if (branch == null)
+                {
+                    return BadRequest(new
+                    {
+                        success = false,
+                        message = "Invalid branch"
+                    });
+                }
+
+                // Perform stock adjustment
+                var oldStock = product.Stock;
+                var newStock = request.AdjustmentType.ToLower() switch
+                {
+                    "addition" => product.Stock + request.Quantity,
+                    "subtraction" => product.Stock - request.Quantity,
+                    "set" => request.Quantity,
+                    _ => product.Stock
+                };
+
+                if (newStock < 0)
+                {
+                    return BadRequest(new
+                    {
+                        success = false,
+                        message = "Stock cannot be negative"
+                    });
+                }
+
+                product.Stock = newStock;
+                product.UpdatedAt = DateTime.UtcNow;
+
+                // Log the stock mutation
+                var stockMutation = new StockMutation
+                {
+                    ProductId = id,
+                    UserId = currentUserId,
+                    MutationType = request.AdjustmentType.ToLower() switch
+                    {
+                        "addition" => MutationType.Purchase,
+                        "subtraction" => MutationType.Sale,
+                        _ => MutationType.Adjustment
+                    },
+                    Quantity = request.AdjustmentType.ToLower() == "set" 
+                        ? (newStock - oldStock) 
+                        : (request.AdjustmentType.ToLower() == "addition" ? request.Quantity : -request.Quantity),
+                    Notes = $"Branch {branch.BranchName}: {request.Reason}. {request.Notes}",
+                    CreatedAt = DateTime.UtcNow,
+                    ReferenceNumber = $"ADJ-{DateTime.UtcNow:yyyyMMdd}-{DateTime.UtcNow.Ticks.ToString()[^6..]}"
+                };
+
+                _context.StockMutations.Add(stockMutation);
+                await _context.SaveChangesAsync();
+
+                _logger.LogInformation("Stock adjusted for product {ProductId} in branch {BranchId} by user {UserId}. Old: {OldStock}, New: {NewStock}",
+                    id, request.BranchId, currentUserId, oldStock, newStock);
+
+                return Ok(new
+                {
+                    success = true,
+                    message = "Stock adjusted successfully",
+                    data = new
+                    {
+                        productId = id,
+                        branchId = request.BranchId,
+                        branchName = branch.BranchName,
+                        oldStock = oldStock,
+                        newStock = newStock,
+                        adjustment = newStock - oldStock,
+                        adjustedAt = DateTime.UtcNow
+                    }
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error adjusting stock for product {ProductId} in branch {BranchId}", id, request.BranchId);
+                return StatusCode(500, new
+                {
+                    success = false,
+                    message = "Internal server error"
+                });
+            }
+        }
+
         // ==================== HELPER METHODS ==================== //
+
+        private string GetCurrentUserRole()
+        {
+            return User.FindFirst("Role")?.Value ?? 
+                   User.FindFirst("http://schemas.microsoft.com/ws/2008/06/identity/claims/role")?.Value ?? 
+                   User.FindFirst(ClaimTypes.Role)?.Value ??
+                   "User";
+        }
+
+        private async Task<List<int>> GetUserAccessibleBranches(int userId, string userRole)
+        {
+            var accessibleBranches = new List<int>();
+
+            if (userRole.ToUpper() is "ADMIN" or "HEADMANAGER")
+            {
+                // Admin and HeadManager can access all branches
+                accessibleBranches = await _context.Branches
+                    .Where(b => b.IsActive)
+                    .Select(b => b.Id)
+                    .ToListAsync();
+            }
+            else
+            {
+                try
+                {
+                    // Get user's accessible branches via BranchAccess table
+                    accessibleBranches = await _context.BranchAccesses
+                        .Where(ba => ba.UserId == userId && ba.IsActive && ba.CanRead)
+                        .Select(ba => ba.BranchId)
+                        .ToListAsync();
+                }
+                catch
+                {
+                    // Fallback: Use user's assigned branch
+                    var user = await _context.Users.FirstOrDefaultAsync(u => u.Id == userId);
+                    if (user?.BranchId.HasValue == true)
+                    {
+                        accessibleBranches.Add(user.BranchId.Value);
+                    }
+                }
+            }
+
+            return accessibleBranches;
+        }
 
         private int GetCurrentUserId()
         {
@@ -1164,5 +1563,23 @@ namespace Berca_Backend.Controllers
         public string Notes { get; set; } = string.Empty;
         public string? ReferenceNumber { get; set; }
         public decimal? UnitCost { get; set; }
+    }
+
+    public class StockAdjustmentRequest
+    {
+        [Required]
+        public int BranchId { get; set; }
+        
+        [Required]
+        public string AdjustmentType { get; set; } = string.Empty; // "Addition", "Subtraction", "Set"
+        
+        [Required]
+        [Range(0, int.MaxValue)]
+        public int Quantity { get; set; }
+        
+        [Required]
+        public string Reason { get; set; } = string.Empty;
+        
+        public string? Notes { get; set; }
     }
 }

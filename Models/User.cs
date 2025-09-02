@@ -12,6 +12,10 @@ namespace Berca_Backend.Models
         public string Username { get; set; } = string.Empty;
 
         [Required]
+        [StringLength(100)]
+        public string Name { get; set; } = string.Empty; // ✅ ADD missing Name property
+
+        [Required]
         public string PasswordHash { get; set; } = string.Empty;
 
         [Required]
@@ -39,6 +43,7 @@ namespace Berca_Backend.Models
         // ✅ Navigation properties
         public virtual UserProfile? UserProfile { get; set; }
         public virtual UserNotificationSettings? UserNotificationSettings { get; set; }
+        
         // Helper Methods
         public List<int> GetAccessibleBranchIds()
         {

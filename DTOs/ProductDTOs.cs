@@ -15,6 +15,13 @@ namespace Berca_Backend.DTOs
         public decimal SellPrice { get; set; }
         public int Stock { get; set; }
         public int MinimumStock { get; set; }
+        
+        // ✅ ADD missing properties that are referenced in controllers
+        public int MinStock { get; set; } = 5;
+        public int MaxStock { get; set; } = 1000;
+        public string Category { get; set; } = string.Empty;
+        public string Brand { get; set; } = string.Empty;
+        
         public string Unit { get; set; } = string.Empty;
         public string? ImageUrl { get; set; }
         public bool IsActive { get; set; }
@@ -57,6 +64,16 @@ namespace Berca_Backend.DTOs
         [Range(0, int.MaxValue, ErrorMessage = "Minimum stock must be greater than or equal to 0")]
         public int MinimumStock { get; set; } = 5;
 
+        // ✅ ADD missing properties
+        [Range(0, int.MaxValue, ErrorMessage = "Min stock must be greater than or equal to 0")]
+        public int MinStock { get; set; } = 5;
+
+        [Range(0, int.MaxValue, ErrorMessage = "Max stock must be greater than or equal to 0")]
+        public int MaxStock { get; set; } = 1000;
+
+        public string Category { get; set; } = string.Empty;
+        public string Brand { get; set; } = string.Empty;
+
         [StringLength(20, ErrorMessage = "Unit cannot exceed 20 characters")]
         public string Unit { get; set; } = "pcs";
 
@@ -95,6 +112,16 @@ namespace Berca_Backend.DTOs
         [Range(0, int.MaxValue, ErrorMessage = "Minimum stock must be greater than or equal to 0")]
         public int MinimumStock { get; set; } = 5; // ✅ Include MinimumStock
 
+        // ✅ ADD missing properties
+        [Range(0, int.MaxValue, ErrorMessage = "Min stock must be greater than or equal to 0")]
+        public int MinStock { get; set; } = 5;
+
+        [Range(0, int.MaxValue, ErrorMessage = "Max stock must be greater than or equal to 0")]
+        public int MaxStock { get; set; } = 1000;
+
+        public string Category { get; set; } = string.Empty;
+        public string Brand { get; set; } = string.Empty;
+
         [StringLength(20, ErrorMessage = "Unit cannot exceed 20 characters")]
         public string Unit { get; set; } = "pcs";
 
@@ -131,6 +158,9 @@ namespace Berca_Backend.DTOs
         public int TotalPages { get; set; }
         public int CurrentPage { get; set; }
         public int PageSize { get; set; }
+        
+        // ✅ ADD missing TotalCount property that is referenced in controllers
+        public int TotalCount => TotalItems;
     }
 
     // Barcode Check Response

@@ -1,10 +1,12 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using System.Security.Claims;
 using System.ComponentModel.DataAnnotations;
 using Berca_Backend.DTOs;
 using Berca_Backend.Services.Interfaces;
 using Berca_Backend.Models;
+using Berca_Backend.Data;
 
 namespace Berca_Backend.Controllers
 {
@@ -19,64 +21,175 @@ namespace Berca_Backend.Controllers
     {
         private readonly ISupplierService _supplierService;
         private readonly ILogger<SupplierController> _logger;
+        private readonly AppDbContext _context;
 
         public SupplierController(
             ISupplierService supplierService,
-            ILogger<SupplierController> logger)
+            ILogger<SupplierController> logger,
+            AppDbContext context)
         {
             _supplierService = supplierService;
             _logger = logger;
+            _context = context;
         }
 
         // ==================== CRUD ENDPOINTS ==================== //
 
         /// <summary>
-        /// Get suppliers with filtering, searching and pagination
+        /// Get suppliers with filtering, searching and pagination (Required by frontend integration)
         /// </summary>
-        /// <param name="queryParams">Query parameters for filtering</param>
-        /// <returns>Paginated supplier list</returns>
         [HttpGet]
         [Authorize(Policy = "Supplier.Read")]
-        public async Task<IActionResult> GetSuppliers([FromQuery] SupplierQueryDto queryParams)
+        public async Task<IActionResult> GetSuppliers(
+            [FromQuery] string? search = null,
+            [FromQuery] string? branchIds = null,
+            [FromQuery] bool? isActive = null,
+            [FromQuery] int page = 1,
+            [FromQuery] int pageSize = 20,
+            [FromQuery] string sortBy = "Name",
+            [FromQuery] string sortOrder = "asc")
         {
             try
             {
                 var currentUserId = GetCurrentUserId();
-                if (!currentUserId.HasValue)
-                    return Unauthorized(ApiResponse<object>.ErrorResponse("User not authenticated"));
-
-                var queryModel = new SupplierQueryParams
+                var currentUserRole = GetCurrentUserRole();
+                
+                if (!currentUserId.HasValue || currentUserId.Value == 0)
                 {
-                    Search = queryParams.Search,
-                    BranchId = queryParams.BranchId,
-                    IsActive = queryParams.IsActive,
-                    MinPaymentTerms = queryParams.MinPaymentTerms,
-                    MaxPaymentTerms = queryParams.MaxPaymentTerms,
-                    MinCreditLimit = queryParams.MinCreditLimit,
-                    MaxCreditLimit = queryParams.MaxCreditLimit,
-                    Page = queryParams.Page,
-                    PageSize = Math.Min(queryParams.PageSize, 100), // Limit page size
-                    SortBy = queryParams.SortBy,
-                    SortOrder = queryParams.SortOrder
+                    return Unauthorized(new
+                    {
+                        success = false,
+                        message = "Invalid user session"
+                    });
+                }
+
+                // Parse and validate branch IDs
+                var requestedBranchIds = new List<int>();
+                if (!string.IsNullOrEmpty(branchIds))
+                {
+                    requestedBranchIds = branchIds.Split(',')
+                        .Where(id => int.TryParse(id.Trim(), out _))
+                        .Select(id => int.Parse(id.Trim()))
+                        .ToList();
+                }
+
+                // Get user's accessible branches
+                var accessibleBranchIds = await GetUserAccessibleBranches(currentUserId.Value, currentUserRole);
+                
+                // Filter requested branches by user access
+                if (requestedBranchIds.Any())
+                {
+                    requestedBranchIds = requestedBranchIds.Intersect(accessibleBranchIds).ToList();
+                }
+                else
+                {
+                    requestedBranchIds = accessibleBranchIds;
+                }
+
+                if (!requestedBranchIds.Any())
+                {
+                    return StatusCode(403, new
+                    {
+                        success = false,
+                        message = "No accessible branches found"
+                    });
+                }
+
+                // Build suppliers query with branch filtering
+                var suppliersQuery = _context.Suppliers
+                    .Include(s => s.Branches)
+                    .Where(s => s.Branches.Any(sb => requestedBranchIds.Contains(sb.Id)) || 
+                               !s.Branches.Any()); // Include global suppliers
+
+                // Apply search filter
+                if (!string.IsNullOrEmpty(search))
+                {
+                    suppliersQuery = suppliersQuery.Where(s => 
+                        s.Name.Contains(search) ||
+                        s.CompanyName.Contains(search) ||
+                        s.SupplierCode.Contains(search) ||
+                        s.Email.Contains(search));
+                }
+
+                // Apply active filter
+                if (isActive.HasValue)
+                {
+                    suppliersQuery = suppliersQuery.Where(s => s.IsActive == isActive.Value);
+                }
+
+                // Apply sorting
+                suppliersQuery = sortBy.ToLower() switch
+                {
+                    "name" => sortOrder.ToLower() == "desc" ? 
+                        suppliersQuery.OrderByDescending(s => s.Name) : 
+                        suppliersQuery.OrderBy(s => s.Name),
+                    "company" => sortOrder.ToLower() == "desc" ? 
+                        suppliersQuery.OrderByDescending(s => s.CompanyName) : 
+                        suppliersQuery.OrderBy(s => s.CompanyName),
+                    "created" => sortOrder.ToLower() == "desc" ? 
+                        suppliersQuery.OrderByDescending(s => s.CreatedAt) : 
+                        suppliersQuery.OrderBy(s => s.CreatedAt),
+                    _ => suppliersQuery.OrderBy(s => s.Name)
                 };
 
-                var result = await _supplierService.GetSuppliersAsync(queryModel, currentUserId.Value);
+                // Get total count
+                var totalCount = await suppliersQuery.CountAsync();
+                var totalPages = (int)Math.Ceiling((double)totalCount / pageSize);
 
-                var message = $"Retrieved {result.Suppliers.Count} suppliers (page {result.Page} of {result.TotalPages})";
-                return Ok(ApiResponse<SupplierPagedResponseDto>.SuccessResponse(result, message));
+                // Apply pagination
+                var suppliers = await suppliersQuery
+                    .Skip((page - 1) * pageSize)
+                    .Take(pageSize)
+                    .Select(s => new
+                    {
+                        id = s.Id,
+                        supplierCode = s.SupplierCode,
+                        name = s.Name,
+                        companyName = s.CompanyName,
+                        email = s.Email,
+                        phone = s.Phone,
+                        address = s.Address,
+                        paymentTerms = s.PaymentTerms,
+                        creditLimit = s.CreditLimit,
+                        currentBalance = s.CurrentBalance,
+                        isActive = s.IsActive,
+                        branches = s.Branches.Select(b => new
+                        {
+                            id = b.Id,
+                            name = b.BranchName
+                        }).ToList(),
+                        createdAt = s.CreatedAt,
+                        updatedAt = s.UpdatedAt
+                    })
+                    .ToListAsync();
+
+                return Ok(new
+                {
+                    success = true,
+                    data = suppliers,
+                    pagination = new
+                    {
+                        currentPage = page,
+                        totalPages = totalPages,
+                        totalItems = totalCount,
+                        itemsPerPage = pageSize
+                    }
+                });
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error retrieving suppliers");
-                return StatusCode(500, ApiResponse<object>.ErrorResponse("Internal server error"));
+                return StatusCode(500, new
+                {
+                    success = false,
+                    message = "Internal server error"
+                });
             }
         }
 
         /// <summary>
-        /// Get supplier by ID
+        /// Get supplier by ID (Required by frontend integration)
         /// </summary>
-        /// <param name="id">Supplier ID</param>
-        /// <returns>Supplier details</returns>
         [HttpGet("{id}")]
         [Authorize(Policy = "Supplier.Read")]
         public async Task<IActionResult> GetSupplierById(int id)
@@ -84,19 +197,83 @@ namespace Berca_Backend.Controllers
             try
             {
                 var currentUserId = GetCurrentUserId();
-                if (!currentUserId.HasValue)
-                    return Unauthorized(ApiResponse<SupplierDto>.ErrorResponse("User not authenticated"));
+                var currentUserRole = GetCurrentUserRole();
+                
+                if (!currentUserId.HasValue || currentUserId.Value == 0)
+                {
+                    return Unauthorized(new
+                    {
+                        success = false,
+                        message = "Invalid user session"
+                    });
+                }
 
-                var supplier = await _supplierService.GetSupplierByIdAsync(id, currentUserId.Value);
+                // Get user's accessible branches
+                var accessibleBranchIds = await GetUserAccessibleBranches(currentUserId.Value, currentUserRole);
+
+                var supplier = await _context.Suppliers
+                    .Include(s => s.Branches)
+                    .Where(s => s.Id == id)
+                    .Where(s => s.Branches.Any(sb => accessibleBranchIds.Contains(sb.Id)) || 
+                               !s.Branches.Any()) // Include global suppliers
+                    .Select(s => new
+                    {
+                        id = s.Id,
+                        supplierCode = s.SupplierCode,
+                        name = s.Name,
+                        companyName = s.CompanyName,
+                        email = s.Email,
+                        phone = s.Phone,
+                        address = s.Address,
+                        city = s.City,
+                        province = s.Province,
+                        postalCode = s.PostalCode,
+                        country = s.Country,
+                        contactPerson = s.ContactPerson,
+                        contactPhone = s.ContactPhone,
+                        contactEmail = s.ContactEmail,
+                        paymentTerms = s.PaymentTerms,
+                        creditLimit = s.CreditLimit,
+                        currentBalance = s.CurrentBalance,
+                        taxNumber = s.TaxNumber,
+                        bankAccount = s.BankAccount,
+                        bankName = s.BankName,
+                        isActive = s.IsActive,
+                        notes = s.Notes,
+                        branches = s.Branches.Select(b => new
+                        {
+                            id = b.Id,
+                            name = b.BranchName,
+                            type = b.BranchType.ToString()
+                        }).ToList(),
+                        createdAt = s.CreatedAt,
+                        updatedAt = s.UpdatedAt
+                    })
+                    .FirstOrDefaultAsync();
+
                 if (supplier == null)
-                    return NotFound(ApiResponse<SupplierDto>.ErrorResponse("Supplier not found"));
+                {
+                    return NotFound(new
+                    {
+                        success = false,
+                        message = "Supplier not found or not accessible"
+                    });
+                }
 
-                return Ok(ApiResponse<SupplierDto>.SuccessResponse(supplier, "Supplier retrieved successfully"));
+                return Ok(new
+                {
+                    success = true,
+                    data = supplier
+                });
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error retrieving supplier {SupplierId}", id);
-                return StatusCode(500, ApiResponse<SupplierDto>.ErrorResponse("Internal server error"));
+                return StatusCode(500, new
+                {
+                    success = false,
+                    message = "Internal server error"
+                });
             }
         }
 
@@ -506,33 +683,304 @@ namespace Berca_Backend.Controllers
             }
         }
 
+        /// <summary>
+        /// Assign supplier to branches (Required by frontend integration)
+        /// </summary>
+        [HttpPost("{id}/branches")]
+        [Authorize(Policy = "Supplier.Write")]
+        public async Task<IActionResult> AssignSupplierToBranches(int id, [FromBody] AssignSupplierToBranchesRequest request)
+        {
+            try
+            {
+                var currentUserId = GetCurrentUserId();
+                var currentUserRole = GetCurrentUserRole();
+                
+                if (!currentUserId.HasValue || currentUserId.Value == 0)
+                {
+                    return Unauthorized(new
+                    {
+                        success = false,
+                        message = "Invalid user session"
+                    });
+                }
+
+                // Check if supplier exists and user has access
+                var supplier = await _context.Suppliers
+                    .Include(s => s.Branches)
+                    .FirstOrDefaultAsync(s => s.Id == id);
+
+                if (supplier == null)
+                {
+                    return NotFound(new
+                    {
+                        success = false,
+                        message = "Supplier not found"
+                    });
+                }
+
+                // Get user's accessible branches
+                var accessibleBranchIds = await GetUserAccessibleBranches(currentUserId.Value, currentUserRole);
+
+                // Validate requested branch IDs
+                var requestedBranchIds = request.BranchIds ?? new List<int>();
+                var unauthorizedBranches = requestedBranchIds.Except(accessibleBranchIds).ToList();
+                
+                if (unauthorizedBranches.Any())
+                {
+                    return StatusCode(403, new
+                    {
+                        success = false,
+                        message = $"Access denied to branches: {string.Join(", ", unauthorizedBranches)}"
+                    });
+                }
+
+                // Get branches to assign
+                var branchesToAssign = await _context.Branches
+                    .Where(b => requestedBranchIds.Contains(b.Id) && b.IsActive)
+                    .ToListAsync();
+
+                // Clear existing branch assignments
+                supplier.Branches.Clear();
+
+                // Add new branch assignments
+                foreach (var branch in branchesToAssign)
+                {
+                    supplier.Branches.Add(branch);
+                }
+
+                supplier.UpdatedAt = DateTime.UtcNow;
+                await _context.SaveChangesAsync();
+
+                return Ok(new
+                {
+                    success = true,
+                    message = $"Supplier assigned to {branchesToAssign.Count} branches",
+                    data = new
+                    {
+                        supplierId = supplier.Id,
+                        assignedBranches = branchesToAssign.Select(b => new
+                        {
+                            id = b.Id,
+                            name = b.BranchName,
+                            type = b.BranchType.ToString()
+                        }).ToList()
+                    }
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error assigning supplier {SupplierId} to branches", id);
+                return StatusCode(500, new
+                {
+                    success = false,
+                    message = "Internal server error"
+                });
+            }
+        }
+
+        /// <summary>
+        /// Get supplier performance across branches (Required by frontend integration)
+        /// </summary>
+        [HttpGet("{id}/performance")]
+        [Authorize(Policy = "Supplier.Read")]
+        public async Task<IActionResult> GetSupplierPerformance(int id, [FromQuery] string? branchIds = null)
+        {
+            try
+            {
+                var currentUserId = GetCurrentUserId();
+                var currentUserRole = GetCurrentUserRole();
+                
+                if (!currentUserId.HasValue || currentUserId.Value == 0)
+                {
+                    return Unauthorized(new
+                    {
+                        success = false,
+                        message = "Invalid user session"
+                    });
+                }
+
+                // Parse and validate branch IDs
+                var requestedBranchIds = new List<int>();
+                if (!string.IsNullOrEmpty(branchIds))
+                {
+                    requestedBranchIds = branchIds.Split(',')
+                        .Where(id => int.TryParse(id.Trim(), out _))
+                        .Select(id => int.Parse(id.Trim()))
+                        .ToList();
+                }
+
+                // Get user's accessible branches
+                var accessibleBranchIds = await GetUserAccessibleBranches(currentUserId.Value, currentUserRole);
+                
+                // Filter requested branches by user access
+                if (requestedBranchIds.Any())
+                {
+                    requestedBranchIds = requestedBranchIds.Intersect(accessibleBranchIds).ToList();
+                }
+                else
+                {
+                    requestedBranchIds = accessibleBranchIds;
+                }
+
+                // Check if supplier exists and user has access
+                var supplier = await _context.Suppliers
+                    .Include(s => s.Branches)
+                    .Where(s => s.Id == id)
+                    .Where(s => s.Branches.Any(sb => accessibleBranchIds.Contains(sb.Id)) || 
+                               !s.Branches.Any()) // Include global suppliers
+                    .FirstOrDefaultAsync();
+
+                if (supplier == null)
+                {
+                    return NotFound(new
+                    {
+                        success = false,
+                        message = "Supplier not found or not accessible"
+                    });
+                }
+
+                // Get performance data (last 30 days and previous 30 days for comparison)
+                var endDate = DateTime.UtcNow.Date;
+                var startDate = endDate.AddDays(-30);
+                var previousStartDate = startDate.AddDays(-30);
+
+                // Get purchase orders from this supplier
+                var currentPeriodOrders = await _context.PurchaseOrders
+                    .Where(po => po.SupplierId == id)
+                    .Where(po => po.CreatedAt >= startDate && po.CreatedAt <= endDate)
+                    .Where(po => requestedBranchIds.Contains(po.User.BranchId ?? 0))
+                    .ToListAsync();
+
+                var previousPeriodOrders = await _context.PurchaseOrders
+                    .Where(po => po.SupplierId == id)
+                    .Where(po => po.CreatedAt >= previousStartDate && po.CreatedAt < startDate)
+                    .Where(po => requestedBranchIds.Contains(po.User.BranchId ?? 0))
+                    .ToListAsync();
+
+                var totalPurchases = currentPeriodOrders.Sum(po => po.TotalAmount);
+                var totalOrders = currentPeriodOrders.Count;
+                var averageOrderValue = totalOrders > 0 ? totalPurchases / totalOrders : 0;
+
+                var previousTotalPurchases = previousPeriodOrders.Sum(po => po.TotalAmount);
+                var purchaseGrowth = previousTotalPurchases > 0 
+                    ? ((totalPurchases - previousTotalPurchases) / previousTotalPurchases) * 100 
+                    : 0;
+
+                // Calculate branch breakdown
+                var branchPerformance = new List<object>();
+                var branches = await _context.Branches
+                    .Where(b => requestedBranchIds.Contains(b.Id) && b.IsActive)
+                    .ToListAsync();
+
+                foreach (var branch in branches)
+                {
+                    var branchOrders = currentPeriodOrders
+                        .Where(po => po.User?.BranchId == branch.Id)
+                        .ToList();
+
+                    var branchTotal = branchOrders.Sum(po => po.TotalAmount);
+                    var branchOrderCount = branchOrders.Count;
+
+                    branchPerformance.Add(new
+                    {
+                        branchId = branch.Id,
+                        branchName = branch.BranchName,
+                        totalPurchases = branchTotal,
+                        orderCount = branchOrderCount,
+                        averageOrderValue = branchOrderCount > 0 ? branchTotal / branchOrderCount : 0,
+                        lastOrderDate = branchOrders.Any() ? branchOrders.Max(po => po.CreatedAt) : (DateTime?)null
+                    });
+                }
+
+                return Ok(new
+                {
+                    success = true,
+                    data = new
+                    {
+                        supplierId = supplier.Id,
+                        supplierName = supplier.Name,
+                        totalPurchases = Math.Round(totalPurchases, 2),
+                        totalOrders = totalOrders,
+                        averageOrderValue = Math.Round(averageOrderValue, 2),
+                        purchaseGrowth = Math.Round(purchaseGrowth, 1),
+                        currentBalance = supplier.CurrentBalance,
+                        creditLimit = supplier.CreditLimit,
+                        creditUtilization = supplier.CreditLimit > 0 ? 
+                            Math.Round((supplier.CurrentBalance / supplier.CreditLimit) * 100, 1) : 0,
+                        branchPerformance = branchPerformance
+                    }
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error retrieving supplier performance {SupplierId}", id);
+                return StatusCode(500, new
+                {
+                    success = false,
+                    message = "Internal server error"
+                });
+            }
+        }
+
+        // ==================== REQUEST MODELS ==================== //
+
+        public class AssignSupplierToBranchesRequest
+        {
+            public List<int>? BranchIds { get; set; }
+        }
+
         // ==================== HELPER METHODS ==================== //
 
         private int? GetCurrentUserId()
         {
-            var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-            if (int.TryParse(userIdClaim, out var userId))
-                return userId;
-
-            // For testing purposes - return a default admin user ID when not authenticated
-            return 5; // dikdika user ID for testing
+            var userIdClaim = User.FindFirst("UserId")?.Value ?? 
+                             User.FindFirst("sub")?.Value ?? 
+                             User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            return int.TryParse(userIdClaim, out var userId) ? userId : null;
         }
 
         private string GetCurrentUserRole()
         {
-            return User.FindFirst(ClaimTypes.Role)?.Value ?? "Unknown";
+            return User.FindFirst("Role")?.Value ?? 
+                   User.FindFirst("http://schemas.microsoft.com/ws/2008/06/identity/claims/role")?.Value ?? 
+                   User.FindFirst(ClaimTypes.Role)?.Value ??
+                   "User";
         }
 
-        private bool IsUserAuthorizedForSupplier(string requiredRole)
+        private async Task<List<int>> GetUserAccessibleBranches(int userId, string userRole)
         {
-            var userRole = GetCurrentUserRole();
-            return requiredRole switch
+            var accessibleBranches = new List<int>();
+
+            if (userRole.ToUpper() is "ADMIN" or "HEADMANAGER")
             {
-                "Admin" => userRole == "Admin",
-                "Manager" => userRole is "Admin" or "HeadManager" or "BranchManager",
-                "User" => userRole is "Admin" or "HeadManager" or "BranchManager" or "User",
-                _ => false
-            };
+                // Admin and HeadManager can access all branches
+                accessibleBranches = await _context.Branches
+                    .Where(b => b.IsActive)
+                    .Select(b => b.Id)
+                    .ToListAsync();
+            }
+            else
+            {
+                try
+                {
+                    // Get user's accessible branches via BranchAccess table
+                    accessibleBranches = await _context.BranchAccesses
+                        .Where(ba => ba.UserId == userId && ba.IsActive && ba.CanRead)
+                        .Select(ba => ba.BranchId)
+                        .ToListAsync();
+                }
+                catch
+                {
+                    // Fallback: Use user's assigned branch
+                    var user = await _context.Users.FirstOrDefaultAsync(u => u.Id == userId);
+                    if (user?.BranchId.HasValue == true)
+                    {
+                        accessibleBranches.Add(user.BranchId.Value);
+                    }
+                }
+            }
+
+            return accessibleBranches;
         }
     }
 }

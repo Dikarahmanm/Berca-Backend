@@ -53,6 +53,7 @@ namespace Berca_Backend.Models
             MutationType.StockIn => "Masuk",
             MutationType.StockOut => "Keluar",
             MutationType.Sale => "Penjualan",
+            MutationType.Purchase => "Pembelian", // ? ADD missing Purchase type display
             MutationType.Return => "Retur",
             MutationType.Adjustment => "Penyesuaian",
             MutationType.Damaged => "Rusak",
@@ -77,6 +78,7 @@ namespace Berca_Backend.Models
         StockIn,      // "StockIn"
         StockOut,     // "StockOut"
         Sale,         // "Sale"
+        Purchase,     // "Purchase" ? ADD missing Purchase type
         Return,       // "Return"
         Adjustment,   // "Adjustment"
         Transfer,     // "Transfer"

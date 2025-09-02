@@ -64,8 +64,30 @@ namespace Berca_Backend.DTOs
     // Create Sale Request
     public class CreateSaleRequest
     {
+        // ✅ FIX: Make BranchId nullable to match controller expectations
+        public int? BranchId { get; set; }
+
+        public int? CustomerId { get; set; }
+
+        [StringLength(50)]
+        public string? MemberCode { get; set; }
+
         [Required]
         public List<CreateSaleItemRequest> Items { get; set; } = new();
+
+        [Required]
+        [Range(0, double.MaxValue)]
+        public decimal Subtotal { get; set; }
+
+        [Range(0, double.MaxValue)]
+        public decimal Tax { get; set; } = 0;
+
+        [Range(0, double.MaxValue)]
+        public decimal Discount { get; set; } = 0;
+
+        [Required]
+        [Range(0, double.MaxValue)]
+        public decimal Total { get; set; }
 
         [Required]
         [StringLength(20)]
@@ -92,12 +114,11 @@ namespace Berca_Backend.DTOs
         [Range(0, double.MaxValue)]
         public decimal TaxAmount { get; set; } = 0;
 
-        public decimal SubTotal { get; set; }
         public decimal DiscountPercentage { get; set; } = 0;
-        public decimal Total { get; set; }
         public decimal PaidAmount { get; set; }
         public decimal ChangeAmount { get; set; }
         public int RedeemedPoints { get; set; } = 0;
+        public decimal MemberCreditUsed { get; set; } = 0;
     }
 
     // Create Sale Item Request
@@ -123,6 +144,9 @@ namespace Berca_Backend.DTOs
 
         public decimal UnitPrice { get; set; } = 0;
         public decimal TotalPrice { get; set; } = 0;
+        
+        // ✅ ADD missing Subtotal property that is referenced in controllers
+        public decimal Subtotal { get; set; } = 0;
     }
 
     // ✅ ENHANCED: Sale Summary DTO with comprehensive reporting data
@@ -193,9 +217,6 @@ namespace Berca_Backend.DTOs
         public int TransactionCount { get; set; }
         public decimal AverageTransaction { get; set; }
     }
-
-    // ✅ MISSING: Payment Method Summary DTO
-
 
     // ✅ MISSING: Receipt Data DTO
     public class ReceiptDataDto

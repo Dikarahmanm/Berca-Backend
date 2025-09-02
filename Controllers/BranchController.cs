@@ -1,7 +1,11 @@
 using Berca_Backend.DTOs;
 using Berca_Backend.Services.Interfaces;
+using Berca_Backend.Data;
+using Berca_Backend.Models;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using System.Security.Claims;
 
 namespace Berca_Backend.Controllers
 {
@@ -14,17 +18,20 @@ namespace Berca_Backend.Controllers
         private readonly IUserBranchAssignmentService _userBranchService;
         private readonly ITimezoneService _timezoneService;
         private readonly ILogger<BranchController> _logger;
+        private readonly AppDbContext _context;
 
         public BranchController(
             IBranchService branchService,
             IUserBranchAssignmentService userBranchService,
             ITimezoneService timezoneService,
-            ILogger<BranchController> logger)
+            ILogger<BranchController> logger,
+            AppDbContext context)
         {
             _branchService = branchService;
             _userBranchService = userBranchService;
             _timezoneService = timezoneService;
             _logger = logger;
+            _context = context;
         }
 
         /// <summary>
@@ -51,6 +58,141 @@ namespace Berca_Backend.Controllers
             {
                 _logger.LogError(ex, "Error retrieving branches with query params: {@QueryParams}", queryParams);
                 return StatusCode(500, ApiResponse<object>.ErrorResponse("Internal server error"));
+            }
+        }
+
+        /// <summary>
+        /// Get branches accessible by current user (Required by frontend integration)
+        /// </summary>
+        [HttpGet("accessible")]
+        [Authorize(Policy = "Branch.Read")]
+        public async Task<IActionResult> GetAccessibleBranches()
+        {
+            try
+            {
+                var currentUserId = GetCurrentUserId();
+                var currentUserRole = GetCurrentUserRole();
+                
+                if (currentUserId == 0)
+                {
+                    return Unauthorized(new
+                    {
+                        success = false,
+                        message = "Invalid user session"
+                    });
+                }
+
+                var branches = new List<object>();
+                
+                if (IsAdminOrHeadManager(currentUserRole))
+                {
+                    // Admin and HeadManager can access all branches
+                    branches = await _context.Branches
+                        .Where(b => b.IsActive)
+                        .OrderBy(b => b.BranchName)
+                        .Select(b => new
+                        {
+                            branchId = b.Id,
+                            branchCode = b.BranchCode,
+                            branchName = b.BranchName,
+                            branchType = b.BranchType.ToString(),
+                            parentBranchId = b.ParentBranchId,
+                            isHeadOffice = b.BranchType == BranchType.Head,
+                            level = 0, // Can be calculated based on hierarchy if needed
+                            address = b.Address,
+                            managerName = b.ManagerName,
+                            phone = b.Phone,
+                            isActive = b.IsActive,
+                            canRead = true,
+                            canWrite = true,
+                            canApprove = true,
+                            canTransfer = true,
+                            createdAt = b.CreatedAt,
+                            updatedAt = b.UpdatedAt
+                        })
+                        .Cast<object>()
+                        .ToListAsync();
+                }
+                else
+                {
+                    // Get user's accessible branches via BranchAccess table
+                    try
+                    {
+                        branches = await _context.BranchAccesses
+                            .Where(ba => ba.UserId == currentUserId && ba.IsActive)
+                            .Include(ba => ba.Branch)
+                            .Where(ba => ba.Branch.IsActive)
+                            .OrderBy(ba => ba.Branch.BranchName)
+                            .Select(ba => new
+                            {
+                                branchId = ba.BranchId,
+                                branchCode = ba.Branch.BranchCode,
+                                branchName = ba.Branch.BranchName,
+                                branchType = ba.Branch.BranchType.ToString(),
+                                parentBranchId = ba.Branch.ParentBranchId,
+                                isHeadOffice = ba.Branch.BranchType == BranchType.Head,
+                                level = 0,
+                                address = ba.Branch.Address,
+                                managerName = ba.Branch.ManagerName,
+                                phone = ba.Branch.Phone,
+                                isActive = ba.Branch.IsActive,
+                                canRead = ba.CanRead,
+                                canWrite = ba.CanWrite,
+                                canApprove = ba.CanApprove,
+                                canTransfer = ba.CanTransfer,
+                                createdAt = ba.Branch.CreatedAt,
+                                updatedAt = ba.Branch.UpdatedAt
+                            })
+                            .Cast<object>()
+                            .ToListAsync();
+                    }
+                    catch
+                    {
+                        // Fallback: Use user's assigned branch
+                        var user = await _context.Users
+                            .Include(u => u.Branch)
+                            .FirstOrDefaultAsync(u => u.Id == currentUserId);
+                            
+                        if (user?.Branch != null)
+                        {
+                            branches.Add(new
+                            {
+                                branchId = user.Branch.Id,
+                                branchCode = user.Branch.BranchCode,
+                                branchName = user.Branch.BranchName,
+                                branchType = user.Branch.BranchType.ToString(),
+                                parentBranchId = user.Branch.ParentBranchId,
+                                isHeadOffice = user.Branch.BranchType == BranchType.Head,
+                                level = 0,
+                                address = user.Branch.Address,
+                                managerName = user.Branch.ManagerName,
+                                phone = user.Branch.Phone,
+                                isActive = user.Branch.IsActive,
+                                canRead = true,
+                                canWrite = !currentUserRole.Equals("User", StringComparison.OrdinalIgnoreCase),
+                                canApprove = new[] { "Admin", "HeadManager", "BranchManager" }.Contains(currentUserRole),
+                                canTransfer = new[] { "Admin", "HeadManager", "BranchManager" }.Contains(currentUserRole),
+                                createdAt = user.Branch.CreatedAt,
+                                updatedAt = user.Branch.UpdatedAt
+                            });
+                        }
+                    }
+                }
+
+                return Ok(new
+                {
+                    success = true,
+                    data = branches
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error retrieving accessible branches for user {UserId}", GetCurrentUserId());
+                return StatusCode(500, new
+                {
+                    success = false,
+                    message = "Internal server error"
+                });
             }
         }
 
@@ -593,7 +735,9 @@ namespace Berca_Backend.Controllers
 
         private int GetCurrentUserId()
         {
-            var userIdClaim = User.FindFirst("UserId")?.Value ?? User.FindFirst("sub")?.Value;
+            var userIdClaim = User.FindFirst("UserId")?.Value ?? 
+                             User.FindFirst("sub")?.Value ?? 
+                             User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
             return int.TryParse(userIdClaim, out var userId) ? userId : 0;
         }
 
@@ -601,6 +745,7 @@ namespace Berca_Backend.Controllers
         {
             return User.FindFirst("Role")?.Value ?? 
                    User.FindFirst("http://schemas.microsoft.com/ws/2008/06/identity/claims/role")?.Value ?? 
+                   User.FindFirst(ClaimTypes.Role)?.Value ??
                    "User";
         }
 

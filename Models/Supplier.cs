@@ -20,6 +20,11 @@ namespace Berca_Backend.Models
         [StringLength(100, MinimumLength = 2)]
         public string CompanyName { get; set; } = string.Empty;
 
+        // ? ADD: Missing Name property that is referenced in controllers
+        [Required]
+        [StringLength(100, MinimumLength = 2)]
+        public string Name { get; set; } = string.Empty;
+
         [Required]
         [StringLength(50, MinimumLength = 2)]
         public string ContactPerson { get; set; } = string.Empty;
@@ -38,6 +43,40 @@ namespace Berca_Backend.Models
         [StringLength(500)]
         public string Address { get; set; } = string.Empty;
 
+        // ? ADD: Missing location properties that are referenced in controllers
+        [StringLength(100)]
+        public string City { get; set; } = string.Empty;
+
+        [StringLength(100)]
+        public string Province { get; set; } = string.Empty;
+
+        [StringLength(10)]
+        public string PostalCode { get; set; } = string.Empty;
+
+        [StringLength(100)]
+        public string Country { get; set; } = "Indonesia";
+
+        // ? ADD: Missing contact properties that are referenced in controllers
+        [StringLength(20)]
+        public string ContactPhone { get; set; } = string.Empty;
+
+        [StringLength(100)]
+        [EmailAddress]
+        public string ContactEmail { get; set; } = string.Empty;
+
+        // ? ADD: Missing financial properties that are referenced in controllers
+        [StringLength(50)]
+        public string TaxNumber { get; set; } = string.Empty;
+
+        [StringLength(50)]
+        public string BankAccount { get; set; } = string.Empty;
+
+        [StringLength(100)]
+        public string BankName { get; set; } = string.Empty;
+
+        [StringLength(1000)]
+        public string Notes { get; set; } = string.Empty;
+
         // Business Terms
         [Range(1, 365)]
         public int PaymentTerms { get; set; } = 30; // Days
@@ -46,9 +85,16 @@ namespace Berca_Backend.Models
         [Range(0, 999999999)]
         public decimal CreditLimit { get; set; } = 0;
 
+        // ? ADD: Missing CurrentBalance property that is referenced in controllers
+        [Column(TypeName = "decimal(18,2)")]
+        public decimal CurrentBalance { get; set; } = 0;
+
         // Branch Relationship
         public int? BranchId { get; set; } // NULL = Available to all branches
         public virtual Branch? Branch { get; set; }
+
+        // ? ADD: Missing Branches navigation property that is referenced in controllers
+        public virtual ICollection<Branch> Branches { get; set; } = new List<Branch>();
 
         // Status
         public bool IsActive { get; set; } = true;

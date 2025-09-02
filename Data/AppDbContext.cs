@@ -26,6 +26,9 @@ namespace Berca_Backend.Data
         public DbSet<UserNotificationSettings> UserNotificationSettings { get; set; }
         public DbSet<Branch> Branches { get; set; }
         
+        // ADD missing StockMutations DbSet that is referenced in ProductController
+        public DbSet<StockMutation> StockMutations { get; set; }
+        
         // ==================== INVENTORY TRANSFER DBSETS ==================== //
         public DbSet<InventoryTransfer> InventoryTransfers { get; set; }
         public DbSet<InventoryTransferItem> InventoryTransferItems { get; set; }
@@ -45,6 +48,9 @@ namespace Berca_Backend.Data
         public DbSet<FactureItem> FactureItems { get; set; }
         public DbSet<FacturePayment> FacturePayments { get; set; }
         
+        // ✅ ADD missing PurchaseOrders DbSet that is referenced in SupplierController
+        public DbSet<PurchaseOrder> PurchaseOrders { get; set; }
+
         // ==================== MEMBER CREDIT SYSTEM DBSETS ==================== //
         public DbSet<MemberCreditTransaction> MemberCreditTransactions { get; set; }
         public DbSet<MemberPaymentReminder> MemberPaymentReminders { get; set; }
@@ -66,6 +72,11 @@ namespace Berca_Backend.Data
         // ==================== SMART NOTIFICATION SYSTEM DBSETS ==================== //
         public DbSet<NotificationRule> NotificationRules { get; set; }
         public DbSet<UserNotificationPreferences> UserNotificationPreferences { get; set; }
+        
+        // ==================== MULTI-BRANCH INTEGRATION DBSETS ==================== //
+        public DbSet<BranchAccess> BranchAccesses { get; set; }
+        public DbSet<TransferRequest> TransferRequests { get; set; }
+        public DbSet<TransferItem> TransferItems { get; set; }
         
         protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
         {
@@ -1220,6 +1231,10 @@ namespace Berca_Backend.Data
                       .OnDelete(DeleteBehavior.Restrict);
 
                 // Property configurations
+                entity.Property(e => e.Quantity)
+                      .HasColumnType("decimal(18,4)")
+                      .HasDefaultValue(0);
+                
                 entity.Property(e => e.UnitCost)
                       .HasColumnType("decimal(18,2)")
                       .HasDefaultValue(0m);
@@ -1227,12 +1242,6 @@ namespace Berca_Backend.Data
                 entity.Property(e => e.TotalCost)
                       .HasColumnType("decimal(18,2)")
                       .HasDefaultValue(0m);
-
-                entity.Property(e => e.BatchNumber)
-                      .HasMaxLength(50);
-
-                entity.Property(e => e.QualityNotes)
-                      .HasMaxLength(200);
 
                 // Indexes
                 entity.HasIndex(e => e.InventoryTransferId)
@@ -1602,7 +1611,7 @@ namespace Berca_Backend.Data
                     Unit = "bks",
                     CategoryId = 40, // Rokok & Tembakau
                     IsActive = true,
-                    CreatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+                    CreatedAt = new DateTime(2024, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc),
                     UpdatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc)
                 },
                 new Product
@@ -2277,6 +2286,135 @@ namespace Berca_Backend.Data
                 // Composite index for query optimization
                 entity.HasIndex(e => new { e.SaleItemId, e.BatchId })
                       .HasDatabaseName("IX_SaleItemBatches_SaleItem_Batch");
+            });
+            
+            // ==================== MULTI-BRANCH INTEGRATION CONFIGURATIONS ==================== //
+            
+            // BranchAccess Configuration
+            modelBuilder.Entity<BranchAccess>(entity =>
+            {
+                entity.HasKey(e => e.Id);
+                
+                // Foreign key relationships
+                entity.HasOne(d => d.User)
+                      .WithMany()
+                      .HasForeignKey(d => d.UserId)
+                      .OnDelete(DeleteBehavior.Restrict);
+                      
+                entity.HasOne(d => d.Branch)
+                      .WithMany()
+                      .HasForeignKey(d => d.BranchId)
+                      .OnDelete(DeleteBehavior.Restrict);
+                      
+                entity.HasOne(d => d.AssignedByUser)
+                      .WithMany()
+                      .HasForeignKey(d => d.AssignedBy)
+                      .OnDelete(DeleteBehavior.Restrict);
+                      
+                // Indexes for performance
+                entity.HasIndex(e => e.UserId)
+                      .HasDatabaseName("IX_BranchAccess_UserId");
+                      
+                entity.HasIndex(e => e.BranchId)
+                      .HasDatabaseName("IX_BranchAccess_BranchId");
+                      
+                entity.HasIndex(e => e.IsActive)
+                      .HasDatabaseName("IX_BranchAccess_IsActive");
+            });
+            
+            // TransferRequest Configuration
+            modelBuilder.Entity<TransferRequest>(entity =>
+            {
+                entity.HasKey(e => e.Id);
+                
+                // Unique transfer number
+                entity.HasIndex(e => e.TransferNumber)
+                      .IsUnique()
+                      .HasDatabaseName("IX_TransferRequest_TransferNumber");
+                      
+                // Foreign key relationships
+                entity.HasOne(d => d.SourceBranch)
+                      .WithMany()
+                      .HasForeignKey(d => d.SourceBranchId)
+                      .OnDelete(DeleteBehavior.Restrict);
+                      
+                entity.HasOne(d => d.TargetBranch)
+                      .WithMany()
+                      .HasForeignKey(d => d.TargetBranchId)
+                      .OnDelete(DeleteBehavior.Restrict);
+                      
+                entity.HasOne(d => d.RequestedByUser)
+                      .WithMany()
+                      .HasForeignKey(d => d.RequestedBy)
+                      .OnDelete(DeleteBehavior.Restrict);
+                      
+                entity.HasOne(d => d.ApprovedByUser)
+                      .WithMany()
+                      .HasForeignKey(d => d.ApprovedBy)
+                      .OnDelete(DeleteBehavior.Restrict);
+                      
+                // Indexes for performance
+                entity.HasIndex(e => e.Status)
+                      .HasDatabaseName("IX_TransferRequest_Status");
+                      
+                entity.HasIndex(e => e.Priority)
+                      .HasDatabaseName("IX_TransferRequest_Priority");
+                      
+                entity.HasIndex(e => e.SourceBranchId)
+                      .HasDatabaseName("IX_TransferRequest_SourceBranch");
+                      
+                entity.HasIndex(e => e.TargetBranchId)
+                      .HasDatabaseName("IX_TransferRequest_TargetBranch");
+                      
+                entity.HasIndex(e => e.RequestedAt)
+                      .HasDatabaseName("IX_TransferRequest_RequestedAt");
+                      
+                entity.HasIndex(e => new { e.SourceBranchId, e.Status })
+                      .HasDatabaseName("IX_TransferRequest_SourceBranch_Status");
+                      
+                entity.HasIndex(e => new { e.TargetBranchId, e.Status })
+                      .HasDatabaseName("IX_TransferRequest_TargetBranch_Status");
+            });
+            
+            // TransferItem Configuration
+            modelBuilder.Entity<TransferItem>(entity =>
+            {
+                entity.HasKey(e => e.Id);
+                
+                // Foreign key relationships
+                entity.HasOne(d => d.TransferRequest)
+                      .WithMany(p => p.Items)
+                      .HasForeignKey(d => d.TransferRequestId)
+                      .OnDelete(DeleteBehavior.Cascade);
+                      
+                entity.HasOne(d => d.Product)
+                      .WithMany()
+                      .HasForeignKey(d => d.ProductId)
+                      .OnDelete(DeleteBehavior.Restrict);
+
+                // Property configurations - use the actual database column properties
+                entity.Property(e => e.RequestedQuantity)
+                      .HasColumnType("decimal(18,4)")
+                      .HasDefaultValue(0);
+                
+                entity.Property(e => e.UnitPrice)
+                      .HasColumnType("decimal(18,2)")
+                      .HasDefaultValue(0m);
+
+                entity.Property(e => e.TotalPrice)
+                      .HasColumnType("decimal(18,2)")
+                      .HasDefaultValue(0m);
+
+                // Indexes for performance
+                entity.HasIndex(e => e.TransferRequestId)
+                      .HasDatabaseName("IX_TransferItem_TransferRequestId");
+                      
+                entity.HasIndex(e => e.ProductId)
+                      .HasDatabaseName("IX_TransferItem_ProductId");
+                      
+                entity.HasIndex(e => new { e.TransferRequestId, e.ProductId })
+                      .IsUnique()
+                      .HasDatabaseName("IX_TransferItem_TransferRequest_Product");
             });
         }
     }

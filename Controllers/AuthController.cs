@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.Extensions.Options; // ✅ ADD THIS
+using Microsoft.EntityFrameworkCore;
 using System.Security.Claims;
 using Berca_Backend.Models;
 using Berca_Backend.Services;
@@ -149,47 +150,27 @@ namespace Berca_Backend.Controllers
             // ✅ Log successful login
             _logger.LogInformation("✅ Login successful for user: {Username}, Role: {Role}", user.Username, user.Role);
 
-            // ✅ FIXED: Debug cookie information with proper using
-            try
-            {
-                var cookieOptions = HttpContext.RequestServices.GetRequiredService<IOptionsMonitor<CookieAuthenticationOptions>>();
-                var cookieName = cookieOptions.Get(CookieAuthenticationDefaults.AuthenticationScheme).Cookie.Name;
-                _logger.LogInformation("🍪 Auth cookie name: {CookieName}", cookieName);
+            // ✅ Log successful login
+            await _context.LogActivityAsync(user.Username, $"User {user.Username} logged in successfully");
 
-                return Ok(new
-                {
-                    success = true,
-                    message = "Login successful",
-                    user = user.Username,
-                    role = user.Role,
-                    isActive = user.IsActive,
-                    debug = new
-                    {
-                        cookieSet = true,
-                        cookieName = cookieName,
-                        expiresAt = authProperties.ExpiresUtc
-                    }
-                });
-            }
-            catch (Exception ex)
+            return Ok(new
             {
-                _logger.LogWarning("Could not get cookie options: {Error}", ex.Message);
-
-                return Ok(new
+                success = true,
+                data = new
                 {
-                    success = true,
-                    message = "Login successful",
-                    user = user.Username,
-                    role = user.Role,
-                    isActive = user.IsActive,
-                    debug = new
+                    user = new
                     {
-                        cookieSet = true,
-                        cookieName = "TokoEniwanAuth", // Fallback
-                        expiresAt = authProperties.ExpiresUtc
-                    }
-                });
-            }
+                        id = user.Id,
+                        username = user.Username,
+                        email = user.UserProfile?.Email ?? $"{user.Username}@tokoeniwan.com", 
+                        role = user.Role,
+                        fullName = user.UserProfile?.FullName ?? user.Username,
+                        defaultBranchId = user.BranchId,
+                        accessibleBranches = user.GetAccessibleBranchIds()
+                    },
+                    sessionExpiresAt = authProperties.ExpiresUtc
+                }
+            });
         }
 
         [HttpPost("logout")]
@@ -343,6 +324,206 @@ namespace Berca_Backend.Controllers
                 message = "Not authenticated",
                 errorCode = "NOT_AUTHENTICATED"
             });
+        }
+
+        [HttpGet("me")]
+        [Authorize]
+        public async Task<IActionResult> GetCurrentUser()
+        {
+            var username = User.Identity?.Name;
+            var role = User.Claims.FirstOrDefault(c => c.Type == ClaimTypes.Role)?.Value;
+            var isActive = User.Claims.FirstOrDefault(c => c.Type == "IsActive")?.Value == "True";
+            var isDeleted = User.Claims.FirstOrDefault(c => c.Type == "IsDeleted")?.Value == "True";
+            var userIdClaim = User.Claims.FirstOrDefault(c => c.Type == ClaimTypes.NameIdentifier)?.Value;
+
+            if (string.IsNullOrEmpty(username) || !int.TryParse(userIdClaim, out var userId))
+            {
+                return Unauthorized(new
+                {
+                    success = false,
+                    message = "Invalid session",
+                    errorCode = "INVALID_SESSION"
+                });
+            }
+
+            try
+            {
+                // Get user with profile information
+                var user = await _context.Users
+                    .Include(u => u.UserProfile)
+                    .Include(u => u.Branch)
+                    .FirstOrDefaultAsync(u => u.Id == userId);
+
+                if (user == null)
+                {
+                    return Unauthorized(new
+                    {
+                        success = false,
+                        message = "User not found",
+                        errorCode = "USER_NOT_FOUND"
+                    });
+                }
+
+                // Get branch access permissions (if BranchAccess table exists and is populated)
+                var branchAccess = new List<object>();
+                try
+                {
+                    var branchAccessList = await _context.BranchAccesses
+                        .Where(ba => ba.UserId == userId && ba.IsActive)
+                        .Include(ba => ba.Branch)
+                        .Select(ba => new
+                        {
+                            branchId = ba.BranchId,
+                            canRead = ba.CanRead,
+                            canWrite = ba.CanWrite,
+                            canApprove = ba.CanApprove,
+                            canTransfer = ba.CanTransfer,
+                            assignedAt = ba.AssignedAt
+                        })
+                        .ToListAsync();
+                    branchAccess = branchAccessList.Cast<object>().ToList();
+                }
+                catch
+                {
+                    // BranchAccess table might not exist yet, use fallback
+                    if (user.BranchId.HasValue)
+                    {
+                        branchAccess.Add(new
+                        {
+                            branchId = user.BranchId.Value,
+                            canRead = true,
+                            canWrite = user.Role != "User",
+                            canApprove = new[] { "Admin", "HeadManager", "BranchManager" }.Contains(user.Role),
+                            canTransfer = new[] { "Admin", "HeadManager", "BranchManager" }.Contains(user.Role),
+                            assignedAt = user.CreatedAt
+                        });
+                    }
+                }
+
+                // Get current branch from cookie (if set)
+                var currentBranchId = HttpContext.Request.Cookies[".TokoEniwan.BranchContext"];
+                int? parsedCurrentBranchId = null;
+                if (int.TryParse(currentBranchId, out var branchId))
+                {
+                    parsedCurrentBranchId = branchId;
+                }
+
+                return Ok(new
+                {
+                    success = true,
+                    data = new
+                    {
+                        userId = user.Id,
+                        username = user.Username,
+                        role = user.Role,
+                        fullName = user.UserProfile?.FullName ?? user.Username,
+                        currentBranchId = parsedCurrentBranchId ?? user.BranchId,
+                        defaultBranchId = user.BranchId,
+                        branchAccess = branchAccess,
+                        sessionExpiresAt = DateTimeOffset.UtcNow.Add(TimeSpan.FromHours(8)) // Match cookie expiration
+                    }
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error retrieving current user information for user {UserId}", userId);
+                return StatusCode(500, new
+                {
+                    success = false,
+                    message = "Internal server error"
+                });
+            }
+        }
+
+        [HttpPost("switch-branch")]
+        [Authorize]
+        public async Task<IActionResult> SwitchBranch([FromBody] SwitchBranchRequest request)
+        {
+            var userIdClaim = User.Claims.FirstOrDefault(c => c.Type == ClaimTypes.NameIdentifier)?.Value;
+            var username = User.Identity?.Name;
+
+            if (!int.TryParse(userIdClaim, out var userId))
+            {
+                return Unauthorized(new
+                {
+                    success = false,
+                    message = "Invalid session"
+                });
+            }
+
+            try
+            {
+                // Get user and validate branch access
+                var user = await _context.Users.FirstOrDefaultAsync(u => u.Id == userId);
+                if (user == null)
+                {
+                    return Unauthorized(new
+                    {
+                        success = false,
+                        message = "User not found"
+                    });
+                }
+
+                // Validate branch access
+                bool hasAccess = false;
+                
+                // Admin can access any branch
+                if (user.Role == "Admin")
+                {
+                    hasAccess = true;
+                }
+                else
+                {
+                    // Check if user has access to this branch
+                    try
+                    {
+                        hasAccess = await _context.BranchAccesses
+                            .AnyAsync(ba => ba.UserId == userId && ba.BranchId == request.BranchId && ba.IsActive && ba.CanRead);
+                    }
+                    catch
+                    {
+                        // Fallback: check user's assigned branch or accessible branches
+                        hasAccess = user.CanAccessBranch(request.BranchId);
+                    }
+                }
+
+                if (!hasAccess)
+                {
+                    return StatusCode(403, new
+                    {
+                        success = false,
+                        message = "Access denied to this branch"
+                    });
+                }
+
+                // Set branch context cookie
+                Response.Cookies.Append(".TokoEniwan.BranchContext", request.BranchId.ToString(), new CookieOptions
+                {
+                    HttpOnly = true,
+                    Secure = HttpContext.Request.IsHttps,
+                    SameSite = SameSiteMode.Strict,
+                    Path = "/",
+                    MaxAge = TimeSpan.FromHours(8)
+                });
+
+                // Log branch switch
+                await _context.LogActivityAsync(username ?? "Unknown", $"User switched to branch {request.BranchId}");
+
+                return Ok(new
+                {
+                    success = true,
+                    message = "Branch context switched successfully"
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error switching branch for user {UserId} to branch {BranchId}", userId, request.BranchId);
+                return StatusCode(500, new
+                {
+                    success = false,
+                    message = "Internal server error"
+                });
+            }
         }
 
         [HttpGet("whoami")]
