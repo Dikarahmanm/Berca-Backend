@@ -452,23 +452,14 @@ namespace Berca_Backend.Services
 
             var branchIds = new List<int>();
 
-            // Admin can access all branches
+            // Admin can access all branches with full permissions
             if (user.Role == "Admin")
             {
                 var allBranches = await _context.Branches
                     .Where(b => b.IsActive)
                     .ToListAsync();
 
-                return allBranches.Select(b => new BranchAccessDto
-                {
-                    BranchId = b.Id,
-                    BranchName = b.BranchName,
-                    BranchCode = b.BranchCode,
-                    City = b.City,
-                    Province = b.Province,
-                    BranchType = b.BranchType,
-                    IsActive = b.IsActive
-                }).ToList();
+                return allBranches.Select(b => CreateBranchAccessDto(b, user, null, true)).ToList();
             }
 
             // Add assigned branch
@@ -481,20 +472,99 @@ namespace Berca_Backend.Services
 
             branchIds = branchIds.Distinct().ToList();
 
+            // Get branches with their access permissions
             var branches = await _context.Branches
                 .Where(b => branchIds.Contains(b.Id) && b.IsActive)
                 .ToListAsync();
 
-            return branches.Select(b => new BranchAccessDto
+            // Get branch access permissions for the user
+            var branchAccesses = await _context.BranchAccesses
+                .Where(ba => ba.UserId == userId && branchIds.Contains(ba.BranchId) && ba.IsActive)
+                .ToListAsync();
+
+            return branches.Select(b => 
             {
-                BranchId = b.Id,
-                BranchName = b.BranchName,
-                BranchCode = b.BranchCode,
-                City = b.City,
-                Province = b.Province,
-                BranchType = b.BranchType,
-                IsActive = b.IsActive
+                var branchAccess = branchAccesses.FirstOrDefault(ba => ba.BranchId == b.Id);
+                return CreateBranchAccessDto(b, user, branchAccess, false);
             }).ToList();
+        }
+
+        private BranchAccessDto CreateBranchAccessDto(Branch branch, User user, BranchAccess? branchAccess, bool isAdmin)
+        {
+            // Determine permissions based on role and branch access
+            var permissions = GetUserBranchPermissions(user, branch, branchAccess, isAdmin);
+
+            return new BranchAccessDto
+            {
+                BranchId = branch.Id,
+                BranchName = branch.BranchName,
+                BranchCode = branch.BranchCode,
+                City = branch.City,
+                Province = branch.Province,
+                BranchType = branch.BranchType,
+                IsActive = branch.IsActive,
+                
+                // Permission fields
+                CanRead = permissions.CanRead,
+                CanWrite = permissions.CanWrite,
+                CanApprove = permissions.CanApprove,
+                CanTransfer = permissions.CanTransfer,
+                CanManage = permissions.CanManage,
+                
+                // Hierarchy and organizational info
+                IsHeadOffice = branch.BranchType == BranchType.Head,
+                IsDefaultBranch = user.BranchId == branch.Id,
+                Level = branch.BranchType == BranchType.Head ? 1 : 2,
+                ParentBranchId = branch.BranchType == BranchType.Branch ? 
+                    _context.Branches.Where(b => b.BranchType == BranchType.Head && b.IsActive).Select(b => b.Id).FirstOrDefault() : 
+                    (int?)null,
+                
+                // Additional details
+                Address = branch.Address,
+                ManagerName = branch.ManagerName,
+                Phone = branch.Phone,
+                CreatedAt = branch.CreatedAt,
+                UpdatedAt = branch.UpdatedAt
+            };
+        }
+
+        private (bool CanRead, bool CanWrite, bool CanApprove, bool CanTransfer, bool CanManage) GetUserBranchPermissions(
+            User user, Branch branch, BranchAccess? branchAccess, bool isAdmin)
+        {
+            // Admin has full permissions
+            if (isAdmin || user.Role == "Admin")
+            {
+                return (true, true, true, true, true);
+            }
+
+            // Use explicit branch access permissions if available
+            if (branchAccess != null)
+            {
+                var canManage = DetermineManagementPermission(user, branch);
+                return (branchAccess.CanRead, branchAccess.CanWrite, branchAccess.CanApprove, branchAccess.CanTransfer, canManage);
+            }
+
+            // Role-based default permissions
+            return user.Role.ToUpper() switch
+            {
+                "HEADMANAGER" => (true, true, true, true, true),
+                "BRANCHMANAGER" when user.BranchId == branch.Id => (true, true, true, false, true),
+                "BRANCHMANAGER" => (true, false, false, false, false),
+                "USER" when user.BranchId == branch.Id => (true, true, false, false, false),
+                "USER" => (true, false, false, false, false),
+                _ => (true, false, false, false, false)
+            };
+        }
+
+        private bool DetermineManagementPermission(User user, Branch branch)
+        {
+            return user.Role.ToUpper() switch
+            {
+                "ADMIN" => true,
+                "HEADMANAGER" => true,
+                "BRANCHMANAGER" when user.BranchId == branch.Id => true,
+                _ => false
+            };
         }
 
         public async Task<AssignmentResultDto> AutoAssignUserBasedOnRoleAsync(int userId)

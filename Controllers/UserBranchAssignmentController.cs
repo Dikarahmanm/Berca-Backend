@@ -2,6 +2,7 @@ using Berca_Backend.DTOs;
 using Berca_Backend.Services.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using System.Security.Claims;
 
 namespace Berca_Backend.Controllers
 {
@@ -385,6 +386,7 @@ namespace Berca_Backend.Controllers
         /// Get current user's accessible branches
         /// </summary>
         [HttpGet("my-accessible-branches")]
+        [HttpGet("user-access")]
         [Authorize]
         public async Task<IActionResult> GetMyAccessibleBranches()
         {
@@ -407,13 +409,16 @@ namespace Berca_Backend.Controllers
 
         private int GetCurrentUserId()
         {
-            var userIdClaim = User.FindFirst("UserId")?.Value ?? User.FindFirst("sub")?.Value;
+            var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value ??
+                             User.FindFirst("UserId")?.Value ?? 
+                             User.FindFirst("sub")?.Value;
             return int.TryParse(userIdClaim, out var userId) ? userId : 0;
         }
 
         private string GetCurrentUserRole()
         {
-            return User.FindFirst("Role")?.Value ?? 
+            return User.FindFirst(ClaimTypes.Role)?.Value ?? 
+                   User.FindFirst("Role")?.Value ?? 
                    User.FindFirst("http://schemas.microsoft.com/ws/2008/06/identity/claims/role")?.Value ?? 
                    "User";
         }

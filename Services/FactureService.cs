@@ -695,10 +695,10 @@ namespace Berca_Backend.Services
                 }
 
                 var totalFactures = await query.CountAsync();
-                var overdueFactures = await query.CountAsync(f => f.IsOverdue);
+                var overdueFactures = await query.CountAsync(f => f.DueDate < DateTime.UtcNow.Date && f.Status != FactureStatus.Paid && f.Status != FactureStatus.Cancelled);
                 var totalOutstanding = await query.Where(f => f.Status != FactureStatus.Paid && f.Status != FactureStatus.Cancelled)
                     .SumAsync(f => f.TotalAmount - f.PaidAmount);
-                var overdueAmount = await query.Where(f => f.IsOverdue)
+                var overdueAmount = await query.Where(f => f.DueDate < DateTime.UtcNow.Date && f.Status != FactureStatus.Paid && f.Status != FactureStatus.Cancelled)
                     .SumAsync(f => f.TotalAmount - f.PaidAmount);
 
                 var lastPaymentDate = await _context.FacturePayments
@@ -1115,7 +1115,7 @@ namespace Berca_Backend.Services
                 var query = _context.Factures
                     .Include(f => f.Supplier)
                     .Include(f => f.Branch)
-                    .Where(f => f.IsOverdue);
+                    .Where(f => f.DueDate < DateTime.UtcNow.Date && f.Status != FactureStatus.Paid && f.Status != FactureStatus.Cancelled);
 
                 // Apply branch filter
                 if (branchId.HasValue)
@@ -1131,8 +1131,9 @@ namespace Berca_Backend.Services
                     query = query.Where(f => f.BranchId == null || accessibleBranchIds.Contains(f.BranchId.Value));
                 }
 
+                var today = DateTime.UtcNow.Date;
                 return await query
-                    .OrderByDescending(f => f.DaysOverdue)
+                    .OrderByDescending(f => f.DueDate)
                     .Select(f => new FactureListDto
                     {
                         Id = f.Id,
@@ -1145,14 +1146,21 @@ namespace Berca_Backend.Services
                         TotalAmount = f.TotalAmount,
                         OutstandingAmount = f.TotalAmount - f.PaidAmount,
                         Status = f.Status,
-                        StatusDisplay = f.StatusDisplay,
-                        PaymentPriority = f.PaymentPriority,
-                        PriorityDisplay = f.PriorityDisplay,
-                        DaysOverdue = f.DaysOverdue,
-                        DaysUntilDue = f.DaysUntilDue,
-                        IsOverdue = f.IsOverdue,
-                        TotalAmountDisplay = f.TotalAmountDisplay,
-                        OutstandingAmountDisplay = f.OutstandingAmountDisplay,
+                        StatusDisplay = f.Status == FactureStatus.Received ? "Diterima" :
+                                       f.Status == FactureStatus.Verified ? "Diverifikasi" :
+                                       f.Status == FactureStatus.Approved ? "Disetujui" :
+                                       f.Status == FactureStatus.PartiallyPaid ? "Dibayar Sebagian" :
+                                       f.Status == FactureStatus.Paid ? "Dibayar" :
+                                       f.Status == FactureStatus.Overdue ? "Terlambat" :
+                                       f.Status == FactureStatus.Disputed ? "Disengketakan" :
+                                       f.Status == FactureStatus.Cancelled ? "Dibatalkan" : "Unknown",
+                        PaymentPriority = PaymentPriority.Normal,
+                        PriorityDisplay = "Normal",
+                        DaysOverdue = EF.Functions.DateDiffDay(f.DueDate, today),
+                        DaysUntilDue = 0,
+                        IsOverdue = true,
+                        TotalAmountDisplay = f.TotalAmount.ToString(),
+                        OutstandingAmountDisplay = (f.TotalAmount - f.PaidAmount).ToString(),
                         CreatedAt = f.CreatedAt
                     })
                     .ToListAsync();
@@ -1658,7 +1666,7 @@ namespace Berca_Backend.Services
             {
                 var user = await _context.Users.FindAsync(requestingUserId);
                 var userBranches = user?.CanAccessMultipleBranches == true ? 
-                    (user.AccessibleBranchIds?.Split(',').Select(int.Parse).ToList() ?? new List<int> { 0 }) : 
+                    ParseBranchIds(user.AccessibleBranchIds) : 
                     new List<int> { user?.BranchId ?? 0 };
                 var now = _timezoneService.UtcToLocal(DateTime.UtcNow);
 
@@ -1733,7 +1741,7 @@ namespace Berca_Backend.Services
             {
                 var user = await _context.Users.FindAsync(requestingUserId);
                 var userBranches = user?.CanAccessMultipleBranches == true ? 
-                    (user.AccessibleBranchIds?.Split(',').Select(int.Parse).ToList() ?? new List<int> { 0 }) : 
+                    ParseBranchIds(user.AccessibleBranchIds) : 
                     new List<int> { user?.BranchId ?? 0 };
                 var now = _timezoneService.UtcToLocal(DateTime.UtcNow);
                 fromDate ??= now.AddMonths(-3); // Default 3 months
@@ -1829,7 +1837,7 @@ namespace Berca_Backend.Services
             {
                 var user = await _context.Users.FindAsync(requestingUserId);
                 var userBranches = user?.CanAccessMultipleBranches == true ? 
-                    (user.AccessibleBranchIds?.Split(',').Select(int.Parse).ToList() ?? new List<int> { 0 }) : 
+                    ParseBranchIds(user.AccessibleBranchIds) : 
                     new List<int> { user?.BranchId ?? 0 };
                 var now = _timezoneService.UtcToLocal(DateTime.UtcNow);
                 var thisMonth = new DateTime(now.Year, now.Month, 1);
@@ -1936,7 +1944,7 @@ namespace Berca_Backend.Services
             {
                 var user = await _context.Users.FindAsync(requestingUserId);
                 var userBranches = user?.CanAccessMultipleBranches == true ? 
-                    (user.AccessibleBranchIds?.Split(',').Select(int.Parse).ToList() ?? new List<int> { 0 }) : 
+                    ParseBranchIds(user.AccessibleBranchIds) : 
                     new List<int> { user?.BranchId ?? 0 };
                 var now = _timezoneService.UtcToLocal(DateTime.UtcNow);
                 var alerts = new List<FactureSupplierAlertDto>();
@@ -2120,12 +2128,21 @@ namespace Berca_Backend.Services
 
         private List<int>? GetAccessibleBranchIds(User? user)
         {
-            if (user == null || user.Role == "SuperAdmin") return null;
+            if (user == null || user.Role.ToUpper() == "ADMIN" || user.Role == "SuperAdmin") 
+                return null; // null means access to all branches
             
+            // HeadManager can access multiple branches
+            if (user.Role.ToUpper() == "HEADMANAGER" && user.CanAccessMultipleBranches)
+            {
+                var accessibleIds = user.GetAccessibleBranchIds();
+                return accessibleIds.Any() ? accessibleIds : (user.BranchId.HasValue ? new List<int> { user.BranchId.Value } : new List<int>());
+            }
+            
+            // Regular user or branch manager - limited to their assigned branch
             if (user.BranchId.HasValue)
                 return new List<int> { user.BranchId.Value };
             
-            return new List<int>();
+            return new List<int>(); // No access if no branch assigned
         }
 
         private async Task<decimal> CalculateAveragePaymentDaysAsync(int supplierId)
@@ -2303,6 +2320,40 @@ namespace Berca_Backend.Services
                 CreatedAt = payment.CreatedAt,
                 UpdatedAt = payment.UpdatedAt
             };
+        }
+
+        private List<int> ParseBranchIds(string? accessibleBranchIds)
+        {
+            if (string.IsNullOrEmpty(accessibleBranchIds))
+                return new List<int> { 0 };
+
+            try
+            {
+                // Handle JSON array format like "[1]" or "[1,2,3]"
+                if (accessibleBranchIds.StartsWith("[") && accessibleBranchIds.EndsWith("]"))
+                {
+                    var jsonContent = accessibleBranchIds.Trim('[', ']');
+                    if (string.IsNullOrEmpty(jsonContent))
+                        return new List<int> { 0 };
+                    
+                    return jsonContent.Split(',')
+                        .Select(s => s.Trim())
+                        .Where(s => !string.IsNullOrEmpty(s))
+                        .Select(int.Parse)
+                        .ToList();
+                }
+                
+                // Handle comma-separated format like "1,2,3"
+                return accessibleBranchIds.Split(',')
+                    .Select(s => s.Trim())
+                    .Where(s => !string.IsNullOrEmpty(s))
+                    .Select(int.Parse)
+                    .ToList();
+            }
+            catch
+            {
+                return new List<int> { 0 };
+            }
         }
     }
 }

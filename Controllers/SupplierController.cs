@@ -846,15 +846,17 @@ namespace Berca_Backend.Controllers
 
                 // Get purchase orders from this supplier
                 var currentPeriodOrders = await _context.PurchaseOrders
+                    .Include(po => po.CreatedByUser)
                     .Where(po => po.SupplierId == id)
                     .Where(po => po.CreatedAt >= startDate && po.CreatedAt <= endDate)
-                    .Where(po => requestedBranchIds.Contains(po.User.BranchId ?? 0))
+                    .Where(po => requestedBranchIds.Contains(po.CreatedByUser.BranchId ?? 0))
                     .ToListAsync();
 
                 var previousPeriodOrders = await _context.PurchaseOrders
+                    .Include(po => po.CreatedByUser)
                     .Where(po => po.SupplierId == id)
                     .Where(po => po.CreatedAt >= previousStartDate && po.CreatedAt < startDate)
-                    .Where(po => requestedBranchIds.Contains(po.User.BranchId ?? 0))
+                    .Where(po => requestedBranchIds.Contains(po.CreatedByUser.BranchId ?? 0))
                     .ToListAsync();
 
                 var totalPurchases = currentPeriodOrders.Sum(po => po.TotalAmount);
@@ -914,6 +916,219 @@ namespace Berca_Backend.Controllers
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error retrieving supplier performance {SupplierId}", id);
+                return StatusCode(500, new
+                {
+                    success = false,
+                    message = "Internal server error"
+                });
+            }
+        }
+
+        /// <summary>
+        /// Get comprehensive supplier analytics for dashboard
+        /// </summary>
+        [HttpGet("analytics")]
+        [Authorize(Policy = "Supplier.Read")]
+        public async Task<IActionResult> GetSupplierAnalytics([FromQuery] string? branchIds = null)
+        {
+            try
+            {
+                var currentUserId = GetCurrentUserId();
+                var currentUserRole = GetCurrentUserRole();
+                
+                if (!currentUserId.HasValue || currentUserId.Value == 0)
+                {
+                    return Unauthorized(new
+                    {
+                        success = false,
+                        message = "Invalid user session"
+                    });
+                }
+
+                // Parse and validate branch IDs
+                var requestedBranchIds = new List<int>();
+                if (!string.IsNullOrEmpty(branchIds))
+                {
+                    requestedBranchIds = branchIds.Split(',')
+                        .Where(id => int.TryParse(id.Trim(), out _))
+                        .Select(id => int.Parse(id.Trim()))
+                        .ToList();
+                }
+
+                // Get user's accessible branches
+                var accessibleBranchIds = await GetUserAccessibleBranches(currentUserId.Value, currentUserRole);
+                
+                // Filter requested branches by user access
+                if (requestedBranchIds.Any())
+                {
+                    requestedBranchIds = requestedBranchIds.Intersect(accessibleBranchIds).ToList();
+                }
+                else
+                {
+                    requestedBranchIds = accessibleBranchIds;
+                }
+
+                // Calculate supplier metrics
+                var suppliersQuery = _context.Suppliers
+                    .Include(s => s.Branches)
+                    .Where(s => s.Branches.Any(sb => requestedBranchIds.Contains(sb.Id)) || 
+                               !s.Branches.Any()); // Include global suppliers
+
+                var totalSuppliers = await suppliersQuery.CountAsync();
+                var activeSuppliers = await suppliersQuery.Where(s => s.IsActive).CountAsync();
+                
+                var totalCreditLimit = await suppliersQuery
+                    .Where(s => s.IsActive)
+                    .SumAsync(s => s.CreditLimit);
+                    
+                var totalCurrentBalance = await suppliersQuery
+                    .Where(s => s.IsActive)
+                    .SumAsync(s => s.CurrentBalance);
+
+                // Get outstanding factures
+                var outstandingFactures = await _context.Factures
+                    .Include(f => f.CreatedByUser)
+                    .Where(f => f.CreatedByUser != null && requestedBranchIds.Contains(f.CreatedByUser.BranchId ?? 0))
+                    .Where(f => f.Status != FactureStatus.Paid && f.Status != FactureStatus.Cancelled)
+                    .CountAsync();
+
+                var outstandingAmount = await _context.Factures
+                    .Include(f => f.CreatedByUser)
+                    .Where(f => f.CreatedByUser != null && requestedBranchIds.Contains(f.CreatedByUser.BranchId ?? 0))
+                    .Where(f => f.Status != FactureStatus.Paid && f.Status != FactureStatus.Cancelled)
+                    .SumAsync(f => f.TotalAmount - f.PaidAmount);
+
+                // Generate supplier alerts
+                var supplierAlerts = new List<object>();
+                
+                // Credit limit alerts (>80% utilization)
+                var highCreditUtilizationSuppliers = await suppliersQuery
+                    .Where(s => s.IsActive && s.CreditLimit > 0)
+                    .Where(s => (s.CurrentBalance / s.CreditLimit) > 0.8m)
+                    .Select(s => new
+                    {
+                        s.Id,
+                        s.Name,
+                        s.CurrentBalance,
+                        s.CreditLimit,
+                        UtilizationPercentage = (s.CurrentBalance / s.CreditLimit) * 100
+                    })
+                    .ToListAsync();
+
+                foreach (var supplier in highCreditUtilizationSuppliers)
+                {
+                    supplierAlerts.Add(new
+                    {
+                        id = supplier.Id,
+                        type = "credit_limit",
+                        severity = supplier.UtilizationPercentage > 95 ? "high" : "medium",
+                        title = "High Credit Utilization",
+                        message = $"{supplier.Name} credit utilization: {supplier.UtilizationPercentage:F1}%",
+                        supplierName = supplier.Name,
+                        currentBalance = supplier.CurrentBalance,
+                        creditLimit = supplier.CreditLimit
+                    });
+                }
+
+                // Payment overdue alerts
+                var overduePayments = await _context.Factures
+                    .Include(f => f.Supplier)
+                    .Include(f => f.CreatedByUser)
+                    .Where(f => f.CreatedByUser != null && requestedBranchIds.Contains(f.CreatedByUser.BranchId ?? 0))
+                    .Where(f => f.DueDate < DateTime.UtcNow.Date)
+                    .Where(f => f.Status != FactureStatus.Paid && f.Status != FactureStatus.Cancelled)
+                    .GroupBy(f => f.Supplier)
+                    .Where(g => g.Key != null)
+                    .Select(g => new
+                    {
+                        SupplierId = g.Key!.Id,
+                        SupplierName = g.Key!.Name,
+                        OverdueCount = g.Count(),
+                        OverdueAmount = g.Sum(f => f.TotalAmount - f.PaidAmount)
+                    })
+                    .ToListAsync();
+
+                foreach (var overdue in overduePayments)
+                {
+                    supplierAlerts.Add(new
+                    {
+                        id = overdue.SupplierId,
+                        type = "payment_overdue",
+                        severity = overdue.OverdueAmount > 10000000 ? "high" : "medium", // 10M IDR threshold
+                        title = "Overdue Payments",
+                        message = $"{overdue.SupplierName} has {overdue.OverdueCount} overdue payment(s)",
+                        supplierName = overdue.SupplierName,
+                        overdueCount = overdue.OverdueCount,
+                        overdueAmount = overdue.OverdueAmount
+                    });
+                }
+
+                // Top suppliers by factures (last 30 days)
+                var startDate = DateTime.UtcNow.Date.AddDays(-30);
+                var topSuppliersByFactures = await _context.Factures
+                    .Include(f => f.Supplier)
+                    .Include(f => f.CreatedByUser)
+                    .Where(f => f.CreatedByUser != null && requestedBranchIds.Contains(f.CreatedByUser.BranchId ?? 0))
+                    .Where(f => f.CreatedAt >= startDate)
+                    .Where(f => f.Supplier != null)
+                    .GroupBy(f => f.Supplier)
+                    .Where(g => g.Key != null)
+                    .Select(g => new
+                    {
+                        supplierId = g.Key!.Id,
+                        supplierName = g.Key!.Name,
+                        totalFactures = g.Count(),
+                        totalAmount = g.Sum(f => f.TotalAmount),
+                        averageAmount = g.Average(f => f.TotalAmount)
+                    })
+                    .OrderByDescending(s => s.totalAmount)
+                    .Take(10)
+                    .ToListAsync();
+
+                // Suppliers by branch
+                var suppliersByBranch = new List<object>();
+                var branches = await _context.Branches
+                    .Where(b => requestedBranchIds.Contains(b.Id) && b.IsActive)
+                    .ToListAsync();
+
+                foreach (var branch in branches)
+                {
+                    var branchSupplierCount = await _context.Suppliers
+                        .Where(s => s.Branches.Any(sb => sb.Id == branch.Id) || !s.Branches.Any())
+                        .Where(s => s.IsActive)
+                        .CountAsync();
+
+                    suppliersByBranch.Add(new
+                    {
+                        branchId = branch.Id,
+                        branchName = branch.BranchName,
+                        supplierCount = branchSupplierCount
+                    });
+                }
+
+                return Ok(new
+                {
+                    success = true,
+                    data = new
+                    {
+                        totalSuppliers = totalSuppliers,
+                        activeSuppliers = activeSuppliers,
+                        inactiveSuppliers = totalSuppliers - activeSuppliers,
+                        totalCreditLimit = Math.Round(totalCreditLimit, 2),
+                        totalCurrentBalance = Math.Round(totalCurrentBalance, 2),
+                        creditUtilization = totalCreditLimit > 0 ? Math.Round((totalCurrentBalance / totalCreditLimit) * 100, 1) : 0,
+                        outstandingFactures = outstandingFactures,
+                        outstandingAmount = Math.Round(outstandingAmount, 2),
+                        supplierAlerts = supplierAlerts,
+                        topSuppliersByFactures = topSuppliersByFactures,
+                        suppliersByBranch = suppliersByBranch
+                    },
+                    message = "Supplier analytics retrieved successfully"
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error retrieving supplier analytics");
                 return StatusCode(500, new
                 {
                     success = false,

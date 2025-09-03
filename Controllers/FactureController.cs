@@ -31,16 +31,16 @@ namespace Berca_Backend.Controllers
 
         private int GetCurrentUserId()
         {
-            var userIdClaim = User.FindFirst("UserId")?.Value ?? 
-                             User.FindFirst("sub")?.Value ?? 
+            var userIdClaim = User.FindFirst("UserId")?.Value ??
+                             User.FindFirst("sub")?.Value ??
                              User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
             return int.TryParse(userIdClaim, out var userId) ? userId : 0;
         }
 
         private string GetCurrentUserRole()
         {
-            return User.FindFirst("Role")?.Value ?? 
-                   User.FindFirst("http://schemas.microsoft.com/ws/2008/06/identity/claims/role")?.Value ?? 
+            return User.FindFirst("Role")?.Value ??
+                   User.FindFirst("http://schemas.microsoft.com/ws/2008/06/identity/claims/role")?.Value ??
                    User.FindFirst(ClaimTypes.Role)?.Value ??
                    "User";
         }
@@ -98,7 +98,7 @@ namespace Berca_Backend.Controllers
                 var currentUserId = GetCurrentUserId();
                 var facture = await _factureService.ReceiveSupplierInvoiceAsync(receiveDto, currentUserId);
 
-                _logger.LogInformation("Supplier invoice {SupplierInvoiceNumber} received by user {UserId}", 
+                _logger.LogInformation("Supplier invoice {SupplierInvoiceNumber} received by user {UserId}",
                     receiveDto.SupplierInvoiceNumber, currentUserId);
 
                 return CreatedAtAction(nameof(GetFactureById), new { id = facture.Id }, facture);
@@ -249,7 +249,7 @@ namespace Berca_Backend.Controllers
             {
                 var currentUserId = GetCurrentUserId();
                 var currentUserRole = GetCurrentUserRole();
-                
+
                 if (currentUserId == 0)
                 {
                     return Unauthorized(new
@@ -271,7 +271,7 @@ namespace Berca_Backend.Controllers
 
                 // Get user's accessible branches
                 var accessibleBranchIds = await GetUserAccessibleBranches(currentUserId, currentUserRole);
-                
+
                 // Filter requested branches by user access
                 if (requestedBranchIds.Any())
                 {
@@ -295,8 +295,8 @@ namespace Berca_Backend.Controllers
                 var facturesQuery = _context.Factures
                     .Include(f => f.Supplier)
                     .Include(f => f.CreatedByUser)
-                    .ThenInclude(u => u.Branch)
-                    .Where(f => requestedBranchIds.Contains(f.CreatedByUser.BranchId ?? 0));
+                    .ThenInclude(u => u!.Branch)
+                    .Where(f => f.CreatedByUser != null && requestedBranchIds.Contains(f.CreatedByUser.BranchId ?? 0));
 
                 // Apply search filter
                 if (!string.IsNullOrEmpty(search))
@@ -336,20 +336,20 @@ namespace Berca_Backend.Controllers
                 // Apply sorting
                 facturesQuery = sortBy.ToLower() switch
                 {
-                    "invoicedate" => sortOrder.ToLower() == "desc" ? 
-                        facturesQuery.OrderByDescending(f => f.InvoiceDate) : 
+                    "invoicedate" => sortOrder.ToLower() == "desc" ?
+                        facturesQuery.OrderByDescending(f => f.InvoiceDate) :
                         facturesQuery.OrderBy(f => f.InvoiceDate),
-                    "duedate" => sortOrder.ToLower() == "desc" ? 
-                        facturesQuery.OrderByDescending(f => f.DueDate) : 
+                    "duedate" => sortOrder.ToLower() == "desc" ?
+                        facturesQuery.OrderByDescending(f => f.DueDate) :
                         facturesQuery.OrderBy(f => f.DueDate),
-                    "totalamount" => sortOrder.ToLower() == "desc" ? 
-                        facturesQuery.OrderByDescending(f => f.TotalAmount) : 
+                    "totalamount" => sortOrder.ToLower() == "desc" ?
+                        facturesQuery.OrderByDescending(f => f.TotalAmount) :
                         facturesQuery.OrderBy(f => f.TotalAmount),
-                    "status" => sortOrder.ToLower() == "desc" ? 
-                        facturesQuery.OrderByDescending(f => f.Status) : 
+                    "status" => sortOrder.ToLower() == "desc" ?
+                        facturesQuery.OrderByDescending(f => f.Status) :
                         facturesQuery.OrderBy(f => f.Status),
-                    _ => sortOrder.ToLower() == "desc" ? 
-                        facturesQuery.OrderByDescending(f => f.CreatedAt) : 
+                    _ => sortOrder.ToLower() == "desc" ?
+                        facturesQuery.OrderByDescending(f => f.CreatedAt) :
                         facturesQuery.OrderBy(f => f.CreatedAt)
                 };
 
@@ -423,7 +423,7 @@ namespace Berca_Backend.Controllers
             {
                 var currentUserId = GetCurrentUserId();
                 var currentUserRole = GetCurrentUserRole();
-                
+
                 if (currentUserId == 0)
                 {
                     return Unauthorized(new
@@ -439,11 +439,11 @@ namespace Berca_Backend.Controllers
                 var facture = await _context.Factures
                     .Include(f => f.Supplier)
                     .Include(f => f.CreatedByUser)
-                    .ThenInclude(u => u.Branch)
+                    .ThenInclude(u => u!.Branch)
                     .Include(f => f.Items)
                     .ThenInclude(fi => fi.Product)
                     .Where(f => f.Id == id)
-                    .Where(f => accessibleBranchIds.Contains(f.CreatedByUser.BranchId ?? 0))
+                    .Where(f => f.CreatedByUser != null && accessibleBranchIds.Contains(f.CreatedByUser.BranchId ?? 0))
                     .Select(f => new
                     {
                         id = f.Id,
@@ -918,7 +918,8 @@ namespace Berca_Backend.Controllers
             catch (InvalidOperationException ex) when (ex.Message.Contains("Translation of member") || ex.Message.Contains("LINQ"))
             {
                 _logger.LogError(ex, "LINQ translation error in facture summary - this should not happen after fixes");
-                return StatusCode(500, new { 
+                return StatusCode(500, new
+                {
                     message = "Database query translation error. Please contact system administrator.",
                     error = "LINQ_TRANSLATION_ERROR"
                 });
@@ -926,7 +927,8 @@ namespace Berca_Backend.Controllers
             catch (Microsoft.EntityFrameworkCore.DbUpdateException ex)
             {
                 _logger.LogError(ex, "Database error retrieving facture summary");
-                return StatusCode(500, new { 
+                return StatusCode(500, new
+                {
                     message = "Database error occurred while retrieving summary.",
                     error = "DATABASE_ERROR"
                 });
@@ -934,7 +936,8 @@ namespace Berca_Backend.Controllers
             catch (TimeoutException ex)
             {
                 _logger.LogError(ex, "Timeout error retrieving facture summary");
-                return StatusCode(500, new { 
+                return StatusCode(500, new
+                {
                     message = "Request timed out. Please try again.",
                     error = "TIMEOUT_ERROR"
                 });
@@ -942,7 +945,8 @@ namespace Berca_Backend.Controllers
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Unexpected error retrieving facture summary");
-                return StatusCode(500, new { 
+                return StatusCode(500, new
+                {
                     message = "An unexpected error occurred while retrieving summary.",
                     error = "GENERAL_ERROR"
                 });
@@ -997,8 +1001,8 @@ namespace Berca_Backend.Controllers
         [HttpGet("outstanding-factures")]
         [Authorize(Policy = "Facture.Read")]
         public async Task<ActionResult<List<FactureListDto>>> GetOutstandingFactures(
-            [FromQuery] int? branchId = null, 
-            [FromQuery] int? supplierId = null, 
+            [FromQuery] int? branchId = null,
+            [FromQuery] int? supplierId = null,
             [FromQuery] int limit = 50)
         {
             try
@@ -1182,6 +1186,145 @@ namespace Berca_Backend.Controllers
             {
                 _logger.LogError(ex, "Error generating internal reference number");
                 return StatusCode(500, new { message = "An error occurred while generating reference number." });
+            }
+        }
+
+        /// <summary>
+        /// Get comprehensive facture analytics for dashboard
+        /// </summary>
+        [HttpGet("analytics")]
+        [Authorize(Policy = "Facture.Read")]
+        public async Task<IActionResult> GetFactureAnalytics([FromQuery] string? branchIds = null)
+        {
+            try
+            {
+                var currentUserId = GetCurrentUserId();
+                var currentUserRole = GetCurrentUserRole();
+
+                if (currentUserId == 0)
+                {
+                    return Unauthorized(new
+                    {
+                        success = false,
+                        message = "Invalid user session"
+                    });
+                }
+
+                // Parse and validate branch IDs (same logic as supplier analytics)
+                var requestedBranchIds = new List<int>();
+                if (!string.IsNullOrEmpty(branchIds))
+                {
+                    requestedBranchIds = branchIds.Split(',')
+                        .Where(id => int.TryParse(id.Trim(), out _))
+                        .Select(id => int.Parse(id.Trim()))
+                        .ToList();
+                }
+
+                var accessibleBranchIds = await GetUserAccessibleBranches(currentUserId, currentUserRole);
+
+                if (requestedBranchIds.Any())
+                {
+                    requestedBranchIds = requestedBranchIds.Intersect(accessibleBranchIds).ToList();
+                }
+                else
+                {
+                    requestedBranchIds = accessibleBranchIds;
+                }
+
+                // Base facture query
+                var facturesQuery = _context.Factures
+                    .Include(f => f.Supplier)
+                    .Include(f => f.CreatedByUser)
+                    .Where(f => f.CreatedByUser != null && requestedBranchIds.Contains(f.CreatedByUser.BranchId ?? 0));
+
+                // Calculate metrics
+                var totalFactures = await facturesQuery.CountAsync();
+
+                var pendingVerification = await facturesQuery
+                    .Where(f => f.Status == FactureStatus.Received)
+                    .CountAsync();
+
+                var pendingApproval = await facturesQuery
+                    .Where(f => f.Status == FactureStatus.Verified)
+                    .CountAsync();
+
+                var pendingPayment = await facturesQuery
+                    .Where(f => f.Status == FactureStatus.Approved)
+                    .CountAsync();
+
+                var totalOutstanding = await facturesQuery
+                    .Where(f => f.Status != FactureStatus.Paid && f.Status != FactureStatus.Cancelled)
+                    .SumAsync(f => f.TotalAmount - f.PaidAmount);
+
+                // Overdue payments
+                var overduePayments = await facturesQuery
+                    .Where(f => f.DueDate < DateTime.UtcNow.Date)
+                    .Where(f => f.Status != FactureStatus.Paid && f.Status != FactureStatus.Cancelled)
+                    .CountAsync();
+
+                var overdueAmount = await facturesQuery
+                    .Where(f => f.DueDate < DateTime.UtcNow.Date)
+                    .Where(f => f.Status != FactureStatus.Paid && f.Status != FactureStatus.Cancelled)
+                    .SumAsync(f => f.TotalAmount - f.PaidAmount);
+
+                // Status breakdown
+                var statusBreakdown = await facturesQuery
+                    .GroupBy(f => f.Status)
+                    .Select(g => new
+                    {
+                        status = g.Key.ToString(),
+                        count = g.Count(),
+                        totalAmount = g.Sum(f => f.TotalAmount)
+                    })
+                    .ToListAsync();
+
+                // Monthly trend (last 12 months)
+                var monthlyTrend = new List<object>();
+                for (int i = 11; i >= 0; i--)
+                {
+                    var monthStart = DateTime.UtcNow.Date.AddMonths(-i).AddDays(1 - DateTime.UtcNow.Day);
+                    var monthEnd = monthStart.AddMonths(1).AddDays(-1);
+
+                    var monthlyFactures = await facturesQuery
+                        .Where(f => f.CreatedAt >= monthStart && f.CreatedAt <= monthEnd)
+                        .ToListAsync();
+
+                    monthlyTrend.Add(new
+                    {
+                        month = monthStart.ToString("yyyy-MM"),
+                        monthName = monthStart.ToString("MMM yyyy"),
+                        factureCount = monthlyFactures.Count,
+                        totalAmount = monthlyFactures.Sum(f => f.TotalAmount),
+                        paidAmount = monthlyFactures.Sum(f => f.PaidAmount)
+                    });
+                }
+
+                return Ok(new
+                {
+                    success = true,
+                    data = new
+                    {
+                        totalFactures = totalFactures,
+                        pendingVerification = pendingVerification,
+                        pendingApproval = pendingApproval,
+                        pendingPayment = pendingPayment,
+                        totalOutstanding = Math.Round(totalOutstanding, 2),
+                        overduePayments = overduePayments,
+                        overdueAmount = Math.Round(overdueAmount, 2),
+                        statusBreakdown = statusBreakdown,
+                        monthlyTrend = monthlyTrend
+                    },
+                    message = "Facture analytics retrieved successfully"
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error retrieving facture analytics");
+                return StatusCode(500, new
+                {
+                    success = false,
+                    message = "Internal server error"
+                });
             }
         }
     }

@@ -1584,3 +1584,5 @@ static Berca_Backend.Models.PaymentMethod GetRandomPaymentMethod()
     return methods[Random.Shared.Next(methods.Length)];
 }
 */
+
+public partial class Program { }

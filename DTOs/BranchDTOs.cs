@@ -250,7 +250,40 @@ namespace Berca_Backend.DTOs
         public string City { get; set; } = string.Empty;
         public string Province { get; set; } = string.Empty;
         public BranchType BranchType { get; set; }
+        public string BranchTypeName => BranchType.ToString();
         public bool IsActive { get; set; }
+        
+        // Permission fields
+        public bool CanRead { get; set; }
+        public bool CanWrite { get; set; }
+        public bool CanApprove { get; set; }
+        public bool CanTransfer { get; set; }
+        public bool CanManage { get; set; }
+        
+        // Access level computed from permissions
+        public string AccessLevel => GetAccessLevel();
+        
+        // Hierarchy and organizational info
+        public bool IsHeadOffice { get; set; }
+        public bool IsDefaultBranch { get; set; }
+        public int Level { get; set; }
+        public int? ParentBranchId { get; set; }
+        
+        // Additional details
+        public string Address { get; set; } = string.Empty;
+        public string ManagerName { get; set; } = string.Empty;
+        public string Phone { get; set; } = string.Empty;
+        public DateTime CreatedAt { get; set; }
+        public DateTime UpdatedAt { get; set; }
+        
+        // Helper method to determine access level
+        private string GetAccessLevel()
+        {
+            if (CanManage && CanApprove && CanWrite && CanRead) return "Full";
+            if (CanWrite && CanRead) return "Limited";
+            if (CanRead) return "ReadOnly";
+            return "None";
+        }
     }
 
     public class BranchUserListDto
