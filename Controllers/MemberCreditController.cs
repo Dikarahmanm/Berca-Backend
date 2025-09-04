@@ -230,6 +230,27 @@ namespace Berca_Backend.Controllers
         }
 
         /// <summary>
+        /// Get top debtors regardless of overdue status
+        /// </summary>
+        [HttpGet("collections/top-debtors")]
+        [Authorize(Policy = "Membership.Collections")]
+        public async Task<IActionResult> GetTopDebtors(
+            [FromQuery] int? branchId = null, 
+            [FromQuery] int limit = 10)
+        {
+            try
+            {
+                var topDebtors = await _memberService.GetTopDebtorsAsync(branchId, limit);
+                return Ok(topDebtors);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting top debtors for branch {BranchId}", branchId);
+                return StatusCode(500, new { message = "Internal server error occurred" });
+            }
+        }
+
+        /// <summary>
         /// Update member credit status based on payment behavior
         /// </summary>
         /// <param name="memberId">Member ID</param>

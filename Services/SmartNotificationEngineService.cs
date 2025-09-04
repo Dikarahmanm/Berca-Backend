@@ -63,7 +63,7 @@ namespace Berca_Backend.Services
                     {
                         Type = NotificationTypes.CRITICAL_EXPIRY,
                         Priority = daysLeft <= 1 ? Models.NotificationPriority.Critical : Models.NotificationPriority.High,
-                        Title = $"🚨 Critical Expiry Alert: {batch.Product.Name}",
+                        Title = $"Critical Expiry Alert: {batch.Product?.Name ?? "Unknown Product"}",
                         Message = $"Batch {batch.BatchNumber} expires in {daysLeft} days. {batch.CurrentStock} units at risk (Rp {stockValue:N0})",
                         
                         PotentialLoss = stockValue,
@@ -93,7 +93,7 @@ namespace Berca_Backend.Services
                             FinancialRisk = stockValue,
                             OperationalImpact = daysLeft <= 1 ? "High" : "Medium",
                             CustomerImpact = "Low",
-                            ComplianceRisk = batch.Product.Category?.RequiresExpiryDate == true ? "High" : "Low"
+                            ComplianceRisk = batch.Product?.Category?.RequiresExpiryDate == true ? "High" : "Low"
                         },
                         
                         AffectedBatches = new List<AffectedBatch>
@@ -130,7 +130,7 @@ namespace Berca_Backend.Services
                         {
                             Type = NotificationTypes.LOW_STOCK_EXPIRY_RISK,
                             Priority = Models.NotificationPriority.Normal,
-                            Title = $"⚠️ Low Stock + Expiry Risk: {product.Name}",
+                            Title = $"Low Stock + Expiry Risk: {product.Name}",
                             Message = $"Stock: {product.Stock}/{product.MinimumStock} minimum. Nearest expiry: {nearestExpiry.ExpiryDate:dd/MM/yyyy}",
                             
                             ActionItems = new List<string>
@@ -151,7 +151,7 @@ namespace Berca_Backend.Services
                     {
                         Type = NotificationTypes.FINANCIAL_RISK_SUMMARY,
                         Priority = Models.NotificationPriority.High,
-                        Title = $"💰 High Financial Risk Alert",
+                        Title = $"High Financial Risk Alert",
                         Message = $"Total value at risk from expiring inventory: Rp {totalValueAtRisk:N0}",
                         
                         ActionItems = new List<string>
@@ -413,7 +413,7 @@ namespace Berca_Backend.Services
             {
                 var notification = new CreateNotificationDto
                 {
-                    Title = $"Expiry Warning: {batch.Product.Name}",
+                    Title = $"Expiry Warning: {batch.Product?.Name ?? "Unknown Product"}",
                     Message = $"Batch {batch.BatchNumber} expires in {(batch.ExpiryDate!.Value - DateTime.UtcNow).Days} days",
                     Priority = "Medium",
                     Type = "ExpiryWarning",

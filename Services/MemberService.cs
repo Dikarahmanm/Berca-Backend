@@ -860,6 +860,7 @@ namespace Berca_Backend.Services
             try
             {
                 var fromDate = _timezoneService.Now.AddDays(-days);
+                var now = DateTime.UtcNow;
 
                 var transactions = await _context.MemberCreditTransactions
                     .Include(t => t.Member)
@@ -867,28 +868,39 @@ namespace Berca_Backend.Services
                     .Include(t => t.Branch)
                     .Where(t => t.MemberId == memberId && t.TransactionDate >= fromDate)
                     .OrderByDescending(t => t.TransactionDate)
-                    .Select(t => new MemberCreditTransactionDto
+                    .Select(t => new
                     {
-                        Id = t.Id,
-                        MemberId = t.MemberId,
-                        MemberName = t.Member.Name,
-                        Type = t.Type,
-                        TypeDescription = t.Type.ToString(),
-                        Amount = t.Amount,
-                        TransactionDate = t.TransactionDate,
-                        DueDate = t.DueDate,
-                        Description = t.Description,
-                        ReferenceNumber = t.ReferenceNumber,
-                        Status = t.Status,
-                        StatusDescription = t.Status.ToString(),
-                        BranchName = t.Branch != null ? t.Branch.BranchName : null,
-                        CreatedByUserName = t.CreatedByUser.Username,
-                        CreatedAt = t.CreatedAt,
-                        IncreasesDebt = t.IncreasesDebt,
-                        ReducesDebt = t.ReducesDebt,
-                        DaysUntilDue = t.DaysUntilDue,
-                        IsOverdue = t.IsOverdue,
-                        FormattedAmount = $"IDR {t.Amount:N0}"
+                        t,
+                        ComputedDue = t.DueDate ?? (t.Type == CreditTransactionType.CreditSale
+                            ? (DateTime?)t.TransactionDate.AddDays(t.Member.PaymentTerms)
+                            : null)
+                    })
+                    .Select(x => new MemberCreditTransactionDto
+                    {
+                        Id = x.t.Id,
+                        MemberId = x.t.MemberId,
+                        MemberName = x.t.Member.Name,
+                        Type = x.t.Type,
+                        TypeDescription = x.t.Type.ToString(),
+                        Amount = x.t.Amount,
+                        TransactionDate = x.t.TransactionDate,
+                        DueDate = x.ComputedDue,
+                        Description = x.t.Description,
+                        ReferenceNumber = x.t.ReferenceNumber,
+                        Status = x.t.Status,
+                        StatusDescription = x.t.Status.ToString(),
+                        BranchName = x.t.Branch != null ? x.t.Branch.BranchName : null,
+                        CreatedByUserName = x.t.CreatedByUser.Username,
+                        CreatedAt = x.t.CreatedAt,
+                        IncreasesDebt = x.t.IncreasesDebt,
+                        ReducesDebt = x.t.ReducesDebt,
+                        DaysUntilDue = x.ComputedDue.HasValue && x.t.Type == CreditTransactionType.CreditSale
+                            ? EF.Functions.DateDiffDay(now, x.ComputedDue.Value)
+                            : null,
+                        IsOverdue = x.ComputedDue.HasValue && x.t.Type == CreditTransactionType.CreditSale
+                            ? x.ComputedDue.Value < now
+                            : false,
+                        FormattedAmount = $"IDR {x.t.Amount:N0}"
                     })
                     .ToListAsync();
 
@@ -1125,6 +1137,95 @@ namespace Berca_Backend.Services
             }
         }
 
+        public async Task<List<MemberDebtDto>> GetTopDebtorsAsync(int? branchId = null, int limit = 10)
+        {
+            try
+            {
+                var query = _context.Members
+                    .Where(m => m.CurrentDebt > 0);
+
+                // Optional: filter members by branch using related credit transactions
+                if (branchId.HasValue)
+                {
+                    query = query.Where(m => m.CreditTransactions.Any(t => t.BranchId == branchId.Value));
+                }
+
+                var now = DateTime.UtcNow;
+
+                var members = await query
+                    .OrderByDescending(m => m.CurrentDebt)
+                    .Take(limit)
+                    .Select(m => new MemberDebtDto
+                    {
+                        MemberId = m.Id,
+                        MemberName = m.Name,
+                        MemberNumber = m.MemberNumber,
+                        Phone = m.Phone,
+                        Email = m.Email,
+                        Tier = m.Tier,
+
+                        // Debt info
+                        TotalDebt = m.CurrentDebt,
+                        OverdueAmount = m.DaysOverdue > 0 ? m.CurrentDebt : 0,
+                        DaysOverdue = m.DaysOverdue,
+                        // Prefer history-derived values; fall back to member fields
+                        LastPaymentDate = m.CreditTransactions
+                            .Where(t => t.Type == CreditTransactionType.Payment)
+                            .Select(t => (DateTime?)t.TransactionDate)
+                            .OrderByDescending(d => d)
+                            .FirstOrDefault() ?? m.LastPaymentDate,
+                        NextDueDate = m.CreditTransactions
+                            .Where(t => t.Type == CreditTransactionType.CreditSale && t.DueDate.HasValue && t.DueDate >= now)
+                            .Select(t => t.DueDate)
+                            .OrderBy(d => d)
+                            .FirstOrDefault() ?? m.NextPaymentDueDate,
+                        Status = m.CreditStatus,
+                        StatusDescription = m.CreditStatus.ToString(),
+
+                        // Collections info
+                        RemindersSent = m.PaymentReminders.Count(),
+                        LastReminderDate = m.PaymentReminders
+                            .Select(r => (DateTime?)r.ReminderDate)
+                            .OrderByDescending(d => d)
+                            .FirstOrDefault(),
+                        NextReminderDue = m.PaymentReminders
+                            .Where(r => r.NextReminderDate.HasValue && r.NextReminderDate >= now)
+                            .Select(r => r.NextReminderDate)
+                            .OrderBy(d => d)
+                            .FirstOrDefault(),
+                        RecommendedAction = GetRecommendedAction(m.DaysOverdue, m.PaymentReminders.Count()),
+                        CollectionPriority = GetCollectionPriority(m.DaysOverdue, m.CurrentDebt),
+
+                        // Additional context
+                        CreditLimit = m.CreditLimit,
+                        AvailableCredit = m.CreditLimit - m.CurrentDebt,
+                        CreditScore = m.CreditScore > 0 ? m.CreditScore : 600,
+                        BranchName = m.CreditTransactions
+                            .OrderByDescending(t => t.TransactionDate)
+                            .Select(t => t.Branch != null ? t.Branch.BranchName : null)
+                            .FirstOrDefault(),
+
+                        // Computed display
+                        IsHighRisk = m.CreditStatus >= CreditStatus.Overdue || m.CreditUtilization > 90,
+                        RequiresUrgentAction = m.DaysOverdue > 30 || m.CreditStatus == CreditStatus.Suspended || m.CreditStatus == CreditStatus.Blacklisted,
+                        FormattedTotalDebt = $"IDR {m.CurrentDebt:N0}",
+                        FormattedOverdueAmount = $"IDR {(m.DaysOverdue > 0 ? m.CurrentDebt : 0):N0}"
+                    })
+                    .ToListAsync();
+
+                _logger.LogInformation("Retrieved top {Count} debtors{BranchFilter}", 
+                    members.Count,
+                    branchId.HasValue ? $" for branch {branchId.Value}" : string.Empty);
+
+                return members;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting top debtors for branch {BranchId}", branchId);
+                return new List<MemberDebtDto>();
+            }
+        }
+
         public async Task<bool> UpdateCreditStatusAsync(int memberId)
         {
             try
@@ -1319,9 +1420,187 @@ namespace Berca_Backend.Services
 
         public async Task<CreditAnalyticsDto> GetCreditAnalyticsAsync(int? branchId = null, DateTime? startDate = null, DateTime? endDate = null)
         {
-            // TODO: Implement credit analytics
-            await Task.CompletedTask;
-            return new CreditAnalyticsDto();
+            try
+            {
+                // Default to last 30 days if not specified
+                var start = startDate ?? DateTime.UtcNow.AddDays(-30);
+                var end = endDate ?? DateTime.UtcNow;
+
+                _logger.LogInformation("Getting credit analytics for branch {BranchId} from {StartDate} to {EndDate}", 
+                    branchId, start, end);
+
+                // Build base query for members with credit
+                var membersQuery = _context.Members
+                    .Where(m => m.CreditLimit > 0);
+
+                // Apply branch filter if specified
+                if (branchId.HasValue)
+                {
+                    // Filter by members who have transactions in this branch
+                    membersQuery = membersQuery.Where(m => 
+                        m.CreditTransactions.Any(ct => ct.BranchId == branchId.Value));
+                }
+
+                var membersWithCredit = await membersQuery.ToListAsync();
+
+                // Build credit transactions query
+                var transactionsQuery = _context.MemberCreditTransactions
+                    .Where(ct => ct.TransactionDate >= start && ct.TransactionDate <= end);
+
+                if (branchId.HasValue)
+                {
+                    transactionsQuery = transactionsQuery.Where(ct => ct.BranchId == branchId.Value);
+                }
+
+                var transactions = await transactionsQuery
+                    .Include(ct => ct.Member)
+                    .Include(ct => ct.Branch)
+                    .ToListAsync();
+
+                // Get branch name if filtering by branch
+                string? branchName = null;
+                if (branchId.HasValue)
+                {
+                    var branch = await _context.Branches
+                        .FirstOrDefaultAsync(b => b.Id == branchId.Value);
+                    branchName = branch?.BranchName;
+                }
+
+                // Calculate overall metrics
+                var totalMembersWithCredit = membersWithCredit.Count;
+                var totalCreditLimit = membersWithCredit.Sum(m => m.CreditLimit);
+                var totalOutstandingDebt = membersWithCredit.Sum(m => m.CurrentDebt);
+                var totalAvailableCredit = totalCreditLimit - totalOutstandingDebt;
+                var averageCreditUtilization = totalCreditLimit > 0 ? 
+                    (totalOutstandingDebt / totalCreditLimit) * 100 : 0;
+
+                // Calculate overdue metrics
+                var overdueMembers = membersWithCredit.Count(m => m.DaysOverdue > 0);
+                var overdueAmount = membersWithCredit
+                    .Where(m => m.DaysOverdue > 0)
+                    .Sum(m => m.CurrentDebt);
+                var overduePercentage = totalMembersWithCredit > 0 ? 
+                    (decimal)overdueMembers / totalMembersWithCredit * 100 : 0;
+
+                // Bad debt provision (assume 5% of overdue amount)
+                var badDebtProvision = overdueAmount * 0.05m;
+
+                // Payment metrics
+                var paymentTransactions = transactions.Where(t => t.Type == CreditTransactionType.Payment).ToList();
+                var totalPayments = paymentTransactions.Count;
+                var totalPaymentAmount = paymentTransactions.Sum(t => Math.Abs(t.Amount));
+                var averagePaymentAmount = totalPayments > 0 ? totalPaymentAmount / totalPayments : 0;
+
+                // On-time payment rate calculation
+                var creditSales = transactions.Where(t => t.Type == CreditTransactionType.CreditSale).ToList();
+                var onTimePayments = creditSales.Count(cs => 
+                    paymentTransactions.Any(p => p.MemberId == cs.MemberId && 
+                        p.TransactionDate <= cs.DueDate));
+                var onTimePaymentRate = creditSales.Count > 0 ? 
+                    (decimal)onTimePayments / creditSales.Count * 100 : 100;
+
+                // Credit score distribution
+                var creditScoreDistribution = new CreditScoreDistributionDto
+                {
+                    Excellent = membersWithCredit.Count(m => m.CreditScore >= 800),
+                    VeryGood = membersWithCredit.Count(m => m.CreditScore >= 740 && m.CreditScore < 800),
+                    Good = membersWithCredit.Count(m => m.CreditScore >= 670 && m.CreditScore < 740),
+                    Fair = membersWithCredit.Count(m => m.CreditScore >= 580 && m.CreditScore < 670),
+                    Poor = membersWithCredit.Count(m => m.CreditScore < 580)
+                };
+
+                // Status breakdown
+                var statusBreakdown = Enum.GetValues<CreditStatus>()
+                    .Select(status => {
+                        var statusMembers = membersWithCredit.Where(m => m.CreditStatus == status).ToList();
+                        return new CreditStatusBreakdownDto
+                        {
+                            Status = status,
+                            StatusName = status.ToString(),
+                            MemberCount = statusMembers.Count,
+                            TotalDebt = statusMembers.Sum(m => m.CurrentDebt),
+                            Percentage = totalMembersWithCredit > 0 ? 
+                                (decimal)statusMembers.Count / totalMembersWithCredit * 100 : 0
+                        };
+                    }).ToList();
+
+                // Tier analysis
+                var tierAnalysis = Enum.GetValues<MembershipTier>()
+                    .Select(tier => {
+                        var tierMembers = membersWithCredit.Where(m => m.Tier == tier).ToList();
+                        return new TierCreditAnalysisDto
+                        {
+                            Tier = tier,
+                            TierName = tier.ToString(),
+                            MemberCount = tierMembers.Count,
+                            AverageCreditLimit = tierMembers.Count > 0 ? tierMembers.Average(m => m.CreditLimit) : 0,
+                            AverageDebt = tierMembers.Count > 0 ? tierMembers.Average(m => m.CurrentDebt) : 0,
+                            AverageUtilization = tierMembers.Count > 0 ? tierMembers.Average(m => m.CreditUtilization) : 0,
+                            AverageCreditScore = tierMembers.Count > 0 ? (int)tierMembers.Average(m => m.CreditScore) : 0,
+                            OverdueRate = tierMembers.Count > 0 ? 
+                                (decimal)tierMembers.Count(m => m.DaysOverdue > 0) / tierMembers.Count * 100 : 0
+                        };
+                    }).ToList();
+
+                // Credit trends (daily aggregation within date range)
+                var creditTrends = transactions
+                    .GroupBy(t => t.TransactionDate.Date)
+                    .Select(g => new CreditTrendDto
+                    {
+                        Date = g.Key,
+                        TotalDebt = g.Where(t => t.IncreasesDebt).Sum(t => t.Amount),
+                        NewCredit = g.Where(t => t.Type == CreditTransactionType.CreditSale).Sum(t => t.Amount),
+                        Payments = g.Where(t => t.Type == CreditTransactionType.Payment).Sum(t => Math.Abs(t.Amount)),
+                        NewOverdue = g.Count(t => t.IsOverdue),
+                        CreditUtilization = averageCreditUtilization // Simplified - could be calculated per day
+                    })
+                    .OrderBy(ct => ct.Date)
+                    .ToList();
+
+                var result = new CreditAnalyticsDto
+                {
+                    AnalysisDate = DateTime.UtcNow,
+                    StartDate = start,
+                    EndDate = end,
+                    BranchId = branchId,
+                    BranchName = branchName,
+
+                    // Overall Credit Metrics
+                    TotalMembersWithCredit = totalMembersWithCredit,
+                    TotalCreditLimit = totalCreditLimit,
+                    TotalOutstandingDebt = totalOutstandingDebt,
+                    TotalAvailableCredit = totalAvailableCredit,
+                    AverageCreditUtilization = averageCreditUtilization,
+
+                    // Risk Metrics
+                    OverdueMembers = overdueMembers,
+                    OverdueAmount = overdueAmount,
+                    BadDebtProvision = badDebtProvision,
+                    OverduePercentage = overduePercentage,
+
+                    // Payment Performance
+                    TotalPayments = totalPayments,
+                    TotalPaymentAmount = totalPaymentAmount,
+                    AveragePaymentAmount = averagePaymentAmount,
+                    OnTimePaymentRate = onTimePaymentRate,
+
+                    // Distributions and Analysis
+                    CreditScoreDistribution = creditScoreDistribution,
+                    StatusBreakdown = statusBreakdown,
+                    TierAnalysis = tierAnalysis,
+                    CreditTrends = creditTrends
+                };
+
+                _logger.LogInformation("Credit analytics completed: {TotalMembers} members, {TotalDebt:C} total debt", 
+                    totalMembersWithCredit, totalOutstandingDebt);
+
+                return result;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting credit analytics for branch {BranchId}", branchId);
+                throw;
+            }
         }
 
         public async Task<decimal> UpdateCreditLimitAsync(int memberId, decimal newCreditLimit, string reason, string? notes = null)

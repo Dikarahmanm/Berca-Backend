@@ -286,6 +286,22 @@ builder.Services.AddAuthorization(options =>
     options.AddPolicy("Facture.ConfirmPayment", policy =>
         policy.RequireRole("Admin", "HeadManager", "BranchManager", "Manager", "User"));
 
+    // Facture update operations
+    options.AddPolicy("Facture.Update", policy =>
+        policy.RequireRole("Admin", "HeadManager", "BranchManager", "Manager"));
+
+    // Facture cancellation operations
+    options.AddPolicy("Facture.Cancel", policy =>
+        policy.RequireRole("Admin", "HeadManager", "BranchManager"));
+
+    // Payment update operations
+    options.AddPolicy("Facture.UpdatePayment", policy =>
+        policy.RequireRole("Admin", "HeadManager", "BranchManager", "Manager"));
+
+    // Payment cancellation operations  
+    options.AddPolicy("Facture.CancelPayment", policy =>
+        policy.RequireRole("Admin", "HeadManager", "BranchManager"));
+
     // Facture read access
     options.AddPolicy("Facture.Read", policy =>
         policy.RequireRole("Admin", "HeadManager", "BranchManager", "Manager", "User"));

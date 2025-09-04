@@ -112,15 +112,15 @@ namespace Berca_Backend.Services
                         Id = r.Id,
                         Name = r.Name,
                         ReportType = r.ReportType,
-                        Description = r.Description,
-                        Parameters = r.Parameters,
+                        Description = r.Description ?? string.Empty,
+                        Parameters = r.Parameters ?? string.Empty,
                         IsActive = r.IsActive,
                         IsScheduled = r.IsScheduled,
                         ScheduleExpression = r.ScheduleExpression,
                         BranchId = r.BranchId,
-                        BranchName = r.Branch != null ? r.Branch.BranchName : string.Empty,
+                        BranchName = r.Branch != null ? (r.Branch.BranchName ?? string.Empty) : string.Empty,
                         CreatedBy = r.CreatedBy,
-                        CreatedByName = r.CreatedByUser.Username,
+                        CreatedByName = r.CreatedByUser != null ? (r.CreatedByUser.Username ?? string.Empty) : string.Empty,
                         CreatedAt = r.CreatedAt.ToString("dd/MM/yyyy HH:mm", IdCulture),
                         UpdatedAt = r.UpdatedAt.ToString("dd/MM/yyyy HH:mm", IdCulture)
                     })
@@ -152,15 +152,15 @@ namespace Berca_Backend.Services
                     Id = report.Id,
                     Name = report.Name,
                     ReportType = report.ReportType,
-                    Description = report.Description,
-                    Parameters = report.Parameters,
+                    Description = report.Description ?? string.Empty,
+                    Parameters = report.Parameters ?? string.Empty,
                     IsActive = report.IsActive,
                     IsScheduled = report.IsScheduled,
                     ScheduleExpression = report.ScheduleExpression,
                     BranchId = report.BranchId,
                     BranchName = report.Branch?.BranchName ?? string.Empty,
                     CreatedBy = report.CreatedBy,
-                    CreatedByName = report.CreatedByUser.Username,
+                    CreatedByName = report.CreatedByUser != null ? (report.CreatedByUser.Username ?? string.Empty) : string.Empty,
                     CreatedAt = report.CreatedAt.ToString("dd/MM/yyyy HH:mm", IdCulture),
                     UpdatedAt = report.UpdatedAt.ToString("dd/MM/yyyy HH:mm", IdCulture)
                 };
@@ -214,11 +214,11 @@ namespace Berca_Backend.Services
                 }
 
                 report.Name = dto.Name;
-                report.Description = dto.Description;
-                report.Parameters = dto.Parameters;
+                report.Description = dto.Description ?? report.Description;
+                report.Parameters = dto.Parameters ?? report.Parameters;
                 report.IsActive = dto.IsActive;
                 report.IsScheduled = dto.IsScheduled;
-                report.ScheduleExpression = dto.ScheduleExpression;
+                report.ScheduleExpression = dto.ScheduleExpression ?? report.ScheduleExpression;
                 report.UpdatedBy = updatedBy;
                 report.UpdatedAt = DateTime.UtcNow;
 

@@ -1111,7 +1111,7 @@ namespace Berca_Backend.Services
                     // Calculate sales velocity for this product (simplified)
                     var recentSales = await _context.SaleItems
                         .Where(si => si.ProductId == batch.ProductId && 
-                                   si.Sale.SaleDate >= DateTime.UtcNow.AddDays(-30))
+                                   si.Sale != null && si.Sale.SaleDate >= DateTime.UtcNow.AddDays(-30))
                         .SumAsync(si => si.Quantity);
                     var dailyVelocity = recentSales / 30.0m;
 
@@ -1119,7 +1119,8 @@ namespace Berca_Backend.Services
                     var priorityScore = CalculateSmartPriorityScoreHelper(batch, daysToExpiry, dailyVelocity);
 
                     // Determine optimal pricing strategy
-                    var pricingRecommendation = CalculateOptimalPricingHelper(batch.Product, daysToExpiry, dailyVelocity);
+                    var productForPricing = batch.Product ?? new Product { SellPrice = 0, BuyPrice = 0 };
+                    var pricingRecommendation = CalculateOptimalPricingHelper(productForPricing, daysToExpiry, dailyVelocity);
 
                     // Financial impact analysis
                     var financialImpact = CalculateFinancialImpactHelper(batch, pricingRecommendation, daysToExpiry);
@@ -1128,7 +1129,7 @@ namespace Berca_Backend.Services
                     {
                         BatchId = batch.Id,
                         ProductId = batch.ProductId,
-                        ProductName = batch.Product.Name,
+                        ProductName = batch.Product != null ? batch.Product.Name : string.Empty,
                         BatchNumber = batch.BatchNumber,
                         CurrentStock = batch.CurrentStock,
                         ExpiryDate = batch.ExpiryDate,
@@ -1140,7 +1141,7 @@ namespace Berca_Backend.Services
                         RecommendedAction = DetermineRecommendedActionHelper(daysToExpiry, dailyVelocity, batch.CurrentStock),
                         
                         // Pricing optimization
-                        CurrentPrice = batch.Product.SellPrice,
+                        CurrentPrice = batch.Product != null ? batch.Product.SellPrice : 0,
                         RecommendedPrice = pricingRecommendation.OptimalPrice,
                         SuggestedDiscount = pricingRecommendation.DiscountPercentage,
                         MinimumViablePrice = pricingRecommendation.MinimumPrice,
@@ -1222,11 +1223,11 @@ namespace Berca_Backend.Services
         {
             return batches
                 .Where(b => b.Product?.Category != null)
-                .GroupBy(b => b.Product.Category)
+                .GroupBy(b => b.Product!.Category!)
                 .Select(g => new CategoryExpiryPerformance
                 {
-                    CategoryId = g.Key.Id,
-                    CategoryName = g.Key.Name,
+                    CategoryId = g.Key!.Id,
+                    CategoryName = g.Key!.Name,
                     TotalBatches = g.Count(),
                     ExpiredBatches = g.Count(b => b.ExpiryDate <= DateTime.UtcNow),
                     NearExpiryBatches = g.Count(b => b.ExpiryDate <= DateTime.UtcNow.AddDays(7) && b.ExpiryDate > DateTime.UtcNow),
@@ -1374,7 +1375,7 @@ namespace Berca_Backend.Services
             else score += 5; // Low risk
             
             // Category factor (10% weight)
-            if (batch.Product.Category?.RequiresExpiryDate == true) score += 10;
+            if (batch.Product?.Category?.RequiresExpiryDate == true) score += 10;
             else score += 5;
             
             return Math.Min(100, Math.Max(0, score));

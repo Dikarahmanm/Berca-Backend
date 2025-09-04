@@ -47,7 +47,7 @@ namespace Berca_Backend.Services
 
         // ==================== PDF EXPORT ==================== //
 
-        public async Task<(bool Success, string? FilePath, string? ErrorMessage)> ExportToPdfAsync<T>(
+        public Task<(bool Success, string? FilePath, string? ErrorMessage)> ExportToPdfAsync<T>(
             string reportTitle,
             T data,
             string? templateName = null,
@@ -78,12 +78,12 @@ namespace Berca_Backend.Services
                 document.Close();
 
                 _logger.LogInformation("PDF export completed: {FilePath}", filePath);
-                return (true, filePath, null);
+                return Task.FromResult<(bool Success, string? FilePath, string? ErrorMessage)>((true, filePath, null));
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error exporting to PDF");
-                return (false, null, $"Gagal export PDF: {ex.Message}");
+                return Task.FromResult<(bool Success, string? FilePath, string? ErrorMessage)>((false, null, $"Gagal export PDF: {ex.Message}"));
             }
         }
 
@@ -180,7 +180,7 @@ namespace Berca_Backend.Services
             });
         }
 
-        public async Task<(bool Success, string? FilePath, string? ErrorMessage)> ExportInventoryReportToPdfAsync(
+        public Task<(bool Success, string? FilePath, string? ErrorMessage)> ExportInventoryReportToPdfAsync(
             DetailedInventoryReportDto inventoryReport,
             ExportRequestDto request)
         {
@@ -263,16 +263,16 @@ namespace Berca_Backend.Services
                 document.Close();
 
                 _logger.LogInformation("Inventory report PDF exported: {FilePath}", filePath);
-                return (true, filePath, null);
+                return Task.FromResult<(bool Success, string? FilePath, string? ErrorMessage)>((true, filePath, null));
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error exporting inventory report to PDF");
-                return (false, null, $"Gagal export laporan inventori: {ex.Message}");
+                return Task.FromResult<(bool Success, string? FilePath, string? ErrorMessage)>((false, null, $"Gagal export laporan inventori: {ex.Message}"));
             }
         }
 
-        public async Task<(bool Success, string? FilePath, string? ErrorMessage)> ExportFinancialReportToPdfAsync(
+        public Task<(bool Success, string? FilePath, string? ErrorMessage)> ExportFinancialReportToPdfAsync(
             DetailedFinancialReportDto financialReport,
             ExportRequestDto request)
         {
@@ -327,12 +327,12 @@ namespace Berca_Backend.Services
                 document.Close();
 
                 _logger.LogInformation("Financial report PDF exported: {FilePath}", filePath);
-                return (true, filePath, null);
+                return Task.FromResult<(bool Success, string? FilePath, string? ErrorMessage)>((true, filePath, null));
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error exporting financial report to PDF");
-                return (false, null, $"Gagal export laporan keuangan: {ex.Message}");
+                return Task.FromResult<(bool Success, string? FilePath, string? ErrorMessage)>((false, null, $"Gagal export laporan keuangan: {ex.Message}"));
             }
         }
 
@@ -686,7 +686,7 @@ namespace Berca_Backend.Services
             worksheet.Cells[5, 2].Value = JsonSerializer.Serialize(data);
         }
 
-        private async Task CreateSalesSummarySheet(ExcelWorksheet worksheet, DetailedSalesReportDto salesReport)
+private Task CreateSalesSummarySheet(ExcelWorksheet worksheet, DetailedSalesReportDto salesReport)
         {
             worksheet.Cells["A1"].Value = "RINGKASAN PENJUALAN";
             worksheet.Cells["A1"].Style.Font.Size = 16;
@@ -723,10 +723,11 @@ namespace Berca_Backend.Services
             worksheet.Cells[++row, 1].Value = "Margin Profit";
             worksheet.Cells[row, 2].Value = salesReport.ProfitMarginDisplay;
 
-            worksheet.Cells.AutoFitColumns();
-        }
+    worksheet.Cells.AutoFitColumns();
+    return Task.CompletedTask;
+}
 
-        private async Task CreateTopProductsSheet(ExcelWorksheet worksheet, List<SalesItemDto> topProducts)
+private Task CreateTopProductsSheet(ExcelWorksheet worksheet, List<SalesItemDto> topProducts)
         {
             worksheet.Cells["A1"].Value = "PRODUK TERLARIS";
             worksheet.Cells["A1"].Style.Font.Size = 16;
@@ -759,10 +760,11 @@ namespace Berca_Backend.Services
                 dataRow++;
             }
 
-            worksheet.Cells.AutoFitColumns();
-        }
+    worksheet.Cells.AutoFitColumns();
+    return Task.CompletedTask;
+}
 
-        private async Task CreateCategoryPerformanceSheet(ExcelWorksheet worksheet, List<CategorySalesPerformanceDto> categoryPerformance)
+private Task CreateCategoryPerformanceSheet(ExcelWorksheet worksheet, List<CategorySalesPerformanceDto> categoryPerformance)
         {
             worksheet.Cells["A1"].Value = "PERFORMA KATEGORI";
             worksheet.Cells["A1"].Style.Font.Size = 16;
@@ -795,10 +797,11 @@ namespace Berca_Backend.Services
                 dataRow++;
             }
 
-            worksheet.Cells.AutoFitColumns();
-        }
+    worksheet.Cells.AutoFitColumns();
+    return Task.CompletedTask;
+}
 
-        private async Task CreateStaffPerformanceSheet(ExcelWorksheet worksheet, List<UserPerformanceDto> staffPerformance)
+private Task CreateStaffPerformanceSheet(ExcelWorksheet worksheet, List<UserPerformanceDto> staffPerformance)
         {
             worksheet.Cells["A1"].Value = "PERFORMA STAFF";
             worksheet.Cells["A1"].Style.Font.Size = 16;
@@ -829,10 +832,11 @@ namespace Berca_Backend.Services
                 dataRow++;
             }
 
-            worksheet.Cells.AutoFitColumns();
-        }
+    worksheet.Cells.AutoFitColumns();
+    return Task.CompletedTask;
+}
 
-        private async Task CreateInventorySummarySheet(ExcelWorksheet worksheet, DetailedInventoryReportDto inventoryReport)
+private Task CreateInventorySummarySheet(ExcelWorksheet worksheet, DetailedInventoryReportDto inventoryReport)
         {
             worksheet.Cells["A1"].Value = "RINGKASAN INVENTORI";
             worksheet.Cells["A1"].Style.Font.Size = 16;
@@ -866,10 +870,11 @@ namespace Berca_Backend.Services
             worksheet.Cells[++row, 1].Value = "Produk Habis";
             worksheet.Cells[row, 2].Value = inventoryReport.OutOfStockItems;
 
-            worksheet.Cells.AutoFitColumns();
-        }
+    worksheet.Cells.AutoFitColumns();
+    return Task.CompletedTask;
+}
 
-        private async Task CreateInventoryItemsSheet(ExcelWorksheet worksheet, List<InventoryItemDto> inventoryItems)
+private Task CreateInventoryItemsSheet(ExcelWorksheet worksheet, List<InventoryItemDto> inventoryItems)
         {
             worksheet.Cells["A1"].Value = "DAFTAR PRODUK";
             worksheet.Cells["A1"].Style.Font.Size = 16;
@@ -904,8 +909,9 @@ namespace Berca_Backend.Services
                 dataRow++;
             }
 
-            worksheet.Cells.AutoFitColumns();
-        }
+    worksheet.Cells.AutoFitColumns();
+    return Task.CompletedTask;
+}
 
         private Task CreateCategoryBreakdownSheet(ExcelWorksheet worksheet, List<CategoryInventoryBreakdownDto> categoryBreakdown)
         {
@@ -955,17 +961,17 @@ namespace Berca_Backend.Services
 
         // ==================== UTILITY METHODS ==================== //
 
-        public async Task<object?> GetExportFileInfoAsync(string filePath)
+        public Task<object?> GetExportFileInfoAsync(string filePath)
         {
             try
             {
                 if (!File.Exists(filePath))
                 {
-                    return null;
+                    return Task.FromResult<object?>(null);
                 }
 
                 var fileInfo = new FileInfo(filePath);
-                return new
+                return Task.FromResult<object?>(new
                 {
                     FileName = fileInfo.Name,
                     FilePath = filePath,
@@ -973,16 +979,16 @@ namespace Berca_Backend.Services
                     SizeDisplay = FormatFileSize(fileInfo.Length),
                     CreatedAt = fileInfo.CreationTime.ToString("dd/MM/yyyy HH:mm", IdCulture),
                     Extension = fileInfo.Extension
-                };
+                });
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error getting file info for {FilePath}", filePath);
-                return null;
+                return Task.FromResult<object?>(null);
             }
         }
 
-        public async Task<bool> DeleteExportFileAsync(string filePath)
+        public Task<bool> DeleteExportFileAsync(string filePath)
         {
             try
             {
@@ -990,18 +996,18 @@ namespace Berca_Backend.Services
                 {
                     File.Delete(filePath);
                     _logger.LogInformation("Export file deleted: {FilePath}", filePath);
-                    return true;
+                    return Task.FromResult(true);
                 }
-                return false;
+                return Task.FromResult(false);
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error deleting export file {FilePath}", filePath);
-                return false;
+                return Task.FromResult(false);
             }
         }
 
-        public async Task<int> CleanupOldExportFilesAsync(int retentionDays = 7)
+        public Task<int> CleanupOldExportFilesAsync(int retentionDays = 7)
         {
             try
             {
@@ -1025,63 +1031,63 @@ namespace Berca_Backend.Services
                 }
 
                 _logger.LogInformation("Cleaned up {Count} old export files", deletedCount);
-                return deletedCount;
+                return Task.FromResult(deletedCount);
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error cleaning up old export files");
-                return 0;
+                return Task.FromResult(0);
             }
         }
 
-        public async Task<(bool IsValid, string? ErrorMessage)> ValidateExportRequestAsync(ExportRequestDto request)
+        public Task<(bool IsValid, string? ErrorMessage)> ValidateExportRequestAsync(ExportRequestDto request)
         {
             if (string.IsNullOrEmpty(request.ReportType))
             {
-                return (false, "Jenis laporan harus dipilih");
+                return Task.FromResult<(bool IsValid, string? ErrorMessage)>((false, "Jenis laporan harus dipilih"));
             }
 
             if (string.IsNullOrEmpty(request.ExportFormat))
             {
-                return (false, "Format export harus dipilih");
+                return Task.FromResult<(bool IsValid, string? ErrorMessage)>((false, "Format export harus dipilih"));
             }
 
             var validFormats = new[] { "PDF", "Excel", "CSV" };
             if (!validFormats.Contains(request.ExportFormat, StringComparer.OrdinalIgnoreCase))
             {
-                return (false, "Format export tidak valid");
+                return Task.FromResult<(bool IsValid, string? ErrorMessage)>((false, "Format export tidak valid"));
             }
 
             if (string.IsNullOrEmpty(request.DateFrom) || string.IsNullOrEmpty(request.DateTo))
             {
-                return (false, "Tanggal mulai dan akhir harus diisi");
+                return Task.FromResult<(bool IsValid, string? ErrorMessage)>((false, "Tanggal mulai dan akhir harus diisi"));
             }
 
             if (!DateTime.TryParse(request.DateFrom, out var startDate) || 
                 !DateTime.TryParse(request.DateTo, out var endDate))
             {
-                return (false, "Format tanggal tidak valid");
+                return Task.FromResult<(bool IsValid, string? ErrorMessage)>((false, "Format tanggal tidak valid"));
             }
 
             if (startDate > endDate)
             {
-                return (false, "Tanggal mulai tidak boleh lebih besar dari tanggal akhir");
+                return Task.FromResult<(bool IsValid, string? ErrorMessage)>((false, "Tanggal mulai tidak boleh lebih besar dari tanggal akhir"));
             }
 
-            return (true, null);
+            return Task.FromResult<(bool IsValid, string? ErrorMessage)>((true, null));
         }
 
-        public async Task<List<object>> GetAvailableTemplatesAsync(string exportFormat)
+        public Task<List<object>> GetAvailableTemplatesAsync(string exportFormat)
         {
-            return new List<object>
+            return Task.FromResult(new List<object>
             {
                 new { Name = "Standard", Description = "Template standar" },
                 new { Name = "Detailed", Description = "Template detail lengkap" },
                 new { Name = "Summary", Description = "Template ringkasan" }
-            };
+            });
         }
 
-        public async Task<(bool Success, string? ErrorMessage)> SendExportViaEmailAsync(
+        public Task<(bool Success, string? ErrorMessage)> SendExportViaEmailAsync(
             string filePath,
             string emailTo,
             string subject,
@@ -1090,42 +1096,42 @@ namespace Berca_Backend.Services
             // Email functionality would be implemented here
             // For now, return success placeholder
             _logger.LogInformation("Email export requested for {FilePath} to {EmailTo}", filePath, emailTo);
-            return (true, null);
+            return Task.FromResult<(bool Success, string? ErrorMessage)>((true, null));
         }
 
         // ==================== STUB IMPLEMENTATIONS ==================== //
 
-        public async Task<(bool Success, string? FilePath, string? ErrorMessage)> CreateMultiSheetExcelAsync(
+        public Task<(bool Success, string? FilePath, string? ErrorMessage)> CreateMultiSheetExcelAsync(
             Dictionary<string, object> sheetsData,
             string fileName,
             ExportRequestDto request)
         {
-            return (false, null, "Multi-sheet Excel implementation pending");
+            return Task.FromResult<(bool Success, string? FilePath, string? ErrorMessage)>((false, null, "Multi-sheet Excel implementation pending"));
         }
 
-        public async Task<(bool Success, string? FilePath, string? ErrorMessage)> ExportWithCustomFormattingAsync<T>(
+        public Task<(bool Success, string? FilePath, string? ErrorMessage)> ExportWithCustomFormattingAsync<T>(
             T data,
             string format,
             Dictionary<string, object> formatOptions,
             string fileName)
         {
-            return (false, null, "Custom formatting implementation pending");
+            return Task.FromResult<(bool Success, string? FilePath, string? ErrorMessage)>((false, null, "Custom formatting implementation pending"));
         }
 
-        public async Task<(bool Success, string? FilePath, string? ErrorMessage)> ExportWithChartsAsync(
+        public Task<(bool Success, string? FilePath, string? ErrorMessage)> ExportWithChartsAsync(
             object data,
             List<object> chartDefinitions,
             string format,
             string fileName)
         {
-            return (false, null, "Charts export implementation pending");
+            return Task.FromResult<(bool Success, string? FilePath, string? ErrorMessage)>((false, null, "Charts export implementation pending"));
         }
 
-        public async Task<(bool Success, List<string> FilePaths, string? ErrorMessage)> BatchExportAsync(
+        public Task<(bool Success, List<string> FilePaths, string? ErrorMessage)> BatchExportAsync(
             List<ExportRequestDto> requests,
             string? zipFileName = null)
         {
-            return (false, new List<string>(), "Batch export implementation pending");
+            return Task.FromResult<(bool Success, List<string> FilePaths, string? ErrorMessage)>((false, new List<string>(), "Batch export implementation pending"));
         }
 
         private string FormatFileSize(long bytes)

@@ -238,6 +238,14 @@ namespace Berca_Backend.Services
         Task<decimal> CalculateMaxTransactionAmountAsync(int memberId);
 
         /// <summary>
+        /// Get top debtors regardless of overdue status
+        /// </summary>
+        /// <param name="branchId">Optional branch filter</param>
+        /// <param name="limit">Maximum number of debtors to return (default 10)</param>
+        /// <returns>List of members with highest debt amounts</returns>
+        Task<List<MemberDebtDto>> GetTopDebtorsAsync(int? branchId = null, int limit = 10);
+
+        /// <summary>
         /// Get member credit status color for UI display
         /// </summary>
         /// <param name="creditStatus">Credit status string</param>

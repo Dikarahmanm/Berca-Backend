@@ -2101,7 +2101,7 @@ namespace Berca_Backend.Services
         /// <summary>
         /// ✅ FIXED: Safe mapping method that works with in-memory batch data
         /// </summary>
-        private async Task<ProductWithBatchSummaryDto> MapToProductWithBatchSummaryDtoSafe(
+        private Task<ProductWithBatchSummaryDto> MapToProductWithBatchSummaryDtoSafe(
             Product product, 
             List<ProductBatch> batches, 
             DateTime now)
@@ -2123,7 +2123,7 @@ namespace Berca_Backend.Services
                 // Generate batch status summary (in memory)
                 var batchStatusSummary = GenerateBatchStatusSummaryInMemory(batches, now);
 
-                return new ProductWithBatchSummaryDto
+                return Task.FromResult(new ProductWithBatchSummaryDto
                 {
                     Id = product.Id,
                     Name = product.Name ?? string.Empty,
@@ -2147,7 +2147,7 @@ namespace Berca_Backend.Services
                     TotalValueAllBatches = totalValue,
                     FifoRecommendation = fifoRecommendation,
                     BatchStatusSummary = batchStatusSummary
-                };
+                });
             }
             catch (Exception ex)
             {

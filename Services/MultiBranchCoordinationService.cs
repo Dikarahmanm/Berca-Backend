@@ -387,7 +387,7 @@ namespace Berca_Backend.Services
                 {
                     var transferQuantity = Math.Min(batch.CurrentStock, batch.CurrentStock / 2); // Transfer up to half
                     var transferCost = CalculateTransferCost(sourceBranch.Id, targetBranch.Id, transferQuantity);
-                    var potentialRevenue = transferQuantity * batch.Product.SellPrice;
+                    var potentialRevenue = transferQuantity * (batch.Product?.SellPrice ?? 0);
                     var potentialSavings = potentialRevenue - transferCost - (transferQuantity * batch.CostPerUnit);
 
                     if (potentialSavings > transferCost * 0.2m) // 20% minimum ROI
@@ -399,7 +399,7 @@ namespace Berca_Backend.Services
                             ToBranchId = targetBranch.Id,
                             ToBranchName = targetBranch.BranchName,
                             ProductId = batch.ProductId,
-                            ProductName = batch.Product.Name,
+                            ProductName = batch.Product?.Name ?? string.Empty,
                             BatchId = batch.Id,
                             BatchNumber = batch.BatchNumber,
                             RecommendedQuantity = transferQuantity,
@@ -417,7 +417,7 @@ namespace Berca_Backend.Services
                             {
                                 EstimatedTransitTime = "1-2 days",
                                 RequiredVehicle = "Standard delivery",
-                                SpecialHandling = batch.Product?.Category?.RequiresExpiryDate == true ? "Temperature controlled" : "Standard"
+                        SpecialHandling = (batch.Product?.Category?.RequiresExpiryDate ?? false) ? "Temperature controlled" : "Standard"
                             }
                         };
                     }
@@ -705,7 +705,7 @@ namespace Berca_Backend.Services
                 .SumAsync(pb => pb.CurrentStock);
         }
 
-        private async Task GenerateOptimizationTransferRecommendations(List<BranchInventoryOptimization> optimizations)
+        private Task GenerateOptimizationTransferRecommendations(List<BranchInventoryOptimization> optimizations)
         {
             // Generate transfer recommendations between branches based on optimization results
             foreach (var sourceBranch in optimizations.Where(o => o.OverstockedItems.Any()))
@@ -739,6 +739,7 @@ namespace Berca_Backend.Services
                     }
                 }
             }
+            return Task.CompletedTask;
         }
 
         private decimal CalculateTransferCost(int fromBranchId, int toBranchId, int quantity)

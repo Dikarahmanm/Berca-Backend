@@ -2007,14 +2007,20 @@ namespace Berca_Backend.Services
                     
                     Predictions = predictions,
                     
-                    Recommendations = new List<string>
+                    Recommendations = (new Func<List<string>>(() =>
                     {
-                        criticalDays > 0 ? "Segera tingkatkan cash inflow dan kurangi pengeluaran tidak penting" : null,
-                        warningDays > forecastDays / 3 ? "Monitor cash flow harian lebih ketat" : null,
-                        netPredictedFlow < 0 ? "Pertimbangkan untuk menunda investasi besar" : "Cash flow sehat, bisa pertimbangkan ekspansi",
-                        "Review terms pembayaran supplier untuk fleksibilitas lebih",
-                        "Pertimbangkan program promosi untuk meningkatkan sales velocity"
-                    }.Where(r => r != null).ToList()!,
+                        var recs = new List<string>();
+                        if (criticalDays > 0)
+                            recs.Add("Segera tingkatkan cash inflow dan kurangi pengeluaran tidak penting");
+                        if (warningDays > forecastDays / 3)
+                            recs.Add("Monitor cash flow harian lebih ketat");
+                        recs.Add(netPredictedFlow < 0
+                            ? "Pertimbangkan untuk menunda investasi besar"
+                            : "Cash flow sehat, bisa pertimbangkan ekspansi");
+                        recs.Add("Review terms pembayaran supplier untuk fleksibilitas lebih");
+                        recs.Add("Pertimbangkan program promosi untuk meningkatkan sales velocity");
+                        return recs;
+                    }))(),
                     
                     KeyAssumptions = new List<string>
                     {
