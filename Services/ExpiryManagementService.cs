@@ -1033,7 +1033,7 @@ namespace Berca_Backend.Services
                 // Get all batches with expiry tracking
                 var batchesQuery = _context.ProductBatches
                     .Include(pb => pb.Product)
-                    .ThenInclude(p => p.Category)
+                    .ThenInclude(p => p!.Category)
                     .Where(pb => pb.ExpiryDate.HasValue && !pb.IsDisposed);
                     
                 if (branchId.HasValue)
@@ -1095,7 +1095,7 @@ namespace Berca_Backend.Services
             {
                 var batches = await _context.ProductBatches
                     .Include(pb => pb.Product)
-                    .ThenInclude(p => p.Category)
+                    .ThenInclude(p => p!.Category)
                     .Where(pb => pb.CurrentStock > 0 && !pb.IsDisposed && !pb.IsBlocked)
                     .Where(pb => branchId == null || pb.BranchId == branchId)
                     .ToListAsync();

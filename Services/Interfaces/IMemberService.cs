@@ -265,5 +265,20 @@ namespace Berca_Backend.Services
         /// <param name="memberCredit">Member credit summary</param>
         /// <returns>User-friendly status message</returns>
         string GetCreditStatusMessage(MemberCreditSummaryDto memberCredit);
+
+        /// <summary>
+        /// Reconcile member credit ledger by allocating payments to oldest credit sales,
+        /// updating transaction statuses, and syncing NextPaymentDueDate.
+        /// </summary>
+        /// <param name="memberId">Member ID</param>
+        /// <returns>True if reconciliation completed</returns>
+        Task<bool> ReconcileCreditLedgerAsync(int memberId);
+
+        /// <summary>
+        /// Backfill NextPaymentDueDate for members with outstanding debt by
+        /// reconciling their ledger and setting the earliest pending due date.
+        /// Returns the number of members processed.
+        /// </summary>
+        Task<int> BackfillNextPaymentDueDatesAsync();
     }
 }

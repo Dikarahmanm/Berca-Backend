@@ -862,6 +862,22 @@ namespace Berca_Backend.Controllers
                 // Ensure cashier ID matches request
                 request.CashierId = cashierId;
 
+                // Manager override authorization: only allow if caller has role/claim
+                if (request.IsManagerApproved)
+                {
+                    var hasOverridePermission = User.IsInRole("Manager") ||
+                                                User.HasClaim("Permission", "POS.CreditOverride") ||
+                                                User.HasClaim(ClaimTypes.Role, "POS.CreditOverride");
+
+                    if (!hasOverridePermission)
+                    {
+                        return Forbid();
+                    }
+
+                    // If manager approver not provided, default to current user
+                    request.ApprovedByManagerId ??= cashierId;
+                }
+
                 var result = await _posService.CreateSaleWithCreditAsync(request);
 
                 _logger.LogInformation("Credit sale created successfully. Sale ID: {SaleId}, Member: {MemberId}, Credit: {CreditAmount}",

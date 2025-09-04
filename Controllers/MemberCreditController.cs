@@ -251,6 +251,26 @@ namespace Berca_Backend.Controllers
         }
 
         /// <summary>
+        /// Maintenance: Backfill NextPaymentDueDate for members with outstanding debt
+        /// by reconciling their credit ledger. Restricted to credit admins.
+        /// </summary>
+        [HttpPost("maintenance/backfill-next-due-dates")]
+        [Authorize(Policy = "Membership.UpdateCredit")]
+        public async Task<IActionResult> BackfillNextDueDates()
+        {
+            try
+            {
+                var count = await _memberService.BackfillNextPaymentDueDatesAsync();
+                return Ok(new { message = "Backfill completed", membersProcessed = count });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error during backfill of next payment due dates");
+                return StatusCode(500, new { message = "Internal server error occurred" });
+            }
+        }
+
+        /// <summary>
         /// Update member credit status based on payment behavior
         /// </summary>
         /// <param name="memberId">Member ID</param>

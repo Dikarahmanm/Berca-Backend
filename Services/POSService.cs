@@ -1558,13 +1558,20 @@ namespace Berca_Backend.Services
                     return result;
                 }
 
-                // Check overdue payments
+                // Check overdue payments (allow manager override)
                 if (hasOverdue)
                 {
-                    result.IsApproved = false;
-                    result.DecisionReason = "Has overdue payments";
-                    result.Errors.Add("Member has overdue payments");
-                    return result;
+                    if (request.OverrideWarnings)
+                    {
+                        result.Warnings.Add("Overdue payments overridden by manager");
+                    }
+                    else
+                    {
+                        result.IsApproved = false;
+                        result.DecisionReason = "Has overdue payments";
+                        result.Errors.Add("Member has overdue payments");
+                        return result;
+                    }
                 }
 
                 // Check available credit
@@ -1761,6 +1768,9 @@ namespace Berca_Backend.Services
                 // Update sale with credit transaction reference
                 await _context.SaveChangesAsync();
                 sale.CreditTransactionId = creditTransaction.Id;
+
+                // Reconcile ledger to ensure statuses and next due date are consistent
+                await _memberService.ReconcileCreditLedgerAsync(request.MemberId);
 
                 await transaction.CommitAsync();
 

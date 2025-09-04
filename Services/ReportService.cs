@@ -351,17 +351,17 @@ namespace Berca_Backend.Services
 
             try
             {
-                // Execute the report first
-                var (success, data, errorMessage) = await ExecuteReportAsync(0, new Dictionary<string, object>
-                {
-                    ["ReportType"] = request.ReportType,
-                    ["DateFrom"] = request.DateFrom,
-                    ["DateTo"] = request.DateTo,
-                    ["BranchId"] = request.BranchId,
-                    ["CategoryId"] = request.CategoryId,
-                    ["SupplierId"] = request.SupplierId,
-                    ["UserId"] = request.UserId
-                }, executedBy);
+                // Execute the report first (only include non-null parameters)
+                var execParams = new Dictionary<string, object>();
+                if (!string.IsNullOrWhiteSpace(request.ReportType)) execParams["ReportType"] = request.ReportType!;
+                if (!string.IsNullOrEmpty(request.DateFrom)) execParams["DateFrom"] = request.DateFrom!;
+                if (!string.IsNullOrEmpty(request.DateTo)) execParams["DateTo"] = request.DateTo!;
+                if (request.BranchId.HasValue) execParams["BranchId"] = request.BranchId.Value;
+                if (request.CategoryId.HasValue) execParams["CategoryId"] = request.CategoryId.Value;
+                if (request.SupplierId.HasValue) execParams["SupplierId"] = request.SupplierId.Value;
+                if (request.UserId.HasValue) execParams["UserId"] = request.UserId.Value;
+
+                var (success, data, errorMessage) = await ExecuteReportAsync(0, execParams, executedBy);
 
                 if (!success || data == null)
                 {

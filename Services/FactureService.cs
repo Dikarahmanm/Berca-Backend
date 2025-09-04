@@ -1711,14 +1711,14 @@ namespace Berca_Backend.Services
                         Status = f.Status,
                         IsOverdue = f.DueDate < now && f.Status != FactureStatus.Paid && f.Status != FactureStatus.Cancelled,
                         DaysOverdue = f.DueDate < now && f.Status != FactureStatus.Paid && f.Status != FactureStatus.Cancelled 
-                            ? EF.Functions.DateDiffDay(f.DueDate, now) : 0,
+                            ? (int)(now - f.DueDate).TotalDays : 0,
                         DaysUntilDue = f.Status == FactureStatus.Paid || f.Status == FactureStatus.Cancelled 
-                            ? 0 : (EF.Functions.DateDiffDay(now, f.DueDate) < 0 ? 0 : EF.Functions.DateDiffDay(now, f.DueDate)),
+                            ? 0 : Math.Max(0, (int)(f.DueDate - now).TotalDays),
                         PaymentPriority = (f.Status == FactureStatus.Paid || f.Status == FactureStatus.Cancelled) 
                             ? PaymentPriority.Normal 
-                            : (f.DueDate < now || EF.Functions.DateDiffDay(now, f.DueDate) <= 1) 
+                            : (f.DueDate < now || (int)(f.DueDate - now).TotalDays <= 1) 
                                 ? PaymentPriority.Urgent 
-                                : (EF.Functions.DateDiffDay(now, f.DueDate) <= 7) 
+                                : ((int)(f.DueDate - now).TotalDays <= 7) 
                                     ? PaymentPriority.High 
                                     : PaymentPriority.Normal,
                         BranchName = f.Branch != null ? f.Branch.BranchName : "All Branches",

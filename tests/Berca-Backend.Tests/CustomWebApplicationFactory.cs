@@ -57,7 +57,47 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
             db.Database.EnsureDeleted();
             db.Database.EnsureCreated();
 
-            // No explicit seeding here to avoid collisions with Program sample data
+            // Seed a default admin user for access checks (UserId = 100)
+            if (!db.Users.Any(u => u.Id == 100))
+            {
+                db.Users.Add(new User
+                {
+                    Id = 100,
+                    Username = "testadmin",
+                    Name = "Test Admin",
+                    PasswordHash = "x",
+                    Role = "Admin",
+                    IsActive = true,
+                    CreatedAt = DateTime.UtcNow,
+                    UpdatedAt = DateTime.UtcNow
+                });
+                db.SaveChanges();
+            }
+
+            // Optional: Ensure at least one active branch exists for queries
+            if (!db.Branches.Any())
+            {
+                db.Branches.Add(new Branch
+                {
+                    BranchName = "HQ",
+                    BranchCode = "HQ",
+                    IsActive = true,
+                    CreatedAt = DateTime.UtcNow,
+                    UpdatedAt = DateTime.UtcNow
+                });
+                db.SaveChanges();
+            }
+
+            // Ensure the test admin is assigned to an active branch so access checks pass
+            var anyBranchId = db.Branches.Select(b => b.Id).First();
+            var admin = db.Users.First(u => u.Id == 100);
+            if (admin.BranchId != anyBranchId)
+            {
+                admin.BranchId = anyBranchId;
+                db.SaveChanges();
+            }
+
+            // Keep seeding minimal to avoid collisions with Program sample data
         });
     }
 

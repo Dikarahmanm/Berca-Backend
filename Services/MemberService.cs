@@ -833,6 +833,9 @@ namespace Berca_Backend.Services
                         }
 
                         await _context.SaveChangesAsync();
+
+                        // Reconcile ledger and next due date after payment
+                        await ReconcileCreditLedgerAsync(memberId);
                         await transaction.CommitAsync();
 
                         _logger.LogInformation("Payment recorded successfully: MemberId={MemberId}, Amount={Amount}", 
@@ -852,6 +855,109 @@ namespace Berca_Backend.Services
             {
                 _logger.LogError(ex, "Error recording payment: MemberId={MemberId}, Amount={Amount}", memberId, amount);
                 throw;
+            }
+        }
+
+        public async Task<bool> ReconcileCreditLedgerAsync(int memberId)
+        {
+            try
+            {
+                var member = await _context.Members
+                    .AsNoTracking()
+                    .FirstOrDefaultAsync(m => m.Id == memberId);
+
+                if (member == null)
+                    return false;
+
+                // Get all credit sale transactions ordered by due date (oldest first)
+                var creditSales = await _context.MemberCreditTransactions
+                    .Where(t => t.MemberId == memberId && t.Type == CreditTransactionType.CreditSale)
+                    .OrderBy(t => t.DueDate)
+                    .ThenBy(t => t.TransactionDate)
+                    .ToListAsync();
+
+                // Nothing to reconcile
+                if (!creditSales.Any())
+                {
+                    return true;
+                }
+
+                // Paid amount = total credit sales - current outstanding debt
+                var totalCreditSales = creditSales.Sum(t => t.Amount);
+                var paidAmount = Math.Max(0, totalCreditSales - Math.Max(0, member.CurrentDebt));
+
+                decimal remainingPaid = paidAmount;
+                DateTime? nextDueDate = null;
+
+                foreach (var sale in creditSales)
+                {
+                    if (remainingPaid >= sale.Amount)
+                    {
+                        // This sale fully covered by payments -> mark completed
+                        if (sale.Status != CreditTransactionStatus.Completed)
+                        {
+                            sale.Status = CreditTransactionStatus.Completed;
+                            sale.UpdatedAt = _timezoneService.Now;
+                        }
+                        remainingPaid -= sale.Amount;
+                    }
+                    else
+                    {
+                        // This and all newer sales are still outstanding -> keep as pending
+                        if (sale.Status != CreditTransactionStatus.Pending)
+                        {
+                            sale.Status = CreditTransactionStatus.Pending;
+                            sale.UpdatedAt = _timezoneService.Now;
+                        }
+
+                        // Track earliest due date among pending items
+                        if (sale.DueDate.HasValue)
+                        {
+                            if (!nextDueDate.HasValue || sale.DueDate.Value < nextDueDate.Value)
+                            {
+                                nextDueDate = sale.DueDate.Value;
+                            }
+                        }
+                    }
+                }
+
+                // Update member next payment due date based on pending items
+                var memberEntity = await _context.Members.FirstAsync(m => m.Id == memberId);
+                memberEntity.NextPaymentDueDate = memberEntity.CurrentDebt > 0 ? nextDueDate : null;
+                memberEntity.UpdatedAt = _timezoneService.Now;
+
+                await _context.SaveChangesAsync();
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error reconciling credit ledger: MemberId={MemberId}", memberId);
+                return false;
+            }
+        }
+
+        public async Task<int> BackfillNextPaymentDueDatesAsync()
+        {
+            try
+            {
+                var memberIds = await _context.Members
+                    .Where(m => m.CurrentDebt > 0)
+                    .Select(m => m.Id)
+                    .ToListAsync();
+
+                int processed = 0;
+                foreach (var id in memberIds)
+                {
+                    var ok = await ReconcileCreditLedgerAsync(id);
+                    if (ok) processed++;
+                }
+
+                return processed;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error backfilling next payment due dates");
+                return 0;
             }
         }
 
