@@ -1979,11 +1979,33 @@ namespace Berca_Backend.Services
             try
             {
                 var now = DateTime.UtcNow;
-                return await _context.MemberCreditTransactions
-                    .Where(t => t.MemberId == memberId && 
-                               t.Status == CreditTransactionStatus.Pending &&
-                               t.DueDate.HasValue && t.DueDate < now)
-                    .AnyAsync();
+
+                // First, use member-level fields to ensure consistency with summary values
+                var member = await _context.Members
+                    .Where(m => m.Id == memberId)
+                    .Select(m => new { m.CurrentDebt, m.NextPaymentDueDate })
+                    .FirstOrDefaultAsync();
+
+                if (member == null)
+                {
+                    return false;
+                }
+
+                // If there is no debt, there cannot be an overdue payment
+                if (member.CurrentDebt <= 0)
+                {
+                    return false;
+                }
+
+                // If next payment due date is known, use it to decide overdue
+                if (member.NextPaymentDueDate.HasValue)
+                {
+                    return member.NextPaymentDueDate.Value < now;
+                }
+
+                // If member-level due date is not set, assume not overdue to avoid false positives
+                // from stale transaction rows that were already paid but not reconciled
+                return false;
             }
             catch (Exception ex)
             {
@@ -1997,16 +2019,26 @@ namespace Berca_Backend.Services
             try
             {
                 var now = DateTime.UtcNow;
-                var nextPayment = await _context.MemberCreditTransactions
-                    .Where(t => t.MemberId == memberId && 
-                               t.Status == CreditTransactionStatus.Pending &&
-                               t.DueDate >= now)
-                    .OrderBy(t => t.DueDate)
+
+                // Prefer member-level next due date so it aligns with summary
+                var member = await _context.Members
+                    .Where(m => m.Id == memberId)
+                    .Select(m => new { m.CurrentDebt, m.NextPaymentDueDate })
                     .FirstOrDefaultAsync();
 
-                if (nextPayment == null || !nextPayment.DueDate.HasValue) return int.MaxValue;
-                
-                return (int)(nextPayment.DueDate.Value - now).TotalDays;
+                if (member == null)
+                {
+                    return 0;
+                }
+
+                // If there is no outstanding debt or no scheduled payment, return 0 days
+                if (member.CurrentDebt <= 0 || !member.NextPaymentDueDate.HasValue)
+                {
+                    return 0;
+                }
+
+                var days = (int)(member.NextPaymentDueDate.Value - now).TotalDays;
+                return days < 0 ? 0 : days;
             }
             catch (Exception ex)
             {

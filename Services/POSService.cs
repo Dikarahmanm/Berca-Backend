@@ -1752,6 +1752,12 @@ namespace Berca_Backend.Services
                 member.UpdatedAt = DateTime.Now;
                 member.UpdatedBy = request.CashierId.ToString();
 
+                // Ensure next payment due date is maintained for overdue checks and UI consistency
+                if (!member.NextPaymentDueDate.HasValue || dueDate < member.NextPaymentDueDate.Value)
+                {
+                    member.NextPaymentDueDate = dueDate;
+                }
+
                 // Update sale with credit transaction reference
                 await _context.SaveChangesAsync();
                 sale.CreditTransactionId = creditTransaction.Id;

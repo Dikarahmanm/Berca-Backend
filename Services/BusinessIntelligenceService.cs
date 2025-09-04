@@ -4,6 +4,7 @@ using Berca_Backend.Models;
 using Berca_Backend.Services.Interfaces;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.Configuration;
 using System.Globalization;
 
 namespace Berca_Backend.Services
@@ -2045,9 +2046,175 @@ namespace Berca_Backend.Services
             }
         }
 
-        public Task<object> GetBreakEvenAnalysisAsync(int? productId = null, int? branchId = null)
+        public async Task<object> GetBreakEvenAnalysisAsync(int? productId = null, int? branchId = null)
         {
-            return Task.FromResult<object>(new { Message = "Break-even analysis implementation pending" });
+            try
+            {
+                var cacheKey = $"break_even_{productId}_{branchId}";
+                if (_cache.TryGetValue(cacheKey, out object? cached) && cached != null)
+                {
+                    return cached;
+                }
+
+                // Lookback window for estimating ratios (use 60 days for stability)
+                var endDate = DateTime.UtcNow.Date;
+                var startDate = endDate.AddDays(-60);
+
+                IQueryable<Sale> salesQuery = _context.Sales
+                    .Where(s => s.SaleDate >= startDate && s.SaleDate <= endDate)
+                    .Include(s => s.SaleItems)
+                        .ThenInclude(si => si.Product);
+
+                if (branchId.HasValue)
+                {
+                    salesQuery = salesQuery.Where(s => s.Cashier != null && s.Cashier.BranchId == branchId.Value);
+                }
+
+                var sales = await salesQuery.ToListAsync();
+
+                // Build daily revenue for fixed cost estimation
+                var dailyRevenues = sales
+                    .GroupBy(s => s.SaleDate.Date)
+                    .Select(g => new { Date = g.Key, Revenue = g.Sum(s => s.Total) })
+                    .OrderBy(x => x.Date)
+                    .ToList();
+
+                var avgDailyRevenue = dailyRevenues.Any() ? dailyRevenues.Average(x => x.Revenue) : 0m;
+
+                // Allow fixed cost ratio override via config; default to 15% of revenue
+                var fixedCostRatio = _configuration.GetValue<decimal?>("BusinessIntelligence:FixedCostRatio") ?? 0.15m;
+                var estimatedMonthlyFixedCosts = avgDailyRevenue * 30m * fixedCostRatio;
+
+                // Compute COGS ratio from historical sale items
+                var allSaleItems = sales.SelectMany(s => s.SaleItems).Where(si => si.Product != null).ToList();
+                var totalRevenue = allSaleItems.Sum(si => si.Subtotal);
+                var totalCOGS = allSaleItems.Sum(si => si.Quantity * si.Product!.BuyPrice);
+                var cogsRatio = totalRevenue > 0 ? (totalCOGS / totalRevenue) : 0.7m; // fallback if no data
+
+                if (productId.HasValue)
+                {
+                    var product = await _context.Products.FirstOrDefaultAsync(p => p.Id == productId.Value);
+                    if (product == null)
+                    {
+                        return new { Error = "Produk tidak ditemukan" };
+                    }
+
+                    var unitPrice = product.SellPrice;
+                    var unitCost = product.BuyPrice;
+                    var unitMargin = unitPrice - unitCost;
+                    var marginRatio = unitPrice > 0 ? (unitMargin / unitPrice) : 0m;
+
+                    var breakEvenUnits = unitMargin > 0 ? Math.Ceiling(estimatedMonthlyFixedCosts / unitMargin) : 0m;
+                    var breakEvenRevenue = marginRatio > 0 ? (estimatedMonthlyFixedCosts / marginRatio) : 0m;
+
+                    // Current monthly pace for this product
+                    var productItems = allSaleItems.Where(si => si.ProductId == product.Id).ToList();
+                    var productMonthlyRevenue = productItems.Sum(si => si.Subtotal) * (30m / Math.Max(1, (endDate - startDate).Days));
+                    var productMonthlyUnits = productItems.Sum(si => si.Quantity) * (30m / Math.Max(1, (endDate - startDate).Days));
+
+                    var paceCoversBE = unitMargin > 0 && productMonthlyUnits >= breakEvenUnits;
+
+                    var resultProduct = new
+                    {
+                        Scope = "Product",
+                        Product = new
+                        {
+                            product.Id,
+                            product.Name,
+                            UnitPrice = unitPrice,
+                            UnitPriceDisplay = unitPrice.ToString("C0", IdCulture),
+                            UnitCost = unitCost,
+                            UnitCostDisplay = unitCost.ToString("C0", IdCulture),
+                            UnitMargin = unitMargin,
+                            UnitMarginDisplay = unitMargin.ToString("C0", IdCulture),
+                            MarginRatio = Math.Round(marginRatio * 100, 2)
+                        },
+                        Assumptions = new List<string>
+                        {
+                            $"Fixed cost ratio diasumsikan {fixedCostRatio:P0} dari revenue",
+                            $"Estimasi fixed cost per bulan berdasarkan rata-rata 60 hari",
+                            "COGS produk berasal dari BuyPrice",
+                        },
+                        Summary = new
+                        {
+                            EstimatedMonthlyFixedCosts = Math.Round(estimatedMonthlyFixedCosts, 0),
+                            EstimatedMonthlyFixedCostsDisplay = estimatedMonthlyFixedCosts.ToString("C0", IdCulture),
+                            BreakEvenUnits = (long)breakEvenUnits,
+                            BreakEvenRevenue = Math.Round(breakEvenRevenue, 0),
+                            BreakEvenRevenueDisplay = breakEvenRevenue.ToString("C0", IdCulture)
+                        },
+                        CurrentPace = new
+                        {
+                            MonthlyUnits = Math.Round(productMonthlyUnits, 0),
+                            MonthlyRevenue = Math.Round(productMonthlyRevenue, 0),
+                            MonthlyRevenueDisplay = productMonthlyRevenue.ToString("C0", IdCulture),
+                            CoversBreakEven = paceCoversBE
+                        },
+                        Insights = new List<string>
+                        {
+                            unitMargin <= 0 ? "Produk ini tidak memiliki margin positif; pertimbangkan penyesuaian harga atau biaya" :
+                            breakEvenUnits > 0 ? $"Butuh ~{breakEvenUnits:N0} unit per bulan untuk BE" : "Tidak dapat menghitung break-even karena margin 0",
+                            marginRatio < 0.15m ? "Margin rendah; evaluasi harga jual atau negosiasi harga beli" : "Margin cukup sehat",
+                            productMonthlyUnits == 0 ? "Tidak ada penjualan pada periode referensi; pertimbangkan promosi" : "Penjualan berjalan, optimalkan konversi"
+                        }
+                    };
+
+                    _cache.Set(cacheKey, resultProduct, TimeSpan.FromHours(6));
+                    return resultProduct;
+                }
+                else
+                {
+                    // Overall break-even based on contribution margin ratio
+                    var contributionMarginRatio = 1m - cogsRatio;
+                    var breakEvenRevenue = contributionMarginRatio > 0 ? (estimatedMonthlyFixedCosts / contributionMarginRatio) : 0m;
+
+                    // Current monthly revenue pace (normalize to 30 days)
+                    var windowDays = Math.Max(1, (endDate - startDate).Days);
+                    var normalizedMonthlyRevenue = (sales.Sum(s => s.Total) * (30m / windowDays));
+
+                    var resultOverall = new
+                    {
+                        Scope = "Overall",
+                        Period = $"{startDate:dd/MM/yyyy} - {endDate:dd/MM/yyyy}",
+                        Assumptions = new List<string>
+                        {
+                            $"Fixed cost ratio diasumsikan {fixedCostRatio:P0} dari revenue",
+                            "COGS dihitung dari BuyPrice produk",
+                            "Analisis menggunakan data 60 hari terakhir"
+                        },
+                        Ratios = new
+                        {
+                            COGSRatio = Math.Round(cogsRatio * 100, 2),
+                            ContributionMarginRatio = Math.Round(contributionMarginRatio * 100, 2)
+                        },
+                        Summary = new
+                        {
+                            EstimatedMonthlyFixedCosts = Math.Round(estimatedMonthlyFixedCosts, 0),
+                            EstimatedMonthlyFixedCostsDisplay = estimatedMonthlyFixedCosts.ToString("C0", IdCulture),
+                            BreakEvenRevenue = Math.Round(breakEvenRevenue, 0),
+                            BreakEvenRevenueDisplay = breakEvenRevenue.ToString("C0", IdCulture),
+                            CurrentMonthlyRevenuePace = Math.Round(normalizedMonthlyRevenue, 0),
+                            CurrentMonthlyRevenuePaceDisplay = normalizedMonthlyRevenue.ToString("C0", IdCulture)
+                        },
+                        Insights = new List<string>
+                        {
+                            contributionMarginRatio <= 0 ? "Margin kontribusi <= 0; pastikan harga jual di atas biaya" :
+                                (normalizedMonthlyRevenue >= breakEvenRevenue ? "Pendapatan bulanan saat ini sudah melewati titik impas" : "Pendapatan bulanan saat ini belum mencapai titik impas"),
+                            cogsRatio > 0.75m ? "COGS tinggi; evaluasi supplier/biaya pembelian" : "COGS relatif terkendali",
+                            fixedCostRatio > 0.2m ? "Fixed cost relatif tinggi; pertimbangkan efisiensi operasional" : "Fixed cost dalam batas wajar"
+                        },
+                        Disclaimer = "Estimasi berbasis data historis dan asumsi biaya; hasil aktual dapat berbeda"
+                    };
+
+                    _cache.Set(cacheKey, resultOverall, TimeSpan.FromHours(6));
+                    return resultOverall;
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error performing break-even analysis");
+                return new { Error = "Gagal melakukan analisis break-even" };
+            }
         }
 
         public Task<object> GetCostOptimizationInsightsAsync(DateTime startDate, DateTime endDate)
