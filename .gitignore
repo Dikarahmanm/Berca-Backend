@@ -385,3 +385,42 @@ FodyWeavers.xsd
 /PHASE-4-COMPLETION-SUMMARY.md
 /PLAN_IMPLEMENTASI_MULTIBRANCH.md
 /AGENTS.md
+
+# Security & sensitive files
+appsettings.json
+appsettings.Development.json
+appsettings.Production.json
+appsettings.*.json
+*.env
+*.env.*
+secrets.json
+*secrets*
+*.key
+*.pem
+*.pfx
+*.p12
+passwords.txt
+config.json
+connectionstrings.json
+
+# Database files
+*.db
+*.db-*
+*.sqlite*
+
+# IDE & editor specific
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Logs and temporary files
+*.tmp
+*.temp
+logs/
+temp/
+
+# Cache files
+*.cache
+cache/
