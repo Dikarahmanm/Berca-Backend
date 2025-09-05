@@ -424,3 +424,17 @@ temp/
 # Cache files
 *.cache
 cache/
+
+# AI Assistant files (prevent future AI traces)
+.claude/
+.instruction/
+*.claude.md
+CLAUDE.md
+*copilot*
+*ai-*
+*-ai.*
+instruction*.md
+prompt*.md
+*prompt.txt
+agents.md
+AGENTS.md
