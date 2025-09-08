@@ -177,6 +177,32 @@ builder.Services.AddAuthorization(options =>
     options.AddPolicy("Expiry.FIFO", policy =>
         policy.RequireRole("Admin", "HeadManager", "BranchManager", "Manager", "User"));
 
+    // ===== AI INVENTORY COORDINATION POLICIES ===== //
+
+    // AI system administration - Admin only for system management
+    options.AddPolicy("Admin.AI", policy =>
+        policy.RequireRole("Admin"));
+
+    // AI model training - HeadManager and Admin can train models
+    options.AddPolicy("AI.ModelTraining", policy =>
+        policy.RequireRole("Admin", "HeadManager"));
+
+    // Auto-optimization execution - Management approval required
+    options.AddPolicy("MultiBranch.AutoOptimize", policy =>
+        policy.RequireRole("Admin", "HeadManager", "BranchManager"));
+
+    // Advanced notification system - Management can configure notifications
+    options.AddPolicy("Notifications.Advanced", policy =>
+        policy.RequireRole("Admin", "HeadManager", "BranchManager", "Manager"));
+
+    // AI analytics and reporting - Management and staff can view
+    options.AddPolicy("Reports.Analytics", policy =>
+        policy.RequireRole("Admin", "HeadManager", "BranchManager", "Manager", "User"));
+
+    // System monitoring - All authenticated users can view system status
+    options.AddPolicy("Reports.System", policy =>
+        policy.RequireRole("Admin", "HeadManager", "BranchManager", "Manager", "User"));
+
     // Expiry analytics - Management can view analytics
     options.AddPolicy("Expiry.Analytics", policy =>
         policy.RequireRole("Admin", "HeadManager", "BranchManager", "Manager"));
@@ -630,6 +656,7 @@ builder.Services.AddFactureBackgroundService();
 
 // ✅ Add Batch Expiry Monitoring Background Service
 builder.Services.AddHostedService<Berca_Backend.Services.Background.BatchExpiryMonitoringService>();
+builder.Services.AddHostedService<AIInventoryBackgroundService>();
 
 // ✅ Add Sprint 8: Advanced Reporting & Analytics Services
 builder.Services.AddScoped<IReportService, ReportService>();
@@ -642,6 +669,8 @@ builder.Services.AddScoped<IBusinessRulesService, BusinessRulesService>();
 // ✅ Add Advanced Analytics Services (Final Backend Implementation)
 builder.Services.AddScoped<ISmartNotificationEngineService, SmartNotificationEngineService>();
 builder.Services.AddScoped<IMultiBranchCoordinationService, MultiBranchCoordinationService>();
+builder.Services.AddScoped<IAIInventoryCoordinationService, AIInventoryCoordinationService>();
+builder.Services.AddScoped<IMLInventoryService, MLInventoryService>();
 
 // ✅ Add Swagger
 builder.Services.AddEndpointsApiExplorer();
@@ -689,6 +718,15 @@ builder.Services.AddSwaggerGen(c =>
 builder.Logging.ClearProviders();
 builder.Logging.AddConsole();
 builder.Logging.AddDebug();
+
+// ✅ Add SignalR for real-time coordination
+builder.Services.AddSignalR(options =>
+{
+    options.EnableDetailedErrors = true;
+    options.HandshakeTimeout = TimeSpan.FromSeconds(30);
+    options.KeepAliveInterval = TimeSpan.FromSeconds(15);
+    options.ClientTimeoutInterval = TimeSpan.FromSeconds(60);
+});
 
 // ✅ Add cookie policy
 builder.Services.Configure<CookiePolicyOptions>(options =>
@@ -805,6 +843,9 @@ app.UseExceptionHandler(errorApp =>
         }));
     });
 });
+
+// ✅ Configure SignalR hubs
+app.MapHub<Berca_Backend.Hubs.AIInventoryCoordinationHub>("/hubs/ai-inventory-coordination");
 
 // ✅ Log startup information
 var startupLogger = app.Services.GetRequiredService<ILogger<Program>>();
