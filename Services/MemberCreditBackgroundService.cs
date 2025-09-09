@@ -1,4 +1,5 @@
 using Berca_Backend.Services;
+using Berca_Backend.Services.Interfaces;
 using Berca_Backend.Models;
 using Berca_Backend.DTOs;
 
@@ -96,7 +97,7 @@ namespace Berca_Backend.Services
                 _logger.LogInformation("Starting credit status updates");
 
                 using var scope = _serviceProvider.CreateScope();
-                var notificationService = scope.ServiceProvider.GetService<INotificationService>();
+                var notificationService = scope.ServiceProvider.GetService<IMultiBranchNotificationService>();
 
                 // Get analytics to determine how many members need processing
                 var analytics = await memberService.GetCreditAnalyticsAsync();
@@ -318,7 +319,7 @@ namespace Berca_Backend.Services
                 _logger.LogInformation("Sending daily credit summary notification");
 
                 using var scope = _serviceProvider.CreateScope();
-                var notificationService = scope.ServiceProvider.GetService<INotificationService>();
+                var notificationService = scope.ServiceProvider.GetService<IMultiBranchNotificationService>();
 
                 if (notificationService != null)
                 {
@@ -328,10 +329,14 @@ namespace Berca_Backend.Services
                     // Calculate new defaulters (simplified - in production you'd track this properly)
                     var newDefaultersToday = overdueMembers.Count(m => m.DaysOverdue <= 1);
 
-                    var success = await notificationService.BroadcastDailyCreditSummaryAsync(
-                        overdueMembers.Count,
-                        totalOverdueAmount,
-                        newDefaultersToday);
+                    var success = await notificationService.BroadcastToRoleAsync(
+                        "Admin",
+                        "credit_summary",
+                        "Daily Credit Summary",
+                        $"Overdue members: {overdueMembers.Count}, Total overdue amount: {totalOverdueAmount:C}, New defaulters: {newDefaultersToday}",
+                        null,
+                        "/credit/dashboard"
+);
 
                     if (success)
                     {

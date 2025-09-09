@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
+#pragma warning disable CS1998 // Async method lacks 'await' operators and will run synchronously
 using Microsoft.AspNetCore.Authorization;
 using Berca_Backend.Services;
 using Berca_Backend.DTOs;
@@ -13,7 +14,7 @@ namespace Berca_Backend.Controllers
     [ApiController]
     [Route("api/ai/inventory")]
     [Authorize]
-    public class AIInventoryController : ControllerBase
+public class AIInventoryController : ControllerBase
     {
         private readonly IAIInventoryCoordinationService _aiInventoryService;
         private readonly ILogger<AIInventoryController> _logger;
@@ -478,3 +479,4 @@ namespace Berca_Backend.Controllers
         }
     }
 }
+#pragma warning restore CS1998

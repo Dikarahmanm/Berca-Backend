@@ -12,6 +12,15 @@ namespace Berca_Backend.Models
         public int? UserId { get; set; }
         public virtual User? User { get; set; }
 
+        // Multi-branch support
+        public int? BranchId { get; set; }
+        public virtual Branch? Branch { get; set; }
+
+        [StringLength(20)]
+        public string Severity { get; set; } = "info"; // info, warning, error, success
+
+        public bool ActionRequired { get; set; } = false;
+
         [Required]
         [StringLength(50)]
         public string Type { get; set; } = string.Empty; // low-stock, monthly-revenue, audit-due, etc.

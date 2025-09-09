@@ -71,7 +71,7 @@ namespace Berca_Backend.Services.Background
             using var scope = _serviceProvider.CreateScope();
             var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
             var timezoneService = scope.ServiceProvider.GetRequiredService<ITimezoneService>();
-            var notificationService = scope.ServiceProvider.GetRequiredService<INotificationService>();
+            var notificationService = scope.ServiceProvider.GetRequiredService<IMultiBranchNotificationService>();
 
             try
             {
@@ -161,7 +161,7 @@ namespace Berca_Backend.Services.Background
         private async Task SendExpiryNotifications(
             List<ProductBatch> batches, 
             string urgencyLevel, 
-            INotificationService notificationService)
+            IMultiBranchNotificationService notificationService)
         {
             try
             {
@@ -189,14 +189,12 @@ namespace Berca_Backend.Services.Background
                     _ => "Normal"
                 };
 
-                await notificationService.CreateSystemNotificationAsync(new CreateNotificationDto
-                {
-                    Title = "Batch Expiry Alert",
-                    Message = $"{message}\n\n{details}",
-                    Priority = priority,
-                    Type = "BatchExpiry",
-                    ActionUrl = "/inventory/batches"
-                }, "System");
+                await notificationService.CreateSystemNotificationAsync(
+                    "Batch Expiry Alert",
+                    $"{message}\n\n{details}",
+                    priority.ToLower(), // Convert to lowercase
+                    null // branchId
+                );
 
                 _logger.LogInformation("Sent {urgency} expiry notification for {count} batches", 
                     urgencyLevel, batches.Count);

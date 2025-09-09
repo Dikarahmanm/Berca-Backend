@@ -210,7 +210,7 @@ namespace Berca_Backend.Controllers
         /// <returns>Delivery result</returns>
         [HttpPost("send-bulk")]
         [Authorize(Policy = "Admin.Manage")]
-        public async Task<IActionResult> SendBulkNotifications([FromBody] BulkNotificationRequest request)
+        public async Task<IActionResult> SendBulkNotifications([FromBody] BulkPushNotificationRequest request)
         {
             try
             {

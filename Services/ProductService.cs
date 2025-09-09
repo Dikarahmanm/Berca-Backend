@@ -13,13 +13,13 @@ namespace Berca_Backend.Services
     {
         private readonly AppDbContext _context;
         private readonly ILogger<ProductService> _logger;
-        private readonly INotificationService? _notificationService;
+        private readonly IMultiBranchNotificationService? _notificationService;
         private readonly ITimezoneService _timezoneService;
 
         public ProductService(
             AppDbContext context, 
             ILogger<ProductService> logger, 
-            INotificationService? notificationService = null,
+            IMultiBranchNotificationService? notificationService = null,
             ITimezoneService? timezoneService = null)
         {
             _context = context;

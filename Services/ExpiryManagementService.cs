@@ -10,12 +10,12 @@ namespace Berca_Backend.Services
     {
         private readonly AppDbContext _context;
         private readonly ILogger<ExpiryManagementService> _logger;
-        private readonly INotificationService _notificationService;
+        private readonly IMultiBranchNotificationService _notificationService;
 
         public ExpiryManagementService(
             AppDbContext context, 
             ILogger<ExpiryManagementService> logger,
-            INotificationService notificationService)
+            IMultiBranchNotificationService notificationService)
         {
             _context = context;
             _logger = logger;

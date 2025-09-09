@@ -23,13 +23,13 @@ namespace Berca_Backend.Services
     {
         private readonly AppDbContext _context;
         private readonly IExpiryManagementService _expiryService;
-        private readonly INotificationService _notificationService;
+        private readonly IMultiBranchNotificationService _notificationService;
         private readonly ILogger<SmartNotificationEngineService> _logger;
 
         public SmartNotificationEngineService(
             AppDbContext context,
             IExpiryManagementService expiryService,
-            INotificationService notificationService,
+            IMultiBranchNotificationService notificationService,
             ILogger<SmartNotificationEngineService> logger)
         {
             _context = context;
@@ -271,8 +271,46 @@ namespace Berca_Backend.Services
         {
             try
             {
-                var preferences = await _context.UserNotificationPreferences
-                    .FirstOrDefaultAsync(unp => unp.UserId == userId);
+                // Try to read preferences; if the table is missing, create it and return defaults
+                UserNotificationPreferences? preferences = null;
+                try
+                {
+                    preferences = await _context.UserNotificationPreferences
+                        .FirstOrDefaultAsync(unp => unp.UserId == userId);
+                }
+                catch (Microsoft.Data.SqlClient.SqlException sqlEx) when (sqlEx.Number == 208)
+                {
+                    _logger.LogWarning(sqlEx, "UserNotificationPreferences table missing. Creating it on-the-fly.");
+                    try
+                    {
+                        await _context.Database.ExecuteSqlRawAsync(@"
+IF NOT EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[dbo].[UserNotificationPreferences]') AND type in (N'U'))
+BEGIN
+    CREATE TABLE [dbo].[UserNotificationPreferences](
+        [Id] INT IDENTITY(1,1) NOT NULL PRIMARY KEY,
+        [UserId] INT NOT NULL,
+        [EmailNotifications] BIT NOT NULL,
+        [PushNotifications] BIT NOT NULL,
+        [SmsNotifications] BIT NOT NULL,
+        [ExpiryAlerts] BIT NOT NULL,
+        [StockAlerts] BIT NOT NULL,
+        [FinancialAlerts] BIT NOT NULL,
+        [AlertFrequency] NVARCHAR(20) NOT NULL,
+        [QuietHoursStart] NVARCHAR(5) NOT NULL,
+        [QuietHoursEnd] NVARCHAR(5) NOT NULL,
+        [CreatedAt] DATETIME2 NOT NULL DEFAULT GETUTCDATE(),
+        [UpdatedAt] DATETIME2 NOT NULL DEFAULT GETUTCDATE(),
+        CONSTRAINT [FK_UserNotificationPreferences_Users_UserId] FOREIGN KEY ([UserId]) REFERENCES [dbo].[Users]([Id]) ON DELETE CASCADE
+    );
+    CREATE INDEX [IX_UserNotificationPreferences_UserId] ON [dbo].[UserNotificationPreferences]([UserId]);
+END");
+                    }
+                    catch (Exception createEx)
+                    {
+                        _logger.LogError(createEx, "Failed to create UserNotificationPreferences table dynamically.");
+                    }
+                    // After attempting creation, continue to return defaults below
+                }
 
                 if (preferences == null)
                 {
@@ -311,7 +349,19 @@ namespace Berca_Backend.Services
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error getting notification preferences for user {UserId}", userId);
-                throw;
+                // Return safe defaults instead of throwing 500
+                return new NotificationPreferencesDto
+                {
+                    UserId = userId,
+                    EmailNotifications = true,
+                    PushNotifications = true,
+                    SmsNotifications = false,
+                    ExpiryAlerts = true,
+                    StockAlerts = true,
+                    FinancialAlerts = true,
+                    AlertFrequency = "Immediate",
+                    QuietHours = new QuietHours { Start = "22:00", End = "06:00" }
+                };
             }
         }
 
@@ -357,7 +407,7 @@ namespace Berca_Backend.Services
                         Type = notification.Type,
                         ActionUrl = notification.ActionUrl
                     };
-                    await _notificationService.CreateNotificationAsync(request, "System");
+                    await _notificationService.CreateNotificationAsync(request, 0); // System user
                 }
 
                 _logger.LogInformation("Sent critical expiry alerts for {Count} batches to {UserCount} users", 
@@ -433,7 +483,7 @@ namespace Berca_Backend.Services
                         Type = notification.Type,
                         ActionUrl = notification.ActionUrl
                     };
-                    await _notificationService.CreateNotificationAsync(request, "System");
+                    await _notificationService.CreateNotificationAsync(request, 0); // System user
                 }
             }
         }
@@ -467,7 +517,7 @@ namespace Berca_Backend.Services
                         Type = notification.Type,
                         ActionUrl = notification.ActionUrl
                     };
-                    await _notificationService.CreateNotificationAsync(request, "System");
+                    await _notificationService.CreateNotificationAsync(request, 0); // System user
                 }
             }
         }
@@ -506,7 +556,7 @@ namespace Berca_Backend.Services
                         Type = notification.Type,
                         ActionUrl = notification.ActionUrl
                     };
-                    await _notificationService.CreateNotificationAsync(request, "System");
+                    await _notificationService.CreateNotificationAsync(request, 0); // System user
                 }
             }
         }

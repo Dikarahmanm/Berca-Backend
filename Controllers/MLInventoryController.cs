@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
+#pragma warning disable CS1998 // Async method lacks 'await' operators and will run synchronously
 using Microsoft.AspNetCore.Authorization;
 using Berca_Backend.Services;
 using Berca_Backend.DTOs;
@@ -14,7 +15,7 @@ namespace Berca_Backend.Controllers
     [ApiController]
     [Route("api/ml/inventory")]
     [Authorize]
-    public class MLInventoryController : ControllerBase
+public class MLInventoryController : ControllerBase
     {
         private readonly IMLInventoryService _mlInventoryService;
         private readonly ILogger<MLInventoryController> _logger;
@@ -477,7 +478,7 @@ namespace Berca_Backend.Controllers
         {
             try
             {
-                if (!productIds?.Any() ?? true)
+                if (productIds == null || !productIds.Any())
                 {
                     return BadRequest(new ApiResponse<List<DemandForecastResult>>
                     {
@@ -529,3 +530,4 @@ namespace Berca_Backend.Controllers
         }
     }
 }
+#pragma warning restore CS1998

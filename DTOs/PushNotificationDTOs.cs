@@ -54,7 +54,7 @@ namespace Berca_Backend.DTOs
         public int[]? Vibrate { get; set; }
         public Dictionary<string, object>? Data { get; set; }
         public List<NotificationActionDto>? Actions { get; set; }
-        public NotificationPriority Priority { get; set; } = NotificationPriority.Normal;
+        public Models.NotificationPriority Priority { get; set; } = Models.NotificationPriority.Normal;
     }
 
     /// <summary>
@@ -72,9 +72,9 @@ namespace Berca_Backend.DTOs
     }
 
     /// <summary>
-    /// Bulk notification request
+    /// Bulk push notification request (specific to push notifications)
     /// </summary>
-    public class BulkNotificationRequest
+    public class BulkPushNotificationRequest
     {
         [Required]
         public NotificationPayload Payload { get; set; } = new();
@@ -108,7 +108,7 @@ namespace Berca_Backend.DTOs
         public string Title { get; set; } = string.Empty;
         public string Body { get; set; } = string.Empty;
         public string? Icon { get; set; }
-        public NotificationPriority Priority { get; set; }
+        public Models.NotificationPriority Priority { get; set; }
         public bool RequireInteraction { get; set; }
         public NotificationCategory Category { get; set; }
         public bool IsActive { get; set; }
@@ -132,7 +132,7 @@ namespace Berca_Backend.DTOs
         public string Body { get; set; } = string.Empty;
 
         public string? Icon { get; set; }
-        public NotificationPriority Priority { get; set; } = NotificationPriority.Normal;
+        public Models.NotificationPriority Priority { get; set; } = Models.NotificationPriority.Normal;
         public bool RequireInteraction { get; set; } = false;
         public NotificationCategory Category { get; set; } = NotificationCategory.General;
         public string? VibrationPattern { get; set; }
@@ -214,7 +214,7 @@ namespace Berca_Backend.DTOs
         public int? RelatedEntityId { get; set; }
         public string? RelatedEntityType { get; set; }
         public Dictionary<string, object> TemplateData { get; set; } = new();
-        public NotificationPriority Priority { get; set; } = NotificationPriority.Normal;
+        public Models.NotificationPriority Priority { get; set; } = Models.NotificationPriority.Normal;
         public List<string> TargetRoles { get; set; } = new();
         public int? BranchId { get; set; }
     }
@@ -234,17 +234,17 @@ namespace Berca_Backend.DTOs
         public string? LastError { get; set; }
         public DateTime CreatedAt { get; set; }
         public DateTime NextRetryAt { get; set; }
-        public NotificationPriority Priority { get; set; }
+        public Models.NotificationPriority Priority { get; set; }
         
         // Display properties for Indonesian context
         public string CreatedAtDisplay => CreatedAt.ToString("dd/MM/yyyy HH:mm:ss");
         public string NextRetryAtDisplay => NextRetryAt.ToString("dd/MM/yyyy HH:mm:ss");
         public string PriorityDisplay => Priority switch
         {
-            NotificationPriority.Critical => "Kritis",
-            NotificationPriority.High => "Tinggi",
-            NotificationPriority.Normal => "Normal",
-            NotificationPriority.Low => "Rendah",
+            Models.NotificationPriority.Critical => "Kritis",
+            Models.NotificationPriority.High => "Tinggi",
+            Models.NotificationPriority.Normal => "Normal",
+            Models.NotificationPriority.Low => "Rendah",
             _ => "Normal"
         };
         public bool CanRetry => AttemptCount < 3 && NextRetryAt <= DateTime.UtcNow;

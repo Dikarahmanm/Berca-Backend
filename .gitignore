@@ -438,3 +438,18 @@ prompt*.md
 *prompt.txt
 agents.md
 AGENTS.md
+/final-test.ps1
+/Multi-Branch Notification API Specification.md
+/multi-branch-implementation-guide.md
+/MultiBranchNotificationAPI.md
+/start-clean.ps1
+/start-quiet.ps1
+/start-with-logging.ps1
+/test-api.ps1
+/test-create-fixed.ps1
+/test-create.ps1
+/test-fixed-endpoints.ps1
+/test-login.ps1
+/test-multibranch-api.ps1
+/test-simple.ps1
+/text.md

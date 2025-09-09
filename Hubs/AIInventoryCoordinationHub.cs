@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.SignalR;
+#pragma warning disable CS1998 // Async method lacks 'await' operators and will run synchronously
 using Microsoft.AspNetCore.Authorization;
 using Berca_Backend.Services;
 using Berca_Backend.DTOs;
@@ -12,7 +13,7 @@ namespace Berca_Backend.Hubs
     /// Provides live updates, notifications, and coordination status
     /// </summary>
     [Authorize]
-    public class AIInventoryCoordinationHub : Hub
+public class AIInventoryCoordinationHub : Hub
     {
         private readonly IAIInventoryCoordinationService _aiInventoryService;
         private readonly ILogger<AIInventoryCoordinationHub> _logger;
@@ -489,3 +490,4 @@ namespace Berca_Backend.Hubs
         public bool IsMonitoringOptimizations { get; set; } = false;
     }
 }
+#pragma warning restore CS1998

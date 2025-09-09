@@ -38,7 +38,6 @@ namespace Berca_Backend.Services
         private ITransformer? _demandModel;
         private ITransformer? _anomalyModel;
         private ITransformer? _clusterModel;
-        private TimeSeriesPredictionEngine<DemandData, DemandPrediction>? _demandEngine;
 
         public MLInventoryService(
             AppDbContext context,
@@ -493,24 +492,28 @@ namespace Berca_Backend.Services
 
         private async Task<List<AnomalyDetectionResult>> DetectSalesAnomaliesAsync(List<Sale> salesData)
         {
+            await Task.CompletedTask;
             // Implementation for sales anomaly detection
             return new List<AnomalyDetectionResult>();
         }
 
         private async Task<List<AnomalyDetectionResult>> DetectInventoryAnomaliesAsync(int? branchId)
         {
+            await Task.CompletedTask;
             // Implementation for inventory anomaly detection
             return new List<AnomalyDetectionResult>();
         }
 
         private async Task<List<AnomalyDetectionResult>> DetectPriceAnomaliesAsync(int? branchId)
         {
+            await Task.CompletedTask;
             // Implementation for price anomaly detection
             return new List<AnomalyDetectionResult>();
         }
 
         private async Task<List<ProductFeatureData>> GetProductFeaturesForClusteringAsync()
         {
+            await Task.CompletedTask;
             // Implementation to extract product features for clustering
             return new List<ProductFeatureData>();
         }
@@ -529,42 +532,49 @@ namespace Berca_Backend.Services
 
         private async Task<List<MLTransferRecommendation>> AnalyzeBranchTransferOpportunities(Branch sourceBranch, Branch targetBranch)
         {
+            await Task.CompletedTask;
             // ML-based transfer opportunity analysis
             return new List<MLTransferRecommendation>();
         }
 
         private async Task<List<MLTransferRecommendation>> ScoreTransferRecommendations(List<MLTransferRecommendation> recommendations)
         {
+            await Task.CompletedTask;
             // Score recommendations using ML
             return recommendations;
         }
 
         private async Task<float> GetTransferModelAccuracyAsync()
         {
+            await Task.CompletedTask;
             // Calculate transfer model accuracy
             return 0.85f;
         }
 
         private async Task<bool> TrainDemandForecastModelsAsync()
         {
+            await Task.CompletedTask;
             // Train demand forecast models
             return true;
         }
 
         private async Task<bool> TrainAnomalyDetectionModelAsync()
         {
+            await Task.CompletedTask;
             // Train anomaly detection model
             return true;
         }
 
         private async Task<bool> TrainProductClusteringModelAsync()
         {
+            await Task.CompletedTask;
             // Train product clustering model
             return true;
         }
 
         private async Task<ModelHealthStatus> CheckDemandModelHealthAsync()
         {
+            await Task.CompletedTask;
             return new ModelHealthStatus
             {
                 IsHealthy = true,
@@ -577,6 +587,7 @@ namespace Berca_Backend.Services
 
         private async Task<ModelHealthStatus> CheckAnomalyModelHealthAsync()
         {
+            await Task.CompletedTask;
             return new ModelHealthStatus
             {
                 IsHealthy = true,
@@ -589,6 +600,7 @@ namespace Berca_Backend.Services
 
         private async Task<ModelHealthStatus> CheckClusteringModelHealthAsync()
         {
+            await Task.CompletedTask;
             return new ModelHealthStatus
             {
                 IsHealthy = true,

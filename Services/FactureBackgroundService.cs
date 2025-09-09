@@ -60,7 +60,7 @@ namespace Berca_Backend.Services
             {
                 using var scope = _serviceProvider.CreateScope();
                 var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-                var notificationService = scope.ServiceProvider.GetService<INotificationService>();
+                var notificationService = scope.ServiceProvider.GetService<IMultiBranchNotificationService>();
 
                 if (notificationService != null)
                 {
@@ -83,7 +83,7 @@ namespace Berca_Backend.Services
         /// <summary>
         /// Check and notify for factures due today
         /// </summary>
-        private async Task CheckFacturesDueToday(AppDbContext context, INotificationService notificationService, CancellationToken cancellationToken)
+        private async Task CheckFacturesDueToday(AppDbContext context, IMultiBranchNotificationService notificationService, CancellationToken cancellationToken)
         {
             try
             {
@@ -132,7 +132,7 @@ namespace Berca_Backend.Services
         /// <summary>
         /// Check and notify for overdue factures
         /// </summary>
-        private async Task CheckOverdueFactures(AppDbContext context, INotificationService notificationService, CancellationToken cancellationToken)
+        private async Task CheckOverdueFactures(AppDbContext context, IMultiBranchNotificationService notificationService, CancellationToken cancellationToken)
         {
             try
             {
@@ -184,7 +184,7 @@ namespace Berca_Backend.Services
         /// <summary>
         /// Check and notify for factures requiring approval
         /// </summary>
-        private async Task CheckFacturesRequiringApproval(AppDbContext context, INotificationService notificationService, CancellationToken cancellationToken)
+        private async Task CheckFacturesRequiringApproval(AppDbContext context, IMultiBranchNotificationService notificationService, CancellationToken cancellationToken)
         {
             try
             {

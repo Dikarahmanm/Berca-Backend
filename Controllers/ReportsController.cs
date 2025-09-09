@@ -96,7 +96,7 @@ namespace Berca_Backend.Controllers
                         totalMembers = creditTransactions.Select(ct => ct.MemberId).Distinct().Count()
                     },
                     transactionsByBranch = creditTransactions
-                        .GroupBy(ct => new { ct.BranchId, ct.Branch.BranchName })
+                        .GroupBy(ct => new { ct.BranchId, BranchName = ct.Branch != null ? ct.Branch.BranchName : null })
                         .Select(g => new
                         {
                             branchId = g.Key.BranchId,
@@ -113,8 +113,8 @@ namespace Berca_Backend.Controllers
                         .Select(ct => new
                         {
                             id = ct.Id,
-                            memberName = ct.Member.Name,
-                            memberNumber = ct.Member.MemberNumber,
+                            memberName = ct.Member?.Name,
+                            memberNumber = ct.Member?.MemberNumber,
                             branchName = ct.Branch?.BranchName,
                             transactionType = ct.Type,
                             amount = Math.Round(ct.Amount, 2),
@@ -191,8 +191,8 @@ namespace Berca_Backend.Controllers
 
                 var inventoryQuery = _context.ProductBatches
                     .Where(pb => filterBranchIds.Contains(pb.BranchId ?? 0))
-                    .Include(pb => pb.Product)
-                    .Include(pb => pb.Product.Category)
+                    .Include(pb => pb.Product!)
+                    .ThenInclude(p => p!.Category)
                     .Include(pb => pb.Branch)
                     .AsQueryable();
 
@@ -203,7 +203,7 @@ namespace Berca_Backend.Controllers
 
                 if (categoryId.HasValue)
                 {
-                    inventoryQuery = inventoryQuery.Where(pb => pb.Product.CategoryId == categoryId.Value);
+                    inventoryQuery = inventoryQuery.Where(pb => pb.Product != null && pb.Product.CategoryId == categoryId.Value);
                 }
 
                 var inventoryData = await inventoryQuery.ToListAsync();
@@ -217,52 +217,52 @@ namespace Berca_Backend.Controllers
                     {
                         totalProducts = inventoryData.Select(pb => pb.ProductId).Distinct().Count(),
                         totalStock = inventoryData.Sum(pb => pb.CurrentStock),
-                        totalValue = Math.Round(inventoryData.Sum(pb => pb.CurrentStock * pb.Product.SellPrice), 2),
-                        lowStockItems = inventoryData.Count(pb => pb.CurrentStock <= pb.Product.MinimumStock),
+                        totalValue = Math.Round(inventoryData.Sum(pb => pb.CurrentStock * (pb.Product?.SellPrice ?? 0)), 2),
+                        lowStockItems = inventoryData.Count(pb => pb.CurrentStock <= (pb.Product?.MinimumStock ?? 0)),
                         outOfStockItems = inventoryData.Count(pb => pb.CurrentStock == 0),
                         branches = inventoryData.Select(pb => pb.BranchId).Distinct().Count()
                     },
                     inventoryByBranch = inventoryData
-                        .GroupBy(pb => new { pb.BranchId, pb.Branch.BranchName })
+                        .GroupBy(pb => new { pb.BranchId, BranchName = pb.Branch != null ? pb.Branch.BranchName : null })
                         .Select(g => new
                         {
                             branchId = g.Key.BranchId,
                             branchName = g.Key.BranchName,
                             totalProducts = g.Select(pb => pb.ProductId).Distinct().Count(),
                             totalStock = g.Sum(pb => pb.CurrentStock),
-                            totalValue = Math.Round(g.Sum(pb => pb.CurrentStock * pb.Product.SellPrice), 2),
-                            lowStockItems = g.Count(pb => pb.CurrentStock <= pb.Product.MinimumStock),
+                            totalValue = Math.Round(g.Sum(pb => pb.CurrentStock * (pb.Product?.SellPrice ?? 0)), 2),
+                            lowStockItems = g.Count(pb => pb.CurrentStock <= (pb.Product?.MinimumStock ?? 0)),
                             outOfStockItems = g.Count(pb => pb.CurrentStock == 0)
                         })
                         .OrderBy(g => g.branchName)
                         .ToList(),
                     inventoryByCategory = inventoryData
-                        .GroupBy(pb => new { pb.Product.CategoryId, pb.Product.Category.Name })
+                        .GroupBy(pb => new { CategoryId = pb.Product?.CategoryId ?? 0, CategoryName = pb.Product?.Category?.Name })
                         .Select(g => new
                         {
                             categoryId = g.Key.CategoryId,
-                            categoryName = g.Key.Name,
+                            categoryName = g.Key.CategoryName,
                             totalProducts = g.Select(pb => pb.ProductId).Distinct().Count(),
                             totalStock = g.Sum(pb => pb.CurrentStock),
-                            totalValue = Math.Round(g.Sum(pb => pb.CurrentStock * pb.Product.SellPrice), 2),
-                            lowStockItems = g.Count(pb => pb.CurrentStock <= pb.Product.MinimumStock),
+                            totalValue = Math.Round(g.Sum(pb => pb.CurrentStock * (pb.Product?.SellPrice ?? 0)), 2),
+                            lowStockItems = g.Count(pb => pb.CurrentStock <= (pb.Product?.MinimumStock ?? 0)),
                             outOfStockItems = g.Count(pb => pb.CurrentStock == 0)
                         })
                         .OrderBy(g => g.categoryName)
                         .ToList(),
                     lowStockAlert = inventoryData
-                        .Where(pb => pb.CurrentStock <= pb.Product.MinimumStock)
+                        .Where(pb => pb.CurrentStock <= (pb.Product?.MinimumStock ?? 0))
                         .Select(pb => new
                         {
                             productId = pb.ProductId,
-                            productName = pb.Product.Name,
+                            productName = pb.Product?.Name,
                             branchId = pb.BranchId,
                             branchName = pb.Branch?.BranchName,
-                            categoryName = pb.Product.Category.Name,
+                            categoryName = pb.Product?.Category?.Name,
                             batchNumber = pb.BatchNumber,
                             currentStock = pb.CurrentStock,
-                            minimumStock = pb.Product.MinimumStock,
-                            shortage = pb.Product.MinimumStock - pb.CurrentStock,
+                            minimumStock = pb.Product?.MinimumStock ?? 0,
+                            shortage = (pb.Product?.MinimumStock ?? 0) - pb.CurrentStock,
                             lastUpdated = pb.UpdatedAt
                         })
                         .OrderBy(i => i.shortage)

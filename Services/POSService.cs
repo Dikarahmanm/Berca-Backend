@@ -15,12 +15,12 @@ namespace Berca_Backend.Services
         private readonly IProductService _productService;
         private readonly IMemberService _memberService;
         private readonly ITimezoneService _timezoneService;
-        private readonly INotificationService _notificationService;
+        private readonly IMultiBranchNotificationService _notificationService;
         private readonly IDashboardService _dashboardService; // Add dashboard service
 
         public POSService(AppDbContext context, ILogger<POSService> logger,
             IProductService productService, IMemberService memberService,
-            ITimezoneService timezoneService, INotificationService notificationService,
+            ITimezoneService timezoneService, IMultiBranchNotificationService notificationService,
             IDashboardService dashboardService) // Add parameter
         {
             _context = context;
@@ -416,6 +416,7 @@ namespace Berca_Backend.Services
                         "receipt_printed",
                         "Struk Dicetak",
                         $"Struk untuk transaksi {sale.SaleNumber} telah dicetak",
+                        null,
                         $"/sales/{sale.Id}"
                     );
                 }

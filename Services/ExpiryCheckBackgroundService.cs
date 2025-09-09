@@ -69,7 +69,7 @@ namespace Berca_Backend.Services
             {
                 using var scope = _serviceProvider.CreateScope();
                 var expiryService = scope.ServiceProvider.GetRequiredService<IExpiryManagementService>();
-                var notificationService = scope.ServiceProvider.GetService<INotificationService>();
+                var notificationService = scope.ServiceProvider.GetService<IMultiBranchNotificationService>();
 
                 var startTime = DateTime.UtcNow;
 
@@ -108,7 +108,7 @@ namespace Berca_Backend.Services
                 try
                 {
                     using var scope = _serviceProvider.CreateScope();
-                    var notificationService = scope.ServiceProvider.GetService<INotificationService>();
+                    var notificationService = scope.ServiceProvider.GetService<IMultiBranchNotificationService>();
                     
                     if (notificationService != null)
                     {
@@ -131,7 +131,7 @@ namespace Berca_Backend.Services
         /// </summary>
         private async Task SendDailySummaryNotification(
             Interfaces.ExpiryCheckResultDto checkResult, 
-            INotificationService notificationService)
+            IMultiBranchNotificationService notificationService)
         {
             try
             {
@@ -168,7 +168,7 @@ namespace Berca_Backend.Services
         /// </summary>
         private async Task PerformBranchSpecificChecks(
             IExpiryManagementService expiryService,
-            INotificationService? notificationService)
+            IMultiBranchNotificationService? notificationService)
         {
             try
             {
@@ -207,7 +207,7 @@ namespace Berca_Backend.Services
             int branchId, 
             string branchName, 
             IExpiryManagementService expiryService,
-            INotificationService? notificationService)
+            IMultiBranchNotificationService? notificationService)
         {
             try
             {

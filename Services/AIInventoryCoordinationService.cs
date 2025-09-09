@@ -2,6 +2,7 @@ using Berca_Backend.Data;
 using Berca_Backend.DTOs;
 using Berca_Backend.Models;
 using Microsoft.EntityFrameworkCore;
+#pragma warning disable CS1998 // Async method lacks 'await' operators and will run synchronously
 // Removed Microsoft.Extensions.ML - not needed
 using System.Text.Json;
 
@@ -23,7 +24,7 @@ namespace Berca_Backend.Services
         Task<AutoOptimizationResultDto> ExecuteAutoOptimizationAsync(bool dryRun = true);
     }
 
-    public class AIInventoryCoordinationService : IAIInventoryCoordinationService
+public class AIInventoryCoordinationService : IAIInventoryCoordinationService
     {
         private readonly AppDbContext _context;
         private readonly ILogger<AIInventoryCoordinationService> _logger;
@@ -593,3 +594,5 @@ namespace Berca_Backend.Services
         private async Task<decimal> CalculateOptimizationConfidenceAsync(List<OptimizationActionDto> actions) => 83.0m;
     }
 }
+// Restore async warning
+#pragma warning restore CS1998

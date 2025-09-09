@@ -195,6 +195,16 @@ builder.Services.AddAuthorization(options =>
     options.AddPolicy("Notifications.Advanced", policy =>
         policy.RequireRole("Admin", "HeadManager", "BranchManager", "Manager"));
 
+    // ===== MULTI-BRANCH NOTIFICATION POLICIES ===== //
+    
+    // Create notifications - Management and staff can create notifications
+    options.AddPolicy("Notification.Create", policy =>
+        policy.RequireRole("Admin", "HeadManager", "BranchManager", "Manager", "User"));
+        
+    // Delete notifications - Only creators, managers and admins can delete
+    options.AddPolicy("Notification.Delete", policy =>
+        policy.RequireRole("Admin", "HeadManager", "BranchManager"));
+
     // AI analytics and reporting - Management and staff can view
     options.AddPolicy("Reports.Analytics", policy =>
         policy.RequireRole("Admin", "HeadManager", "BranchManager", "Manager", "User"));
@@ -452,6 +462,10 @@ builder.Services.AddAuthorization(options =>
     options.AddPolicy("Reports.Financial", policy =>
         policy.RequireRole("Admin", "HeadManager", "BranchManager"));
 
+    // Credit reporting (sensitive member credit data)
+    options.AddPolicy("Reports.Credit", policy =>
+        policy.RequireRole("Admin", "HeadManager", "BranchManager", "Manager"));
+
     // Supplier performance reporting
     options.AddPolicy("Reports.Supplier", policy =>
         policy.RequireRole("Admin", "HeadManager", "BranchManager", "Manager"));
@@ -627,7 +641,7 @@ builder.Services.AddScoped<ITimezoneService, TimezoneService>(); // FIRST - othe
 builder.Services.AddScoped<IProductService, ProductService>();
 builder.Services.AddScoped<IDashboardService, DashboardService>();
 builder.Services.AddScoped<ICategoryService, CategoryService>();
-builder.Services.AddScoped<INotificationService, NotificationService>();
+// ✅ Basic notification service removed - using unified MultiBranch system instead
 builder.Services.AddScoped<IMemberService, MemberService>();
 builder.Services.AddScoped<IPOSService, POSService>();
 builder.Services.AddScoped<IUserBranchAssignmentService, UserBranchAssignmentService>();
@@ -672,6 +686,9 @@ builder.Services.AddScoped<IMultiBranchCoordinationService, MultiBranchCoordinat
 builder.Services.AddScoped<IAIInventoryCoordinationService, AIInventoryCoordinationService>();
 builder.Services.AddScoped<IMLInventoryService, MLInventoryService>();
 
+// ✅ Multi-Branch Notification System
+builder.Services.AddScoped<IMultiBranchNotificationService, MultiBranchNotificationService>();
+
 // ✅ Add Swagger
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>
@@ -714,10 +731,35 @@ builder.Services.AddSwaggerGen(c =>
     });
 });
 
-// ✅ Add logging
+// ✅ Add logging with reduced noise for development debugging
 builder.Logging.ClearProviders();
 builder.Logging.AddConsole();
 builder.Logging.AddDebug();
+
+// Configure logging levels for better debugging experience
+if (builder.Environment.IsDevelopment())
+{
+    builder.Logging.AddFilter("Microsoft.EntityFrameworkCore.Database.Command", LogLevel.None);
+    builder.Logging.AddFilter("Microsoft.EntityFrameworkCore.Database.Transaction", LogLevel.None);
+    builder.Logging.AddFilter("Microsoft.EntityFrameworkCore.Database.Connection", LogLevel.None);
+    builder.Logging.AddFilter("Microsoft.EntityFrameworkCore.Infrastructure", LogLevel.Warning);
+    builder.Logging.AddFilter("Microsoft.EntityFrameworkCore.Model.Validation", LogLevel.Warning);
+    
+    // Background services - reduce noise
+    builder.Logging.AddFilter("Berca_Backend.Services.PushNotificationService", LogLevel.Error);
+    builder.Logging.AddFilter("Berca_Backend.Services.BrowserNotificationService", LogLevel.Error);
+    builder.Logging.AddFilter("Berca_Backend.Services.EventReminderService", LogLevel.Error);
+    builder.Logging.AddFilter("Berca_Backend.Services.MemberCreditBackgroundService", LogLevel.Error);
+    builder.Logging.AddFilter("Berca_Backend.Services.FactureBackgroundService", LogLevel.Error);
+    builder.Logging.AddFilter("Berca_Backend.Services.Background.BatchExpiryMonitoringService", LogLevel.Warning);
+    builder.Logging.AddFilter("Berca_Backend.Services.AIInventoryBackgroundService", LogLevel.Error);
+    builder.Logging.AddFilter("Berca_Backend.Services.AIInventoryCoordinationService", LogLevel.Error);
+    builder.Logging.AddFilter("Berca_Backend.Services.TimezoneService", LogLevel.Error);
+    
+    // Keep important controllers and startup visible
+    builder.Logging.AddFilter("Berca_Backend.Controllers", LogLevel.Information);
+    builder.Logging.AddFilter("Program", LogLevel.Information);
+}
 
 // ✅ Add SignalR for real-time coordination
 builder.Services.AddSignalR(options =>
@@ -846,6 +888,7 @@ app.UseExceptionHandler(errorApp =>
 
 // ✅ Configure SignalR hubs
 app.MapHub<Berca_Backend.Hubs.AIInventoryCoordinationHub>("/hubs/ai-inventory-coordination");
+app.MapHub<Berca_Backend.Services.MultiBranchNotificationHub>("/multibranch-notification-hub");
 
 // ✅ Log startup information
 var startupLogger = app.Services.GetRequiredService<ILogger<Program>>();
