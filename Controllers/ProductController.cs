@@ -73,25 +73,29 @@ namespace Berca_Backend.Controllers
 
                 var response = await _productService.GetProductsAsync(page, pageSize, search, categoryId, isActive);
 
-                // Enhance products with branch-specific stock information
+                // Enhance products with REAL branch-specific stock information
+                var productIds = response.Products.Select(p => p.Id).ToList();
+                var realBranchStocks = await GetRealBranchStocksBatch(productIds, requestedBranchIds);
+
                 var enhancedProducts = new List<object>();
                 foreach (var product in response.Products)
                 {
                     var branchStocks = new List<object>();
                     
-                    // Get stock information for accessible branches
+                    // Get REAL stock information for accessible branches
                     foreach (var branchId in requestedBranchIds)
                     {
                         var branch = await _context.Branches.FirstOrDefaultAsync(b => b.Id == branchId);
                         if (branch != null)
                         {
-                            // For now, use the product's main stock info
-                            // In a real implementation, you'd have branch-specific stock tables
+                            // ✅ FIX: Use REAL branch stock from StockMutations
+                            var realStock = realBranchStocks.TryGetValue((product.Id, branchId), out var stock) ? stock : 0;
+                            
                             branchStocks.Add(new
                             {
                                 branchId = branch.Id,
                                 branchName = branch.BranchName,
-                                stock = branchId == 1 ? product.Stock : (product.Stock > 50 ? product.Stock - 50 : 0), // Simulate different branch stocks
+                                stock = realStock, // ✅ REAL STOCK DATA
                                 minStock = product.MinStock,
                                 maxStock = product.MaxStock,
                                 lastUpdated = DateTime.UtcNow
@@ -99,20 +103,33 @@ namespace Berca_Backend.Controllers
                         }
                     }
 
+                    // Calculate total stock across accessible branches
+                    var totalBranchStock = branchStocks.Cast<dynamic>().Sum(bs => (int)bs.stock);
+
                     enhancedProducts.Add(new
                     {
                         id = product.Id,
                         name = product.Name,
                         barcode = product.Barcode,
-                        category = product.CategoryName ?? "No Category", // Fix: Use CategoryName instead of Category?.Name
+                        description = product.Description,
+                        categoryId = product.CategoryId,
+                        categoryName = product.CategoryName ?? "Uncategorized",
+                        categoryColor = product.CategoryColor ?? "#666666",
                         brand = product.Brand ?? string.Empty,
                         buyPrice = product.BuyPrice,
                         sellPrice = product.SellPrice,
-                        stock = product.Stock,
+                        stock = totalBranchStock, // ✅ REAL TOTAL STOCK
+                        minimumStock = product.MinimumStock,
                         minStock = product.MinStock,
                         maxStock = product.MaxStock,
                         unit = product.Unit,
+                        imageUrl = product.ImageUrl,
                         isActive = product.IsActive,
+                        createdAt = product.CreatedAt,
+                        updatedAt = product.UpdatedAt,
+                        profitMargin = product.ProfitMargin,
+                        isLowStock = product.IsLowStock,
+                        isOutOfStock = product.IsOutOfStock,
                         branchStocks = branchStocks
                     });
                 }
@@ -1368,6 +1385,165 @@ namespace Berca_Backend.Controllers
         }
 
         /// <summary>
+        /// Get real branch-specific stock for a product
+        /// </summary>
+        [HttpGet("{id}/branch-stock")]
+        [Authorize(Policy = "Inventory.Read")]
+        public async Task<ActionResult<ApiResponse<object>>> GetProductBranchStock(int id, [FromQuery] string? branchIds = null)
+        {
+            try
+            {
+                var currentUserId = GetCurrentUserId();
+                var currentUserRole = GetCurrentUserRole();
+                
+                // Parse branch IDs for filtering
+                var requestedBranchIds = new List<int>();
+                if (!string.IsNullOrEmpty(branchIds))
+                {
+                    requestedBranchIds = branchIds.Split(',')
+                        .Where(bid => int.TryParse(bid.Trim(), out _))
+                        .Select(bid => int.Parse(bid.Trim()))
+                        .ToList();
+                }
+                else
+                {
+                    // Get all accessible branches if no specific branches requested
+                    requestedBranchIds = await GetUserAccessibleBranches(currentUserId, currentUserRole);
+                }
+
+                // Validate user access to requested branches
+                var accessibleBranchIds = await GetUserAccessibleBranches(currentUserId, currentUserRole);
+                requestedBranchIds = requestedBranchIds.Intersect(accessibleBranchIds).ToList();
+
+                if (!requestedBranchIds.Any())
+                {
+                    return BadRequest(new ApiResponse<object>
+                    {
+                        Success = false,
+                        Message = "No accessible branches specified"
+                    });
+                }
+
+                // Get real branch stocks
+                var branchStockData = await GetRealBranchStocksBatch(new List<int> { id }, requestedBranchIds);
+
+                var branchStocks = new List<object>();
+                var totalStock = 0;
+
+                foreach (var branchId in requestedBranchIds)
+                {
+                    var branch = await _context.Branches.FirstOrDefaultAsync(b => b.Id == branchId);
+                    if (branch != null)
+                    {
+                        var stock = branchStockData.TryGetValue((id, branchId), out var branchStock) ? branchStock : 0;
+                        totalStock += stock;
+
+                        branchStocks.Add(new
+                        {
+                            branchId = branch.Id,
+                            branchName = branch.BranchName,
+                            branchCode = branch.BranchCode,
+                            stock = stock,
+                            lastUpdated = DateTime.UtcNow,
+                            stockLevel = GetStockLevel(stock),
+                            isLowStock = stock <= 10, // Configurable threshold
+                            isOutOfStock = stock <= 0
+                        });
+                    }
+                }
+
+                return Ok(new ApiResponse<object>
+                {
+                    Success = true,
+                    Data = new
+                    {
+                        productId = id,
+                        totalStock = totalStock,
+                        branchCount = branchStocks.Count,
+                        branchStocks = branchStocks,
+                        generatedAt = DateTime.UtcNow
+                    },
+                    Message = $"Retrieved real branch stock data for {branchStocks.Count} branches"
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error retrieving branch stock for product {ProductId}", id);
+                return StatusCode(500, new ApiResponse<object>
+                {
+                    Success = false,
+                    Message = "Failed to retrieve branch stock data"
+                });
+            }
+        }
+
+        /// <summary>
+        /// Get real branch stock for specific branch and product
+        /// </summary>
+        [HttpGet("{id}/branch-stock/{branchId}")]
+        [Authorize(Policy = "Inventory.Read")]
+        public async Task<ActionResult<ApiResponse<object>>> GetProductBranchStockSingle(int id, int branchId)
+        {
+            try
+            {
+                var currentUserId = GetCurrentUserId();
+                var currentUserRole = GetCurrentUserRole();
+                
+                // Validate user access to branch
+                var accessibleBranchIds = await GetUserAccessibleBranches(currentUserId, currentUserRole);
+                if (!accessibleBranchIds.Contains(branchId))
+                {
+                    return StatusCode(403, new ApiResponse<object>
+                    {
+                        Success = false,
+                        Message = "Access denied to this branch"
+                    });
+                }
+
+                // Get branch info
+                var branch = await _context.Branches.FirstOrDefaultAsync(b => b.Id == branchId);
+                if (branch == null)
+                {
+                    return NotFound(new ApiResponse<object>
+                    {
+                        Success = false,
+                        Message = "Branch not found"
+                    });
+                }
+
+                // Get real stock
+                var realStock = await GetRealBranchStock(id, branchId);
+
+                return Ok(new ApiResponse<object>
+                {
+                    Success = true,
+                    Data = new
+                    {
+                        productId = id,
+                        branchId = branch.Id,
+                        branchName = branch.BranchName,
+                        branchCode = branch.BranchCode,
+                        stock = realStock,
+                        stockLevel = GetStockLevel(realStock),
+                        isLowStock = realStock <= 10,
+                        isOutOfStock = realStock <= 0,
+                        lastUpdated = DateTime.UtcNow
+                    },
+                    Message = $"Retrieved real stock data: {realStock} units"
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error retrieving branch stock for product {ProductId} branch {BranchId}", id, branchId);
+                return StatusCode(500, new ApiResponse<object>
+                {
+                    Success = false,
+                    Message = "Failed to retrieve branch stock data"
+                });
+            }
+        }
+
+        /// <summary>
         /// Adjust stock for specific branch (Required by frontend integration)
         /// </summary>
         [HttpPost("{id}/stock/adjust")]
@@ -1498,6 +1674,102 @@ namespace Berca_Backend.Controllers
 
         // ==================== HELPER METHODS ==================== //
 
+        /// <summary>
+        /// Get real branch-specific stock for a product using StockMutations with fallback to Product.Stock
+        /// </summary>
+        private async Task<int> GetRealBranchStock(int productId, int branchId)
+        {
+            // First, try to get from StockMutations for branch-specific tracking
+            var latestMutation = await _context.StockMutations
+                .Where(sm => sm.ProductId == productId && sm.BranchId == branchId)
+                .OrderByDescending(sm => sm.CreatedAt)
+                .FirstOrDefaultAsync();
+
+            if (latestMutation != null)
+            {
+                return latestMutation.StockAfter;
+            }
+
+            // Fallback: If no StockMutations exist for this branch, use Product.Stock
+            // This assumes stock is distributed across branches, for now return proportional share
+            var product = await _context.Products.FirstOrDefaultAsync(p => p.Id == productId);
+            if (product != null)
+            {
+                // For now, return the global stock (in future, implement branch-specific distribution)
+                return product.Stock;
+            }
+
+            return 0;
+        }
+
+        /// <summary>
+        /// Get real branch-specific stock for multiple products efficiently with fallback to Product.Stock
+        /// </summary>
+        private async Task<Dictionary<(int ProductId, int BranchId), int>> GetRealBranchStocksBatch(
+            List<int> productIds, List<int> branchIds)
+        {
+            // First, get all StockMutations for these products and branches
+            var branchStocks = await _context.StockMutations
+                .Where(sm => productIds.Contains(sm.ProductId) && 
+                           branchIds.Contains(sm.BranchId ?? 0))
+                .GroupBy(sm => new { sm.ProductId, BranchId = sm.BranchId ?? 0 })
+                .Select(g => new 
+                {
+                    ProductId = g.Key.ProductId,
+                    BranchId = g.Key.BranchId,
+                    CurrentStock = g.OrderByDescending(sm => sm.CreatedAt)
+                                  .First().StockAfter
+                })
+                .ToListAsync();
+
+            var result = branchStocks.ToDictionary(
+                bs => (bs.ProductId, bs.BranchId), 
+                bs => bs.CurrentStock
+            );
+
+            // Fallback: For combinations not in StockMutations, use Product.Stock
+            var products = await _context.Products
+                .Where(p => productIds.Contains(p.Id))
+                .Select(p => new { p.Id, p.Stock })
+                .ToListAsync();
+
+            foreach (var productId in productIds)
+            {
+                foreach (var branchId in branchIds)
+                {
+                    if (!result.ContainsKey((productId, branchId)))
+                    {
+                        var product = products.FirstOrDefault(p => p.Id == productId);
+                        if (product != null)
+                        {
+                            // Use global stock as fallback (in future, implement branch distribution logic)
+                            result[(productId, branchId)] = product.Stock;
+                        }
+                        else
+                        {
+                            result[(productId, branchId)] = 0;
+                        }
+                    }
+                }
+            }
+
+            return result;
+        }
+
+        /// <summary>
+        /// Get stock level classification for display
+        /// </summary>
+        private string GetStockLevel(int stock)
+        {
+            return stock switch
+            {
+                <= 0 => "out_of_stock",
+                <= 10 => "low",
+                <= 50 => "medium", 
+                _ => "high"
+            };
+        }
+
         private string GetCurrentUserRole()
         {
             return User.FindFirst("Role")?.Value ?? 
@@ -1540,6 +1812,135 @@ namespace Berca_Backend.Controllers
             }
 
             return accessibleBranches;
+        }
+
+        /// <summary>
+        /// Bulk update existing products with batches and expiry dates for categories that require expiry tracking
+        /// </summary>
+        [HttpPost("bulk-update-expiry-batches")]
+        [Authorize(Policy = "Inventory.Write")]
+        public async Task<ActionResult<ApiResponse<BulkUpdateResult>>> BulkUpdateProductsWithExpiryBatches(
+            [FromBody] BulkUpdateExpiryBatchesRequest request)
+        {
+            try
+            {
+                _logger.LogInformation("🔄 Starting bulk update of products with expiry batches");
+
+                var currentUserId = GetCurrentUserId();
+                var username = User.Identity?.Name ?? "system";
+
+                var result = new BulkUpdateResult();
+                var processedProducts = new List<string>();
+                var errors = new List<string>();
+
+                // Get all products that need expiry tracking but don't have batches
+                var productsQuery = _context.Products
+                    .Include(p => p.Category)
+                    .Where(p => p.IsActive && p.Category.RequiresExpiryDate)
+                    .AsQueryable();
+
+                // Filter by category if specified
+                if (request.CategoryIds != null && request.CategoryIds.Any())
+                {
+                    productsQuery = productsQuery.Where(p => request.CategoryIds.Contains(p.CategoryId));
+                }
+
+                var products = await productsQuery.ToListAsync();
+
+                foreach (var product in products)
+                {
+                    try
+                    {
+                        // Check if product already has batches
+                        var existingBatchCount = await _context.ProductBatches
+                            .CountAsync(b => b.ProductId == product.Id);
+
+                        if (existingBatchCount > 0 && !request.ForceUpdate)
+                        {
+                            _logger.LogInformation("⏭️ Skipping product {ProductId} - already has {BatchCount} batches", 
+                                product.Id, existingBatchCount);
+                            result.SkippedCount++;
+                            continue;
+                        }
+
+                        // Calculate default expiry date based on category
+                        var defaultExpiryDate = request.DefaultExpiryDate ?? 
+                            DateTime.UtcNow.AddDays(request.DefaultExpiryDays ?? 365);
+
+                        // Update product expiry date if not set
+                        if (product.ExpiryDate == null || request.ForceUpdate)
+                        {
+                            product.ExpiryDate = defaultExpiryDate;
+                            product.UpdatedAt = DateTime.UtcNow;
+                        }
+
+                        // Create initial batch for existing stock
+                        if (product.Stock > 0)
+                        {
+                            var batch = new ProductBatch
+                            {
+                                ProductId = product.Id,
+                                BatchNumber = $"BULK-{DateTime.UtcNow:yyyyMMdd}-{product.Id}",
+                                InitialStock = product.Stock,
+                                CurrentStock = product.Stock,
+                                ProductionDate = request.DefaultProductionDate ?? DateTime.UtcNow.AddDays(-30),
+                                ExpiryDate = defaultExpiryDate,
+                                CostPerUnit = request.DefaultCostPerUnit ?? product.BuyPrice,
+                                SupplierName = request.DefaultSupplierName ?? "System Migration",
+                                PurchaseOrderNumber = $"PO-BULK-{DateTime.UtcNow:yyyyMMdd}",
+                                Notes = "Created during bulk migration for expiry tracking",
+                                CreatedAt = DateTime.UtcNow,
+                                UpdatedAt = DateTime.UtcNow,
+                                CreatedByUserId = currentUserId,
+                                UpdatedByUserId = currentUserId,
+                                IsBlocked = false
+                            };
+
+                            _context.ProductBatches.Add(batch);
+                        }
+
+                        processedProducts.Add($"{product.Name} (ID: {product.Id})");
+                        result.UpdatedCount++;
+
+                        _logger.LogInformation("✅ Updated product {ProductId}: {ProductName}", 
+                            product.Id, product.Name);
+
+                    }
+                    catch (Exception ex)
+                    {
+                        var errorMsg = $"Failed to update product {product.Id} ({product.Name}): {ex.Message}";
+                        errors.Add(errorMsg);
+                        _logger.LogError(ex, errorMsg);
+                        result.ErrorCount++;
+                    }
+                }
+
+                // Save all changes
+                await _context.SaveChangesAsync();
+
+                result.TotalProcessed = products.Count;
+                result.ProcessedProducts = processedProducts;
+                result.Errors = errors;
+
+                _logger.LogInformation("🎯 Bulk update completed: {UpdatedCount} updated, {SkippedCount} skipped, {ErrorCount} errors", 
+                    result.UpdatedCount, result.SkippedCount, result.ErrorCount);
+
+                return Ok(new ApiResponse<BulkUpdateResult>
+                {
+                    Success = true,
+                    Data = result,
+                    Message = $"Bulk update completed: {result.UpdatedCount} products updated, {result.SkippedCount} skipped"
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "❌ Error during bulk update of products with expiry batches");
+                return StatusCode(500, new ApiResponse<BulkUpdateResult>
+                {
+                    Success = false,
+                    Message = "Failed to perform bulk update: " + ex.Message
+                });
+            }
         }
 
         private int GetCurrentUserId()

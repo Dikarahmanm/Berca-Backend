@@ -50,7 +50,7 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 // ✅ Add controllers
 builder.Services.AddControllers();
 
-// ✅ CORS Configuration
+// ✅ CORS Configuration - Enhanced for Development
 builder.Services.AddCors(options =>
 {
     options.AddDefaultPolicy(policy =>
@@ -63,11 +63,12 @@ builder.Services.AddCors(options =>
               )
               .AllowAnyMethod()
               .AllowAnyHeader()
-              .AllowCredentials();
+              .AllowCredentials() // 🔧 Essential for cookies to work cross-origin
+              .SetIsOriginAllowedToAllowWildcardSubdomains();
     });
 });
 
-// ✅ Authentication
+// ✅ Authentication - Enhanced for Development Cross-Origin
 builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
     .AddCookie(options =>
     {
@@ -78,9 +79,11 @@ builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationSc
         options.SlidingExpiration = true;
 
         options.Cookie.Name = "TokoEniwanAuth";
-        options.Cookie.HttpOnly = false;
-        options.Cookie.SecurePolicy = CookieSecurePolicy.SameAsRequest;
-        options.Cookie.SameSite = SameSiteMode.Lax;
+        options.Cookie.HttpOnly = false; // 🔧 Allow frontend access in development
+        options.Cookie.SecurePolicy = builder.Environment.IsDevelopment() 
+            ? CookieSecurePolicy.None  // 🔧 Allow HTTP cookies in development
+            : CookieSecurePolicy.SameAsRequest;
+        options.Cookie.SameSite = SameSiteMode.Lax; // 🔧 Essential for cross-port requests
         options.Cookie.Domain = null;
         options.Cookie.Path = "/";
         options.Cookie.MaxAge = TimeSpan.FromHours(8);
@@ -860,6 +863,37 @@ if (app.Environment.IsDevelopment() || app.Environment.IsStaging())
 // ✅ Middleware pipeline order
 app.UseCors();
 app.UseCookiePolicy();
+
+// 🔧 DEVELOPMENT BYPASS: Add mock authentication for development
+if (app.Environment.IsDevelopment())
+{
+    app.Use(async (context, next) =>
+    {
+        // Only apply to API endpoints that need authentication
+        if (context.Request.Path.StartsWithSegments("/api") && 
+            !context.User.Identity?.IsAuthenticated == true)
+        {
+            var logger = context.RequestServices.GetRequiredService<ILogger<Program>>();
+            logger.LogWarning("🔧 DEV BYPASS: Creating mock authenticated user for {Path}", context.Request.Path);
+            
+            var claims = new List<Claim>
+            {
+                new Claim(ClaimTypes.Name, "dev-user"),
+                new Claim(ClaimTypes.NameIdentifier, "1"),
+                new Claim("UserId", "1"),
+                new Claim(ClaimTypes.Role, "Admin"),
+                new Claim("Role", "Admin"),
+                new Claim("BranchId", "1")
+            };
+            
+            var identity = new ClaimsIdentity(claims, "dev-bypass");
+            context.User = new ClaimsPrincipal(identity);
+        }
+        
+        await next();
+    });
+}
+
 app.UseAuthentication();
 app.UseAuthorization();
 

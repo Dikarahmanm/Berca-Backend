@@ -453,3 +453,8 @@ AGENTS.md
 /test-multibranch-api.ps1
 /test-simple.ps1
 /text.md
+/backup-pos.component.ts
+/backup-pos.service.js
+/FRONTEND_IMPLEMENTATION_GUIDE.md
+/multi-branch-core-service.md
+/multi-branch-pos-enhancement.md
