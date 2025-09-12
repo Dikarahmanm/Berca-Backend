@@ -47,6 +47,8 @@ builder.Services.AddDbContext<AppDbContext>(options =>
     });
 });
 
+
+
 // ✅ Add controllers
 builder.Services.AddControllers();
 
@@ -675,16 +677,17 @@ builder.Services.AddFactureBackgroundService();
 builder.Services.AddHostedService<Berca_Backend.Services.Background.BatchExpiryMonitoringService>();
 builder.Services.AddHostedService<AIInventoryBackgroundService>();
 
+// ✅ Add ML Model Training Background Service
+builder.Services.AddHostedService<MLModelTrainingBackgroundService>();
+
 // ✅ Add Sprint 8: Advanced Reporting & Analytics Services
 builder.Services.AddScoped<IReportService, ReportService>();
-builder.Services.AddScoped<IBusinessIntelligenceService, BusinessIntelligenceService>();
 builder.Services.AddScoped<IExportService, ExportService>();
 
 // ✅ Add Business Rules Service for centralized business logic
 builder.Services.AddScoped<IBusinessRulesService, BusinessRulesService>();
 
 // ✅ Add Advanced Analytics Services (Final Backend Implementation)
-builder.Services.AddScoped<ISmartNotificationEngineService, SmartNotificationEngineService>();
 builder.Services.AddScoped<IMultiBranchCoordinationService, MultiBranchCoordinationService>();
 builder.Services.AddScoped<IAIInventoryCoordinationService, AIInventoryCoordinationService>();
 builder.Services.AddScoped<IMLInventoryService, MLInventoryService>();
@@ -939,6 +942,7 @@ if (app.Environment.IsDevelopment() || app.Environment.IsStaging())
 startupLogger.LogInformation("🔐 Branch-Aware Authentication Configured");
 startupLogger.LogInformation("📁 Directories Created: wwwroot, uploads, exports, factures");
 startupLogger.LogInformation("📄 Facture Management System: ENABLED");
+startupLogger.LogInformation("🤖 ML Model Training Service: ENABLED (24h training, 6h health checks)");
 
 // ✅ IMPROVED: Enhanced database setup with proper error handling
 using (var scope = app.Services.CreateScope())

@@ -170,4 +170,54 @@ namespace Berca_Backend.DTOs
         public ProductDto? Product { get; set; }
     }
 
+    // ✅ NEW: Bulk Update DTOs
+    public class BulkUpdateExpiryBatchesRequest
+    {
+        /// <summary>
+        /// Optional: Filter by specific category IDs. If null, all categories requiring expiry will be processed.
+        /// </summary>
+        public List<int>? CategoryIds { get; set; }
+
+        /// <summary>
+        /// Force update even if products already have batches
+        /// </summary>
+        public bool ForceUpdate { get; set; } = false;
+
+        /// <summary>
+        /// Default expiry date to use for products (overrides DefaultExpiryDays)
+        /// </summary>
+        public DateTime? DefaultExpiryDate { get; set; }
+
+        /// <summary>
+        /// Default number of days from now for expiry date (default: 365)
+        /// </summary>
+        public int? DefaultExpiryDays { get; set; } = 365;
+
+        /// <summary>
+        /// Default production date for created batches
+        /// </summary>
+        public DateTime? DefaultProductionDate { get; set; }
+
+        /// <summary>
+        /// Default cost per unit for batch creation (uses product buy price if not specified)
+        /// </summary>
+        public decimal? DefaultCostPerUnit { get; set; }
+
+        /// <summary>
+        /// Default supplier name for created batches
+        /// </summary>
+        public string? DefaultSupplierName { get; set; } = "System Migration";
+    }
+
+    public class BulkUpdateResult
+    {
+        public int TotalProcessed { get; set; }
+        public int UpdatedCount { get; set; }
+        public int SkippedCount { get; set; }
+        public int ErrorCount { get; set; }
+        public List<string> ProcessedProducts { get; set; } = new();
+        public List<string> Errors { get; set; } = new();
+        public DateTime ProcessedAt { get; set; } = DateTime.UtcNow;
+    }
+
 }

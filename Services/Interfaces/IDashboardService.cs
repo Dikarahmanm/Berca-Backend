@@ -34,5 +34,22 @@ namespace Berca_Backend.Services
 
         // ✅ ADD: Date Range Resolution Method
         DateRangeFilter ResolveDateRange(string period, DateTime? customStart = null, DateTime? customEnd = null);
+
+        // ==================== ENHANCED ANALYTICS METHODS ==================== //
+        
+        /// <summary>
+        /// Predict future sales based on historical trends and seasonal patterns
+        /// </summary>
+        Task<object> PredictSalesAsync(int forecastDays = 30, int? branchId = null);
+        
+        /// <summary>
+        /// Analyze seasonal sales patterns over the past 12 months
+        /// </summary>
+        Task<object> GetSeasonalPatternsAsync(int? branchId = null);
+        
+        /// <summary>
+        /// ABC Analysis for inventory classification
+        /// </summary>
+        Task<object> GetABCAnalysisAsync(int? branchId = null);
     }
 }

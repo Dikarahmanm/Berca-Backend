@@ -1532,5 +1532,273 @@ private async Task GenerateCustomerReportExcelAsync(CustomerReportDto report, st
 
     await File.WriteAllTextAsync(filePath, csv.ToString());
 }
+
+        // ==================== ENHANCED ANALYTICS METHODS (From BusinessIntelligenceService) ==================== //
+        
+        /// <summary>
+        /// Predict future sales based on historical trends and seasonal patterns
+        /// </summary>
+        public async Task<object> PredictSalesAsync(int forecastDays = 30, int? branchId = null)
+        {
+            try
+            {
+                var historicalDate = _timezoneService.Today.AddDays(-90);
+                var sales = await _context.Sales
+                    .Where(s => s.SaleDate >= historicalDate)
+                    .ToListAsync();
+
+                var dailySales = sales
+                    .GroupBy(s => s.SaleDate.Date)
+                    .Select(g => new
+                    {
+                        Date = g.Key,
+                        Sales = g.Sum(s => s.Total)
+                    })
+                    .OrderBy(s => s.Date)
+                    .ToList();
+
+                var predictions = new List<object>();
+                var averageDailySales = dailySales.Any() ? dailySales.Average(d => d.Sales) : 0;
+                var trendSlope = CalculateTrendSlope(dailySales.Cast<object>().ToList());
+
+                for (int i = 1; i <= forecastDays; i++)
+                {
+                    var predictedDate = _timezoneService.Today.AddDays(i);
+                    var predictedSales = averageDailySales + (trendSlope * i);
+                    
+                    var seasonalMultiplier = GetSeasonalMultiplier(predictedDate.DayOfWeek);
+                    predictedSales *= seasonalMultiplier;
+
+                    predictions.Add(new
+                    {
+                        Date = predictedDate.ToString("yyyy-MM-dd"),
+                        DateDisplay = predictedDate.ToString("dd/MM/yyyy"),
+                        PredictedSales = Math.Max(0, predictedSales),
+                        PredictedSalesDisplay = Math.Max(0, predictedSales).ToString("C0", new System.Globalization.CultureInfo("id-ID")),
+                        Confidence = CalculateConfidence(i, forecastDays)
+                    });
+                }
+
+                return new
+                {
+                    ForecastPeriod = $"{forecastDays} hari ke depan",
+                    BasedOnDays = dailySales.Count,
+                    AverageHistoricalSales = averageDailySales,
+                    AverageHistoricalSalesDisplay = averageDailySales.ToString("C0", new System.Globalization.CultureInfo("id-ID")),
+                    TrendDirection = trendSlope > 0 ? "Naik" : trendSlope < 0 ? "Turun" : "Stabil",
+                    Predictions = predictions,
+                    TotalPredictedSales = predictions.Sum(p => (decimal)p.GetType().GetProperty("PredictedSales")!.GetValue(p)!),
+                    Disclaimer = "Prediksi berdasarkan data historis dan dapat berubah sesuai kondisi pasar"
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error predicting sales");
+                return new { Error = "Gagal memprediksi penjualan" };
+            }
+        }
+
+        /// <summary>
+        /// Analyze seasonal sales patterns over the past 12 months
+        /// </summary>
+        public async Task<object> GetSeasonalPatternsAsync(int? branchId = null)
+        {
+            try
+            {
+                var startDate = _timezoneService.Today.AddMonths(-12);
+                var sales = await _context.Sales
+                    .Where(s => s.SaleDate >= startDate)
+                    .ToListAsync();
+
+                var monthlyPatterns = sales
+                    .GroupBy(s => s.SaleDate.Month)
+                    .Select(g => new
+                    {
+                        Month = g.Key,
+                        MonthName = GetMonthName(g.Key),
+                        AverageSales = g.Average(s => s.Total),
+                        TotalSales = g.Sum(s => s.Total),
+                        TransactionCount = g.Count(),
+                        RelativeIndex = 0.0m
+                    })
+                    .OrderBy(p => p.Month)
+                    .ToList();
+
+                var overallAverage = monthlyPatterns.Any() ? monthlyPatterns.Average(p => p.AverageSales) : 0;
+                var updatedMonthlyPatterns = monthlyPatterns.Select(p => new
+                {
+                    p.Month,
+                    p.MonthName,
+                    p.AverageSales,
+                    p.TotalSales,
+                    p.TransactionCount,
+                    RelativeIndex = overallAverage > 0 ? p.AverageSales / overallAverage : 1.0m
+                }).ToList();
+
+                var weeklyPatterns = sales
+                    .GroupBy(s => s.SaleDate.DayOfWeek)
+                    .Select(g => new
+                    {
+                        DayOfWeek = (int)g.Key,
+                        DayName = g.Key.ToString(),
+                        AverageSales = g.Average(s => s.Total),
+                        TransactionCount = g.Count()
+                    })
+                    .OrderBy(p => p.DayOfWeek)
+                    .ToList();
+
+                return new
+                {
+                    AnalysisPeriod = "12 bulan terakhir",
+                    MonthlyPatterns = updatedMonthlyPatterns,
+                    WeeklyPatterns = weeklyPatterns,
+                    PeakMonth = updatedMonthlyPatterns.OrderByDescending(p => p.TotalSales).FirstOrDefault()?.MonthName ?? "Tidak ada data",
+                    PeakDay = weeklyPatterns.OrderByDescending(p => p.AverageSales).FirstOrDefault()?.DayName ?? "Tidak ada data",
+                    SeasonalInsights = new
+                    {
+                        HighSeasonMonths = updatedMonthlyPatterns.Where(p => p.RelativeIndex > 1.2m).Select(p => p.MonthName).ToList(),
+                        LowSeasonMonths = updatedMonthlyPatterns.Where(p => p.RelativeIndex < 0.8m).Select(p => p.MonthName).ToList()
+                    }
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting seasonal patterns");
+                return new { Error = "Gagal menganalisis pola musiman" };
+            }
+        }
+
+        /// <summary>
+        /// ABC Analysis for inventory classification
+        /// </summary>
+        public async Task<object> GetABCAnalysisAsync(int? branchId = null)
+        {
+            try
+            {
+                var startDate = _timezoneService.Today.AddMonths(-3);
+                var productSales = await _context.SaleItems
+                    .Include(si => si.Product)
+                    .Include(si => si.Sale)
+                    .Where(si => si.Sale.SaleDate >= startDate && si.Product != null)
+                    .GroupBy(si => si.Product!)
+                    .Select(g => new
+                    {
+                        Product = g.Key,
+                        TotalRevenue = g.Sum(si => si.Subtotal),
+                        TotalQuantity = g.Sum(si => si.Quantity),
+                        TransactionCount = g.Count()
+                    })
+                    .OrderByDescending(p => p.TotalRevenue)
+                    .ToListAsync();
+
+                var totalRevenue = productSales.Sum(p => p.TotalRevenue);
+                var cumulativeRevenue = 0m;
+                
+                var abcAnalysis = productSales.Select(p =>
+                {
+                    cumulativeRevenue += p.TotalRevenue;
+                    var cumulativePercent = totalRevenue > 0 ? (cumulativeRevenue / totalRevenue) * 100 : 0;
+                    
+                    string abcClass = cumulativePercent <= 80 ? "A" : cumulativePercent <= 95 ? "B" : "C";
+                    
+                    return new
+                    {
+                        ProductId = p.Product.Id,
+                        ProductName = p.Product.Name,
+                        Category = p.Product.Category?.Name ?? "Tanpa Kategori",
+                        TotalRevenue = p.TotalRevenue,
+                        RevenueDisplay = p.TotalRevenue.ToString("C0", new System.Globalization.CultureInfo("id-ID")),
+                        TotalQuantity = p.TotalQuantity,
+                        TransactionCount = p.TransactionCount,
+                        RevenuePercentage = totalRevenue > 0 ? (p.TotalRevenue / totalRevenue) * 100 : 0,
+                        CumulativePercentage = cumulativePercent,
+                        ABCClass = abcClass,
+                        CurrentStock = p.Product.Stock,
+                        StockValue = p.Product.Stock * p.Product.BuyPrice
+                    };
+                }).ToList();
+
+                var summary = new
+                {
+                    TotalProducts = abcAnalysis.Count,
+                    AItems = abcAnalysis.Count(item => item.ABCClass == "A"),
+                    BItems = abcAnalysis.Count(item => item.ABCClass == "B"),
+                    CItems = abcAnalysis.Count(item => item.ABCClass == "C"),
+                    AItemsRevenue = abcAnalysis.Where(item => item.ABCClass == "A").Sum(item => item.TotalRevenue),
+                    BItemsRevenue = abcAnalysis.Where(item => item.ABCClass == "B").Sum(item => item.TotalRevenue),
+                    CItemsRevenue = abcAnalysis.Where(item => item.ABCClass == "C").Sum(item => item.TotalRevenue)
+                };
+
+                return new
+                {
+                    AnalysisPeriod = "3 bulan terakhir",
+                    Summary = summary,
+                    ABCAnalysis = abcAnalysis,
+                    Recommendations = new
+                    {
+                        AItems = "Focus on availability and customer satisfaction",
+                        BItems = "Regular monitoring with balanced approach",
+                        CItems = "Simple control, periodic review, acceptable stockouts"
+                    }
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error performing ABC analysis");
+                return new { Error = "Gagal melakukan analisis ABC" };
+            }
+        }
+
+        // Helper methods for analytics
+        private decimal CalculateTrendSlope(List<dynamic> dailySales)
+        {
+            if (dailySales.Count < 2) return 0;
+
+            var n = dailySales.Count;
+            var sumX = 0m;
+            var sumY = 0m;
+            var sumXY = 0m;
+            var sumX2 = 0m;
+
+            for (int i = 0; i < n; i++)
+            {
+                var x = i + 1; // Day number
+                var y = (decimal)dailySales[i].Sales;
+                
+                sumX += x;
+                sumY += y;
+                sumXY += x * y;
+                sumX2 += x * x;
+            }
+
+            if (n * sumX2 - sumX * sumX == 0) return 0;
+            return (n * sumXY - sumX * sumY) / (n * sumX2 - sumX * sumX);
+        }
+
+        private decimal GetSeasonalMultiplier(DayOfWeek dayOfWeek)
+        {
+            return dayOfWeek switch
+            {
+                DayOfWeek.Monday => 0.8m,
+                DayOfWeek.Tuesday => 0.9m,
+                DayOfWeek.Wednesday => 1.0m,
+                DayOfWeek.Thursday => 1.1m,
+                DayOfWeek.Friday => 1.3m,
+                DayOfWeek.Saturday => 1.4m,
+                DayOfWeek.Sunday => 1.2m,
+                _ => 1.0m
+            };
+        }
+
+        private double CalculateConfidence(int dayOffset, int totalDays)
+        {
+            return Math.Max(30, 100 - (dayOffset * 2.5)); // Decrease confidence by 2.5% per day, minimum 30%
+        }
+
+        private string GetMonthName(int month)
+        {
+            var culture = new System.Globalization.CultureInfo("id-ID");
+            return culture.DateTimeFormat.GetMonthName(month);
+        }
     }
 }

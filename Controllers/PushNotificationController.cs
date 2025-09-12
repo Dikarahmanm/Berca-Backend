@@ -493,5 +493,157 @@ namespace Berca_Backend.Controllers
             var branchIdClaim = User.FindFirst("BranchId")?.Value;
             return int.TryParse(branchIdClaim, out var branchId) ? branchId : null;
         }
+
+        // ==================== INTELLIGENT NOTIFICATION ENDPOINTS ==================== //
+
+        /// <summary>
+        /// Generate intelligent context-aware notifications (Manager+ only)
+        /// </summary>
+        [HttpGet("intelligent")]
+        [Authorize(Policy = "Manager.Read")]
+        public async Task<ActionResult<ApiResponse<List<SmartNotificationDto>>>> GetIntelligentNotifications(
+            [FromQuery] int? branchId = null)
+        {
+            try
+            {
+                var notifications = await _pushNotificationService.GenerateIntelligentNotificationsAsync(branchId);
+                return Ok(new ApiResponse<List<SmartNotificationDto>>
+                {
+                    Success = true,
+                    Data = notifications,
+                    Message = $"Ditemukan {notifications.Count} notifikasi cerdas"
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error generating intelligent notifications");
+                return StatusCode(500, new ApiResponse<List<SmartNotificationDto>>
+                {
+                    Success = false,
+                    Message = "Gagal menghasilkan notifikasi cerdas"
+                });
+            }
+        }
+
+        /// <summary>
+        /// Process automatic notification rules (Admin only)
+        /// </summary>
+        [HttpPost("process-rules")]
+        [Authorize(Policy = "Admin.Manage")]
+        public async Task<ActionResult<ApiResponse<bool>>> ProcessNotificationRules()
+        {
+            try
+            {
+                var success = await _pushNotificationService.ProcessNotificationRulesAsync();
+                return Ok(new ApiResponse<bool>
+                {
+                    Success = success,
+                    Data = success,
+                    Message = success ? "Aturan notifikasi berhasil diproses" : "Gagal memproses aturan notifikasi"
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error processing notification rules");
+                return StatusCode(500, new ApiResponse<bool>
+                {
+                    Success = false,
+                    Message = "Terjadi kesalahan saat memproses aturan notifikasi"
+                });
+            }
+        }
+
+        /// <summary>
+        /// Process escalation alerts (Admin only)
+        /// </summary>
+        [HttpPost("process-escalations")]
+        [Authorize(Policy = "Admin.Manage")]
+        public async Task<ActionResult<ApiResponse<List<EscalationAlert>>>> ProcessEscalationAlerts()
+        {
+            try
+            {
+                var escalations = await _pushNotificationService.ProcessEscalationAlertsAsync();
+                return Ok(new ApiResponse<List<EscalationAlert>>
+                {
+                    Success = true,
+                    Data = escalations,
+                    Message = $"Diproses {escalations.Count} eskalasi peringatan"
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error processing escalation alerts");
+                return StatusCode(500, new ApiResponse<List<EscalationAlert>>
+                {
+                    Success = false,
+                    Message = "Gagal memproses eskalasi peringatan"
+                });
+            }
+        }
+
+        /// <summary>
+        /// Get user notification preferences
+        /// </summary>
+        [HttpGet("preferences/{userId}")]
+        [Authorize]
+        public async Task<ActionResult<ApiResponse<NotificationPreferencesDto>>> GetUserNotificationPreferences(int userId)
+        {
+            try
+            {
+                // Users can only access their own preferences, managers can access any
+                var currentUserId = GetCurrentUserId();
+                var currentUserRole = GetCurrentUserRole();
+                
+                if (currentUserId != userId && currentUserRole != "Manager" && currentUserRole != "Admin")
+                {
+                    return Forbid();
+                }
+
+                var preferences = await _pushNotificationService.GetUserNotificationPreferencesAsync(userId);
+                return Ok(new ApiResponse<NotificationPreferencesDto>
+                {
+                    Success = true,
+                    Data = preferences,
+                    Message = "Preferensi notifikasi berhasil diambil"
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting user notification preferences");
+                return StatusCode(500, new ApiResponse<NotificationPreferencesDto>
+                {
+                    Success = false,
+                    Message = "Gagal mengambil preferensi notifikasi"
+                });
+            }
+        }
+
+        /// <summary>
+        /// Send critical expiry alerts (Manager+ only)
+        /// </summary>
+        [HttpPost("send-critical-expiry-alerts")]
+        [Authorize(Policy = "Manager.Manage")]
+        public async Task<ActionResult<ApiResponse<bool>>> SendCriticalExpiryAlerts()
+        {
+            try
+            {
+                var success = await _pushNotificationService.SendCriticalExpiryAlertsAsync();
+                return Ok(new ApiResponse<bool>
+                {
+                    Success = success,
+                    Data = success,
+                    Message = success ? "Peringatan kadaluarsa kritis berhasil dikirim" : "Gagal mengirim peringatan kadaluarsa kritis"
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error sending critical expiry alerts");
+                return StatusCode(500, new ApiResponse<bool>
+                {
+                    Success = false,
+                    Message = "Terjadi kesalahan saat mengirim peringatan kadaluarsa kritis"
+                });
+            }
+        }
     }
 }

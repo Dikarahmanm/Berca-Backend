@@ -727,5 +727,95 @@ namespace Berca_Backend.Controllers
             "year" => 300m,        // ✅ TURUN: dari 500m ke 300m
             _ => 100m
         };
+
+        // ==================== ENHANCED ANALYTICS ENDPOINTS ==================== //
+
+        /// <summary>
+        /// Predict future sales based on historical trends and seasonal patterns
+        /// </summary>
+        [HttpGet("analytics/predict-sales")]
+        [Authorize(Policy = "Reports.Forecasting")]
+        public async Task<ActionResult<ApiResponse<object>>> PredictSales(
+            [FromQuery] int forecastDays = 30,
+            [FromQuery] int? branchId = null)
+        {
+            try
+            {
+                var prediction = await _dashboardService.PredictSalesAsync(forecastDays, branchId);
+                return Ok(new ApiResponse<object>
+                {
+                    Success = true,
+                    Data = prediction,
+                    Message = "Prediksi penjualan berhasil dibuat"
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error predicting sales");
+                return StatusCode(500, new ApiResponse<object>
+                {
+                    Success = false,
+                    Message = "Gagal membuat prediksi penjualan"
+                });
+            }
+        }
+
+        /// <summary>
+        /// Analyze seasonal sales patterns over the past 12 months
+        /// </summary>
+        [HttpGet("analytics/seasonal-patterns")]
+        [Authorize(Policy = "Reports.Read")]
+        public async Task<ActionResult<ApiResponse<object>>> GetSeasonalPatterns(
+            [FromQuery] int? branchId = null)
+        {
+            try
+            {
+                var patterns = await _dashboardService.GetSeasonalPatternsAsync(branchId);
+                return Ok(new ApiResponse<object>
+                {
+                    Success = true,
+                    Data = patterns,
+                    Message = "Analisis pola musiman berhasil diambil"
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting seasonal patterns");
+                return StatusCode(500, new ApiResponse<object>
+                {
+                    Success = false,
+                    Message = "Gagal menganalisis pola musiman"
+                });
+            }
+        }
+
+        /// <summary>
+        /// ABC Analysis for inventory classification
+        /// </summary>
+        [HttpGet("analytics/abc-analysis")]
+        [Authorize(Policy = "Reports.Read")]
+        public async Task<ActionResult<ApiResponse<object>>> GetABCAnalysis(
+            [FromQuery] int? branchId = null)
+        {
+            try
+            {
+                var analysis = await _dashboardService.GetABCAnalysisAsync(branchId);
+                return Ok(new ApiResponse<object>
+                {
+                    Success = true,
+                    Data = analysis,
+                    Message = "Analisis ABC berhasil dilakukan"
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error performing ABC analysis");
+                return StatusCode(500, new ApiResponse<object>
+                {
+                    Success = false,
+                    Message = "Gagal melakukan analisis ABC"
+                });
+            }
+        }
     }
 }

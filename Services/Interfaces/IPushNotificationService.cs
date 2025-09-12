@@ -216,5 +216,39 @@ namespace Berca_Backend.Services.Interfaces
         /// </summary>
         /// <returns>List of supported push services</returns>
         List<string> GetSupportedPushServices();
+
+        // ==================== INTELLIGENT NOTIFICATION METHODS ==================== //
+        
+        /// <summary>
+        /// Generate intelligent context-aware notifications based on business rules
+        /// </summary>
+        /// <param name="branchId">Optional branch filter</param>
+        /// <returns>List of intelligent notifications</returns>
+        Task<List<SmartNotificationDto>> GenerateIntelligentNotificationsAsync(int? branchId = null);
+        
+        /// <summary>
+        /// Process notification rules and send automatic notifications
+        /// </summary>
+        /// <returns>True if processing completed successfully</returns>
+        Task<bool> ProcessNotificationRulesAsync();
+        
+        /// <summary>
+        /// Process escalation alerts for high-priority notifications
+        /// </summary>
+        /// <returns>List of escalation alerts processed</returns>
+        Task<List<EscalationAlert>> ProcessEscalationAlertsAsync();
+        
+        /// <summary>
+        /// Get user notification preferences for intelligent targeting
+        /// </summary>
+        /// <param name="userId">User ID</param>
+        /// <returns>User notification preferences</returns>
+        Task<NotificationPreferencesDto> GetUserNotificationPreferencesAsync(int userId);
+        
+        /// <summary>
+        /// Send critical expiry alerts using intelligent priority system
+        /// </summary>
+        /// <returns>True if alerts sent successfully</returns>
+        Task<bool> SendCriticalExpiryAlertsAsync();
     }
 }

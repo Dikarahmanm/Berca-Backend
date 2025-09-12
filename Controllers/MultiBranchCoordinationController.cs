@@ -292,6 +292,86 @@ namespace Berca_Backend.Controllers
         }
 
         /// <summary>
+        /// Get comprehensive cross-branch analytics data
+        /// Provides overview of branch performance, transfers, and recommendations
+        /// </summary>
+        /// <returns>Cross-branch analytics summary</returns>
+        [HttpGet("cross-branch-analytics")]
+        [Authorize(Policy = "Reports.CrossBranch")]
+        public async Task<ActionResult<ApiResponse<CrossBranchAnalyticsDto>>> GetCrossBranchAnalytics()
+        {
+            try
+            {
+                _logger.LogInformation("Getting comprehensive cross-branch analytics");
+
+                // Get all required data
+                var branchPerformance = await _coordinationService.GetBranchPerformanceComparisonAsync(DateTime.UtcNow.AddDays(-30), DateTime.UtcNow);
+                var transferRecommendations = await _coordinationService.GetInterBranchTransferRecommendationsAsync();
+                var opportunities = await _coordinationService.GetCrossBranchOptimizationOpportunitiesAsync();
+
+                // Calculate metrics
+                var totalBranches = branchPerformance.BranchMetrics?.Count ?? 0;
+                var activeBranches = branchPerformance.BranchMetrics?.Count(b => b.TotalTransactions > 0) ?? 0;
+                var totalTransfers = transferRecommendations?.Count ?? 0;
+                var transfersSavings = opportunities?.Sum(o => o.PotentialSavings) ?? 0;
+
+                var analytics = new CrossBranchAnalyticsDto
+                {
+                    TotalBranches = totalBranches,
+                    ActiveBranches = activeBranches,
+                    TotalTransfers = totalTransfers,
+                    TransfersSavings = transfersSavings,
+                    BranchPerformance = branchPerformance.BranchMetrics?.Select(b => new BranchInventoryStatusDto
+                    {
+                        BranchId = b.BranchId,
+                        BranchName = b.BranchName,
+                        TotalProducts = b.ProductsManaged,
+                        TotalValue = b.TotalRevenue,
+                        StockoutCount = 0, // Not available in this DTO, set to 0
+                        OverstockCount = 0, // Not available in this DTO, set to 0
+                        TurnoverRate = b.InventoryTurnoverRate,
+                        LastUpdated = DateTime.UtcNow
+                    }).ToList() ?? new List<BranchInventoryStatusDto>(),
+                    TransferRecommendations = transferRecommendations?.Select(t => new InterBranchTransferRecommendationDto
+                    {
+                        Id = t.Id,
+                        ProductId = t.ProductId,
+                        ProductName = t.ProductName,
+                        FromBranchId = t.FromBranchId,
+                        FromBranchName = t.FromBranchName,
+                        ToBranchId = t.ToBranchId,
+                        ToBranchName = t.ToBranchName,
+                        RecommendedQuantity = t.RecommendedQuantity,
+                        Priority = t.Priority,
+                        Reason = t.Reason,
+                        PotentialSavings = t.PotentialSavings,
+                        SuccessLikelihood = t.SuccessLikelihood
+                    }).ToList() ?? new List<InterBranchTransferRecommendationDto>()
+                };
+
+                _logger.LogInformation("Cross-branch analytics generated: {TotalBranches} branches, {TotalTransfers} transfer recommendations",
+                    totalBranches, totalTransfers);
+
+                return Ok(new ApiResponse<CrossBranchAnalyticsDto>
+                {
+                    Success = true,
+                    Data = analytics,
+                    Message = $"Cross-branch analytics retrieved for {totalBranches} branches with {totalTransfers} transfer recommendations"
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting cross-branch analytics");
+                return StatusCode(500, new ApiResponse<CrossBranchAnalyticsDto>
+                {
+                    Success = false,
+                    Message = "Failed to get cross-branch analytics",
+                    Error = ex.Message
+                });
+            }
+        }
+
+        /// <summary>
         /// Calculate system efficiency score based on recommendations and opportunities
         /// </summary>
         private static double CalculateEfficiencyScore(
@@ -323,5 +403,33 @@ namespace Berca_Backend.Controllers
         public decimal TotalPotentialSavings { get; set; }
         public double SystemEfficiencyScore { get; set; }
         public DateTime LastUpdateTimestamp { get; set; }
+    }
+
+    /// <summary>
+    /// DTO for comprehensive cross-branch analytics data
+    /// </summary>
+    public class CrossBranchAnalyticsDto
+    {
+        public int TotalBranches { get; set; }
+        public int ActiveBranches { get; set; }
+        public int TotalTransfers { get; set; }
+        public decimal TransfersSavings { get; set; }
+        public List<BranchInventoryStatusDto> BranchPerformance { get; set; } = new List<BranchInventoryStatusDto>();
+        public List<InterBranchTransferRecommendationDto> TransferRecommendations { get; set; } = new List<InterBranchTransferRecommendationDto>();
+    }
+
+    /// <summary>
+    /// DTO for branch inventory status in analytics
+    /// </summary>
+    public class BranchInventoryStatusDto
+    {
+        public int BranchId { get; set; }
+        public string BranchName { get; set; } = string.Empty;
+        public int TotalProducts { get; set; }
+        public decimal TotalValue { get; set; }
+        public int StockoutCount { get; set; }
+        public int OverstockCount { get; set; }
+        public decimal TurnoverRate { get; set; }
+        public DateTime LastUpdated { get; set; }
     }
 }

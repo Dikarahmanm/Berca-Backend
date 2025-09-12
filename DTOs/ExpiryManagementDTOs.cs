@@ -1024,6 +1024,7 @@ namespace Berca_Backend.DTOs
         public const string LOW_STOCK_EXPIRY_RISK = "LowStockExpiryRisk";
         public const string FINANCIAL_RISK_SUMMARY = "FinancialRiskSummary";
         public const string HIGH_VALUE_RISK = "HighValueRisk";
+        public const string HIGH_FINANCIAL_RISK = "HighFinancialRisk";
     }
 
     // ==================== MISSING EXPIRY MANAGEMENT DTOS ==================== //

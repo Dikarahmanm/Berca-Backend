@@ -1556,6 +1556,167 @@ namespace Berca_Backend.Controllers
             }
         }
 
+        /// <summary>
+        /// Validate stock availability for single product (GET method for frontend compatibility)
+        /// Enhanced with cross-branch checking for multi-branch coordination
+        /// </summary>
+        [HttpGet("validate-stock")]
+        [Authorize(Policy = "POS.Read")]
+        public async Task<ActionResult<ApiResponse<dynamic>>> ValidateStockAvailability(
+            [FromQuery] int productId,
+            [FromQuery] int quantity = 1,
+            [FromQuery] bool checkCrossBranch = false,
+            [FromQuery] int? branchId = null)
+        {
+            try
+            {
+                _logger.LogInformation("🛒 === POS STOCK VALIDATION (GET) START ===");
+                _logger.LogInformation("🔍 Product ID: {ProductId}, Quantity: {Quantity}, Cross-Branch: {CheckCrossBranch}", 
+                    productId, quantity, checkCrossBranch);
+
+                // Get current branch context
+                var currentBranchId = branchId ?? GetCurrentBranchId();
+                if (currentBranchId == 0)
+                {
+                    return BadRequest(new ApiResponse<dynamic>
+                    {
+                        Success = false,
+                        Message = "Branch context is required"
+                    });
+                }
+
+                _logger.LogInformation("🏢 Branch Context: {BranchId}", currentBranchId);
+
+                // Create single item request untuk existing validation method
+                var items = new List<CreateSaleItemRequest>
+                {
+                    new CreateSaleItemRequest
+                    {
+                        ProductId = productId,
+                        Quantity = quantity,
+                        UnitPrice = 0, // Price not needed for stock validation
+                        Subtotal = 0   // Subtotal not needed for stock validation
+                    }
+                };
+
+                // Check stock availability using existing method
+                var isAvailable = await _posService.ValidateStockAvailabilityAsync(items);
+                _logger.LogInformation("📦 Stock Available: {IsAvailable}", isAvailable);
+
+                // Get current stock info from StockMutations (latest entry)
+                var latestStockMutation = await _context.StockMutations
+                    .Where(sm => sm.ProductId == productId && sm.BranchId == currentBranchId)
+                    .OrderByDescending(sm => sm.CreatedAt)
+                    .FirstOrDefaultAsync();
+
+                var currentStock = latestStockMutation?.StockAfter ?? 0;
+                _logger.LogInformation("📊 Current Stock: {CurrentStock}", currentStock);
+
+                // Use dynamic result untuk flexibility
+                dynamic result = new
+                {
+                    available = isAvailable,
+                    currentStock = currentStock,
+                    requestedQuantity = quantity,
+                    branchId = currentBranchId
+                };
+
+                // Enhanced: Cross-branch stock checking jika diminta
+                if (checkCrossBranch)
+                {
+                    _logger.LogInformation("🔄 Performing cross-branch stock check...");
+                    
+                    // Get user's accessible branches untuk security
+                    var currentUserId = GetCurrentUserId();
+                    var userRole = GetCurrentUserRole();
+                    var accessibleBranchIds = await GetUserAccessibleBranches(currentUserId, userRole);
+                    
+                    var crossBranchStock = await _context.StockMutations
+                        .Where(sm => sm.ProductId == productId && 
+                               sm.BranchId != currentBranchId && 
+                               sm.BranchId.HasValue &&
+                               accessibleBranchIds.Contains(sm.BranchId.Value))
+                        .GroupBy(sm => sm.BranchId)
+                        .Select(g => new 
+                        {
+                            BranchId = g.Key ?? 0,
+                            CurrentStock = g.OrderByDescending(sm => sm.CreatedAt).First().StockAfter
+                        })
+                        .Where(bs => bs.CurrentStock > 0)
+                        .OrderByDescending(bs => bs.CurrentStock)
+                        .Take(5) // Top 5 branches dengan stock terbanyak
+                        .ToListAsync();
+
+                    // Get branch names
+                    var branchIds = crossBranchStock.Select(bs => bs.BranchId).ToList();
+                    var branches = await _context.Branches
+                        .Where(b => branchIds.Contains(b.Id))
+                        .ToDictionaryAsync(b => b.Id, b => b.BranchName);
+
+                    var crossBranchOptions = crossBranchStock.Select(bs => new
+                    {
+                        branchId = bs.BranchId,
+                        branchName = branches.GetValueOrDefault(bs.BranchId, "Unknown Branch"),
+                        currentStock = bs.CurrentStock,
+                        availableStock = bs.CurrentStock, // Simplified - assume no reserved stock
+                        lastUpdated = DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss")
+                    }).ToList();
+
+                    _logger.LogInformation("🌐 Found {Count} branches with available stock", crossBranchOptions.Count);
+
+                    // Enhanced result dengan cross-branch data
+                    result = new
+                    {
+                        available = isAvailable,
+                        currentStock = currentStock,
+                        requestedQuantity = quantity,
+                        branchId = currentBranchId,
+                        crossBranchOptions = crossBranchOptions,
+                        transferSuggestions = GenerateTransferSuggestions(crossBranchOptions, quantity)
+                    };
+                }
+
+                _logger.LogInformation("✅ Stock validation completed successfully");
+                _logger.LogInformation("🛒 === POS STOCK VALIDATION (GET) END ===");
+
+                return Ok(new ApiResponse<dynamic>
+                {
+                    Success = true,
+                    Data = result,
+                    Message = isAvailable ? "Stock is available" : "Insufficient stock"
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "❌ Error during stock validation for product {ProductId}", productId);
+                return StatusCode(500, new ApiResponse<dynamic>
+                {
+                    Success = false,
+                    Message = "Internal server error during stock validation"
+                });
+            }
+        }
+
+        /// <summary>
+        /// Generate smart transfer suggestions berdasarkan cross-branch stock data
+        /// </summary>
+        private static dynamic[] GenerateTransferSuggestions(IEnumerable<dynamic> crossBranchStock, int requestedQuantity)
+        {
+            return crossBranchStock
+                .Where(stock => ((int)stock.availableStock) >= requestedQuantity)
+                .Select(stock => new
+                {
+                    fromBranchId = (int)stock.branchId,
+                    fromBranchName = (string)stock.branchName,
+                    availableQuantity = (int)stock.availableStock,
+                    transferTime = "2-4 hours", // Estimated transfer time
+                    priority = ((int)stock.availableStock) >= requestedQuantity * 3 ? "High" : 
+                              ((int)stock.availableStock) >= requestedQuantity * 2 ? "Medium" : "Low",
+                    cost = 25000 // Estimated transfer cost dalam IDR
+                })
+                .ToArray();
+        }
+
         #region Helper Methods
 
         private int GetCurrentUserId()

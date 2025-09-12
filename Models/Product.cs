@@ -44,6 +44,9 @@ namespace Berca_Backend.Models
 
         public bool IsActive { get; set; } = true;
 
+        // ✅ NEW: Expiry date for products that require expiry tracking
+        public DateTime? ExpiryDate { get; set; }
+
         // Foreign Key
         [Required(ErrorMessage = "Category is required")]
         public int CategoryId { get; set; }
