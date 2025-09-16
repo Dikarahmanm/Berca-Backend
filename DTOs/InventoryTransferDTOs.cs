@@ -103,13 +103,44 @@ namespace Berca_Backend.DTOs
     public class TransferApprovalRequestDto
     {
         [Required(ErrorMessage = "Approval decision is required")]
-        public bool IsApproved { get; set; }
+        public bool Approved { get; set; }
 
         [StringLength(500)]
         public string? ApprovalNotes { get; set; }
 
+        /// <summary>
+        /// Individual item approvals with specific quantities
+        /// </summary>
+        public List<TransferItemApprovalDto>? ItemApprovals { get; set; }
+
+        /// <summary>
+        /// Manager override flag for exceptional cases
+        /// </summary>
+        public bool? ManagerOverride { get; set; }
+
         public decimal? AdjustedCost { get; set; }
         public DateTime? AdjustedDeliveryDate { get; set; }
+    }
+
+    /// <summary>
+    /// Transfer item approval DTO
+    /// </summary>
+    public class TransferItemApprovalDto
+    {
+        [Required]
+        public int TransferItemId { get; set; }
+
+        [Required]
+        [Range(0, int.MaxValue, ErrorMessage = "Approved quantity must be non-negative")]
+        public int ApprovedQuantity { get; set; }
+
+        [StringLength(500)]
+        public string? Notes { get; set; }
+
+        /// <summary>
+        /// Substitute product ID if different product is approved instead
+        /// </summary>
+        public int? SubstituteProductId { get; set; }
     }
 
     /// <summary>

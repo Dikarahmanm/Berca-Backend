@@ -184,7 +184,7 @@ namespace Berca_Backend.Controllers
 
                 var transfer = await _transferService.ApproveTransferAsync(id, approval, currentUserId.Value);
 
-                var action = approval.IsApproved ? "approved" : "rejected";
+                var action = approval.Approved ? "approved" : "rejected";
                 _logger.LogInformation("Transfer {TransferNumber} {Action} by user {UserId}", 
                     transfer.TransferNumber, action, currentUserId.Value);
 

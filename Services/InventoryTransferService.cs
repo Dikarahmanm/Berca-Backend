@@ -101,7 +101,7 @@ namespace Berca_Backend.Services
             {
                 var autoApproval = new TransferApprovalRequestDto
                 {
-                    IsApproved = true,
+                    Approved = true,
                     ApprovalNotes = "Auto-approved emergency transfer under threshold"
                 };
                 return await ApproveTransferAsync(transfer.Id, autoApproval, requestingUserId);
@@ -280,7 +280,7 @@ namespace Berca_Backend.Services
 
             var now = _timezoneService.Now;
 
-            if (approval.IsApproved)
+            if (approval.Approved)
             {
                 // Validate stock availability at approval time
                 foreach (var item in transfer.TransferItems)
@@ -320,7 +320,7 @@ namespace Berca_Backend.Services
             await _context.SaveChangesAsync();
 
             // Log status change
-            var newStatus = approval.IsApproved ? TransferStatus.Approved : TransferStatus.Rejected;
+            var newStatus = approval.Approved ? TransferStatus.Approved : TransferStatus.Rejected;
             await LogTransferStatusChangeAsync(transferId, TransferStatus.Pending, newStatus, approvingUserId, approval.ApprovalNotes);
 
             return await GetTransferByIdAsync(transferId, approvingUserId) ?? throw new InvalidOperationException("Failed to retrieve approved transfer");
