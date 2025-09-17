@@ -214,6 +214,16 @@ builder.Services.AddAuthorization(options =>
     options.AddPolicy("Reports.Analytics", policy =>
         policy.RequireRole("Admin", "HeadManager", "BranchManager", "Manager", "User"));
 
+    // ===== ANALYTICS CONTROLLER POLICIES ===== //
+
+    // Analytics dashboard data access - Management and staff can view
+    options.AddPolicy("Analytics.Read", policy =>
+        policy.RequireRole("Admin", "HeadManager", "BranchManager", "Manager", "User"));
+
+    // Analytics data modification - Management can modify analytics settings
+    options.AddPolicy("Analytics.Write", policy =>
+        policy.RequireRole("Admin", "HeadManager", "BranchManager"));
+
     // System monitoring - All authenticated users can view system status
     options.AddPolicy("Reports.System", policy =>
         policy.RequireRole("Admin", "HeadManager", "BranchManager", "Manager", "User"));

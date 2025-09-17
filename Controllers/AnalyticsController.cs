@@ -100,14 +100,14 @@ namespace Berca_Backend.Controllers
                     : 0;
 
                 // Get active transfers
-                var activeTransfers = await _context.TransferRequests
-                    .Where(tr => requestedBranchIds.Contains(tr.SourceBranchId) || requestedBranchIds.Contains(tr.TargetBranchId))
+                var activeTransfers = await _context.InventoryTransfers
+                    .Where(tr => requestedBranchIds.Contains(tr.SourceBranchId) || requestedBranchIds.Contains(tr.DestinationBranchId))
                     .Where(tr => tr.Status == TransferStatus.Pending || tr.Status == TransferStatus.Approved)
                     .CountAsync();
 
                 // Get pending approvals
-                var pendingApprovals = await _context.TransferRequests
-                    .Where(tr => requestedBranchIds.Contains(tr.SourceBranchId) || requestedBranchIds.Contains(tr.TargetBranchId))
+                var pendingApprovals = await _context.InventoryTransfers
+                    .Where(tr => requestedBranchIds.Contains(tr.SourceBranchId) || requestedBranchIds.Contains(tr.DestinationBranchId))
                     .Where(tr => tr.Status == TransferStatus.Pending)
                     .CountAsync();
 

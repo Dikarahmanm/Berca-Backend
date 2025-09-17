@@ -77,6 +77,9 @@ namespace Berca_Backend.Data
         public DbSet<BranchAccess> BranchAccesses { get; set; }
         public DbSet<TransferRequest> TransferRequests { get; set; }
         public DbSet<TransferItem> TransferItems { get; set; }
+
+        // ==================== BRANCH-SPECIFIC INVENTORY DBSETS ==================== //
+        public DbSet<BranchInventory> BranchInventories { get; set; }
         
         protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
         {
