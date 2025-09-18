@@ -175,19 +175,99 @@ namespace Berca_Backend.Services
                     MinimumStock = request.MinimumStock,
                     Unit = request.Unit,
                     IsActive = request.IsActive,
-                    CreatedAt = _timezoneService.Now, // ✅ FIXED: Use Indonesia time directly
+                    CreatedAt = _timezoneService.Now,
                     CreatedBy = createdBy
                 };
 
                 _context.Products.Add(product);
                 await _context.SaveChangesAsync();
 
-                // Create initial stock mutation if stock > 0
+                // ✅ NEW: Create branch-specific inventory records if provided
+                if (request.BranchInventories != null && request.BranchInventories.Any())
+                {
+                    foreach (var branchInventory in request.BranchInventories)
+                    {
+                        var branchInv = new BranchInventory
+                        {
+                            BranchId = branchInventory.BranchId,
+                            ProductId = product.Id,
+                            Stock = branchInventory.Stock,
+                            MinimumStock = branchInventory.MinimumStock,
+                            MaximumStock = branchInventory.MaximumStock,
+                            BuyPrice = branchInventory.BuyPrice ?? request.BuyPrice,
+                            SellPrice = branchInventory.SellPrice ?? request.SellPrice,
+                            LocationCode = branchInventory.LocationCode,
+                            LocationDescription = branchInventory.LocationDescription,
+                            IsActive = branchInventory.IsActive,
+                            CreatedAt = _timezoneService.Now,
+                            UpdatedAt = _timezoneService.Now,
+                            LastStockUpdate = branchInventory.Stock > 0 ? _timezoneService.Now : null
+                        };
+
+                        _context.BranchInventories.Add(branchInv);
+
+                        // Create stock mutation for each branch if stock > 0
+                        if (branchInventory.Stock > 0)
+                        {
+                            var mutation = new InventoryMutation
+                            {
+                                ProductId = product.Id,
+                                Quantity = branchInventory.Stock,
+                                Type = MutationType.StockIn,
+                                Notes = $"Initial stock for branch {branchInventory.BranchId}",
+                                UnitCost = branchInventory.BuyPrice ?? request.BuyPrice,
+                                CreatedAt = _timezoneService.Now,
+                                CreatedBy = createdBy
+                            };
+
+                            _context.InventoryMutations.Add(mutation);
+                        }
+                    }
+                }
+                else
+                {
+                    // ✅ FALLBACK: Create default branch inventory for all branches if no specific data provided
+                    var allBranches = await _context.Branches.Where(b => b.IsActive).ToListAsync();
+
+                    foreach (var branch in allBranches)
+                    {
+                        // Distribute stock evenly across branches
+                        var branchStock = allBranches.Count > 0 ? product.Stock / allBranches.Count : 0;
+                        var remainder = allBranches.Count > 0 ? product.Stock % allBranches.Count : 0;
+
+                        // Give remainder to first branch
+                        if (branch == allBranches.First())
+                        {
+                            branchStock += remainder;
+                        }
+
+                        var branchInv = new BranchInventory
+                        {
+                            BranchId = branch.Id,
+                            ProductId = product.Id,
+                            Stock = branchStock,
+                            MinimumStock = request.MinimumStock,
+                            MaximumStock = request.MaxStock,
+                            BuyPrice = request.BuyPrice,
+                            SellPrice = request.SellPrice,
+                            IsActive = true,
+                            CreatedAt = _timezoneService.Now,
+                            UpdatedAt = _timezoneService.Now,
+                            LastStockUpdate = branchStock > 0 ? _timezoneService.Now : null
+                        };
+
+                        _context.BranchInventories.Add(branchInv);
+                    }
+                }
+
+                // Create initial stock mutation for main product if stock > 0
                 if (product.Stock > 0)
                 {
                     await UpdateStockAsync(product.Id, product.Stock, MutationType.StockIn,
                         "Initial stock", null, request.BuyPrice, createdBy);
                 }
+
+                await _context.SaveChangesAsync();
 
                 return await GetProductByIdAsync(product.Id) ?? throw new Exception("Product created but not found");
             }
@@ -2143,7 +2223,7 @@ namespace Berca_Backend.Services
                     
                     // Batch summary fields (computed in memory)
                     TotalBatches = batches.Count,
-                    NearestExpiryBatch = nearestExpiryBatch != null ? MapToProductBatchDtoSafe(nearestBatch: nearestExpiryBatch, productName: product.Name) : null,
+                    NearestExpiryBatch = nearestExpiryBatch != null ? MapToProductBatchDtoSafe(nearestExpiryBatch, product.Name) : null,
                     TotalValueAllBatches = totalValue,
                     FifoRecommendation = fifoRecommendation,
                     BatchStatusSummary = batchStatusSummary

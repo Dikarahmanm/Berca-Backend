@@ -81,6 +81,59 @@ namespace Berca_Backend.DTOs
         public int CategoryId { get; set; }
 
         public bool IsActive { get; set; } = true;
+
+        // ✅ NEW: Branch-specific inventory data
+        /// <summary>
+        /// Optional branch-specific inventory settings. If provided, creates BranchInventory records for each branch.
+        /// If not provided, uses default stock distribution across all branches.
+        /// </summary>
+        public List<CreateBranchInventoryRequest>? BranchInventories { get; set; }
+    }
+
+    // ✅ NEW: Branch-specific inventory creation request
+    public class CreateBranchInventoryRequest
+    {
+        [Required(ErrorMessage = "Branch ID is required")]
+        public int BranchId { get; set; }
+
+        [Required(ErrorMessage = "Stock is required")]
+        [Range(0, int.MaxValue, ErrorMessage = "Stock must be greater than or equal to 0")]
+        public int Stock { get; set; }
+
+        [Range(0, int.MaxValue, ErrorMessage = "Minimum stock must be greater than or equal to 0")]
+        public int MinimumStock { get; set; } = 5;
+
+        [Range(0, int.MaxValue, ErrorMessage = "Maximum stock must be greater than or equal to 0")]
+        public int MaximumStock { get; set; } = 1000;
+
+        /// <summary>
+        /// Branch-specific buy price. If not provided, uses main product buy price.
+        /// </summary>
+        [Range(0, double.MaxValue, ErrorMessage = "Buy price must be greater than or equal to 0")]
+        public decimal? BuyPrice { get; set; }
+
+        /// <summary>
+        /// Branch-specific sell price. If not provided, uses main product sell price.
+        /// </summary>
+        [Range(0, double.MaxValue, ErrorMessage = "Sell price must be greater than or equal to 0")]
+        public decimal? SellPrice { get; set; }
+
+        /// <summary>
+        /// Location code within the branch (e.g., "A1-B2", "FREEZER-01")
+        /// </summary>
+        [StringLength(100, ErrorMessage = "Location code cannot exceed 100 characters")]
+        public string? LocationCode { get; set; }
+
+        /// <summary>
+        /// Description of the location within the branch
+        /// </summary>
+        [StringLength(200, ErrorMessage = "Location description cannot exceed 200 characters")]
+        public string? LocationDescription { get; set; }
+
+        /// <summary>
+        /// Whether this product is active in this specific branch
+        /// </summary>
+        public bool IsActive { get; set; } = true;
     }
 
     // Update Product Request
