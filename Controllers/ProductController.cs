@@ -1282,7 +1282,37 @@ namespace Berca_Backend.Controllers
         }
 
         /// <summary>
-        /// Get products with comprehensive batch summary (for enhanced inventory display)
+        /// Get products with comprehensive batch summary (paginated, for enhanced inventory display)
+        /// </summary>
+        [HttpGet("with-batch-summary-paged")]
+        [Authorize(Policy = "Inventory.Read")]
+        public async Task<ActionResult<ApiResponse<ProductWithBatchSummaryPagedResponseDto>>> GetProductsWithBatchSummaryPaged(
+            [FromQuery] ProductBatchSummaryFilterDto filter)
+        {
+            try
+            {
+                var response = await _productService.GetProductsWithBatchSummaryPagedAsync(filter);
+
+                return Ok(new ApiResponse<ProductWithBatchSummaryPagedResponseDto>
+                {
+                    Success = true,
+                    Data = response,
+                    Message = $"Retrieved {response.Products.Count} products with batch summary (page {response.CurrentPage} of {response.TotalPages})"
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting paginated products with batch summary");
+                return StatusCode(500, new ApiResponse<ProductWithBatchSummaryPagedResponseDto>
+                {
+                    Success = false,
+                    Message = "An error occurred while retrieving paginated products with batch summary"
+                });
+            }
+        }
+
+        /// <summary>
+        /// Get products with comprehensive batch summary (for enhanced inventory display) - Legacy endpoint
         /// </summary>
         [HttpGet("with-batch-summary")]
         [Authorize(Policy = "Inventory.Read")]

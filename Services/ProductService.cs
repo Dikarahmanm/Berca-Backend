@@ -1674,14 +1674,134 @@ namespace Berca_Backend.Services
         }
 
         /// <summary>
-        /// Get products with comprehensive batch summary for enhanced inventory display
+        /// Get products with comprehensive batch summary for enhanced inventory display (paginated)
+        /// ✅ NEW: Returns pagination metadata for proper server-side pagination
+        /// </summary>
+        public async Task<ProductWithBatchSummaryPagedResponseDto> GetProductsWithBatchSummaryPagedAsync(ProductBatchSummaryFilterDto filter)
+        {
+            try
+            {
+                _logger.LogInformation("🔍 Getting paginated products with batch summary. BranchId: {BranchId}, Page: {Page}, PageSize: {PageSize}",
+                    filter.BranchId, filter.Page, filter.PageSize);
+
+                // Validate filter
+                if (filter == null)
+                    filter = new ProductBatchSummaryFilterDto();
+
+                // Step 1: Build base query for counting and filtering
+                var baseQuery = _context.Products
+                    .Include(p => p.Category)
+                    .Where(p => p.IsActive);
+
+                // Apply basic filters
+                if (filter.CategoryId.HasValue && filter.CategoryId > 0)
+                    baseQuery = baseQuery.Where(p => p.CategoryId == filter.CategoryId);
+
+                if (!string.IsNullOrWhiteSpace(filter.SearchTerm))
+                {
+                    var searchTerm = filter.SearchTerm.ToLower().Trim();
+                    baseQuery = baseQuery.Where(p => p.Name.ToLower().Contains(searchTerm) ||
+                                               p.Barcode.ToLower().Contains(searchTerm) ||
+                                               (p.Description != null && p.Description.ToLower().Contains(searchTerm)));
+                }
+
+                // Get total count before pagination
+                var totalCount = await baseQuery.CountAsync();
+                _logger.LogInformation("📊 Total products matching filter: {TotalCount}", totalCount);
+
+                // Apply pagination with safety checks
+                var page = Math.Max(1, filter.Page);
+                var pageSize = Math.Min(Math.Max(1, filter.PageSize), 100);
+                var totalPages = (int)Math.Ceiling((double)totalCount / pageSize);
+
+                var products = await baseQuery
+                    .Skip((page - 1) * pageSize)
+                    .Take(pageSize)
+                    .ToListAsync();
+
+                _logger.LogInformation("Loaded {Count} products from database (page {Page} of {TotalPages})",
+                    products.Count, page, totalPages);
+
+                var batchSummaryProducts = new List<ProductWithBatchSummaryDto>();
+
+                if (products.Any())
+                {
+                    // Get the batch summary for these products using existing logic
+                    var productIds = products.Select(p => p.Id).ToList();
+
+                    // ✅ FIXED: Simple query using only database columns with branch filtering
+                    var batchQuery = _context.ProductBatches
+                        .Where(b => productIds.Contains(b.ProductId) && !b.IsDisposed);
+
+                    // ✅ NEW: Apply branch filtering if specified
+                    if (filter.BranchId.HasValue)
+                    {
+                        batchQuery = batchQuery.Where(b => b.BranchId == filter.BranchId.Value);
+                        _logger.LogInformation("🔍 Applying branch filter: BranchId = {BranchId}", filter.BranchId.Value);
+                    }
+
+                    var batches = await batchQuery.ToListAsync();
+                    _logger.LogInformation("Found {Count} batches for {ProductCount} products", batches.Count, products.Count);
+
+                    var now = DateTime.Now;
+
+                    // Process each product and generate batch summary
+                    foreach (var product in products)
+                    {
+                        try
+                        {
+                            var productBatches = batches.Where(b => b.ProductId == product.Id).ToList();
+
+                            // ✅ NEW: If branch filtering is enabled and this product has no batches in the requested branch, skip it
+                            if (filter.BranchId.HasValue && !productBatches.Any())
+                            {
+                                continue; // Skip products with no batches in the requested branch
+                            }
+
+                            var batchSummary = await MapToProductWithBatchSummaryDtoSafe(product, productBatches, now);
+                            batchSummaryProducts.Add(batchSummary);
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogError(ex, "Error processing product {ProductId} in batch summary", product.Id);
+                            // Continue with next product instead of failing completely
+                            continue;
+                        }
+                    }
+                }
+
+                var response = new ProductWithBatchSummaryPagedResponseDto
+                {
+                    Products = batchSummaryProducts,
+                    TotalCount = totalCount,
+                    CurrentPage = page,
+                    PageSize = pageSize,
+                    TotalPages = totalPages,
+                    HasNextPage = page < totalPages,
+                    HasPreviousPage = page > 1
+                };
+
+                _logger.LogInformation("✅ Generated paginated batch summary: {ProductCount} products, page {Page} of {TotalPages}",
+                    batchSummaryProducts.Count, page, totalPages);
+
+                return response;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error in GetProductsWithBatchSummaryPagedAsync with filter {@Filter}", filter);
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// Get products with comprehensive batch summary for enhanced inventory display (legacy - non-paginated)
         /// ✅ FIXED: Avoids EF LINQ translation errors by computing expiry status in memory
         /// </summary>
         public async Task<List<ProductWithBatchSummaryDto>> GetProductsWithBatchSummaryAsync(ProductBatchSummaryFilterDto filter)
         {
             try
             {
-                _logger.LogInformation("Getting products with batch summary. Filter: {@Filter}", filter);
+                _logger.LogInformation("🔍 Getting products with batch summary. BranchId: {BranchId}, HasValue: {HasValue}", filter.BranchId, filter.BranchId.HasValue);
 
                 // Validate filter
                 if (filter == null)
@@ -1723,10 +1843,22 @@ namespace Berca_Backend.Services
                 // Step 2: Get all batches for these products (separate simple query)
                 var productIds = products.Select(p => p.Id).ToList();
                 
-                // ✅ FIXED: Simple query using only database columns
-                var batches = await _context.ProductBatches
-                    .Where(b => productIds.Contains(b.ProductId) && !b.IsDisposed)
-                    .ToListAsync(); // Load to memory first to avoid EF translation issues
+                // ✅ FIXED: Simple query using only database columns with branch filtering
+                var batchQuery = _context.ProductBatches
+                    .Where(b => productIds.Contains(b.ProductId) && !b.IsDisposed);
+
+                // ✅ NEW: Apply branch filtering if specified
+                if (filter.BranchId.HasValue)
+                {
+                    batchQuery = batchQuery.Where(b => b.BranchId == filter.BranchId.Value);
+                    _logger.LogInformation("🔍 Applying branch filter: BranchId = {BranchId}", filter.BranchId.Value);
+                }
+                else
+                {
+                    _logger.LogInformation("🔍 No branch filter applied - showing all branches");
+                }
+
+                var batches = await batchQuery.ToListAsync(); // Load to memory first to avoid EF translation issues
 
                 _logger.LogInformation("Loaded {Count} batches for products", batches.Count);
 
@@ -1739,6 +1871,12 @@ namespace Berca_Backend.Services
                     try
                     {
                         var productBatches = batches.Where(b => b.ProductId == product.Id).ToList();
+
+                        // ✅ NEW: If branch filtering is enabled and this product has no batches in the requested branch, skip it
+                        if (filter.BranchId.HasValue && !productBatches.Any())
+                        {
+                            continue; // Skip products with no batches in the requested branch
+                        }
                         
                         // ✅ FIXED: Compute expiry status in memory (not in SQL)
                         var expiredCount = productBatches.Count(b => 

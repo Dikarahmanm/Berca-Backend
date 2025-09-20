@@ -184,6 +184,20 @@ namespace Berca_Backend.DTOs
     }
 
     /// <summary>
+    /// Paginated response for products with batch summary
+    /// </summary>
+    public class ProductWithBatchSummaryPagedResponseDto
+    {
+        public List<ProductWithBatchSummaryDto> Products { get; set; } = new();
+        public int TotalCount { get; set; }
+        public int CurrentPage { get; set; }
+        public int PageSize { get; set; }
+        public int TotalPages { get; set; }
+        public bool HasNextPage { get; set; }
+        public bool HasPreviousPage { get; set; }
+    }
+
+    /// <summary>
     /// Response after adding stock to batch
     /// </summary>
     public class AddStockResponseDto
@@ -295,6 +309,7 @@ namespace Berca_Backend.DTOs
     public class ProductBatchSummaryFilterDto
     {
         public int? CategoryId { get; set; }
+        public int? BranchId { get; set; } // ✅ NEW: Branch filtering for batch data
         public bool? HasExpiredBatches { get; set; }
         public bool? HasCriticalBatches { get; set; }
         public bool? HasBatches { get; set; }

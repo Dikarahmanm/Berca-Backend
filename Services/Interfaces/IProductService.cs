@@ -67,6 +67,7 @@ namespace Berca_Backend.Services
 
         // Products with batch summary for enhanced inventory display
         Task<List<ProductWithBatchSummaryDto>> GetProductsWithBatchSummaryAsync(ProductBatchSummaryFilterDto filter);
+        Task<ProductWithBatchSummaryPagedResponseDto> GetProductsWithBatchSummaryPagedAsync(ProductBatchSummaryFilterDto filter);
 
         // Flexible stock addition methods
         Task<AddStockResponseDto> AddStockToBatchAsync(int productId, AddStockToBatchRequest request, int userId, int branchId);
