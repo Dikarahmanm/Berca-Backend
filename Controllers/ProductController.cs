@@ -6,6 +6,7 @@ using Berca_Backend.Data;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using System.ComponentModel.DataAnnotations;
 using System.Security.Claims;
 
@@ -20,13 +21,15 @@ namespace Berca_Backend.Controllers
         private readonly ILogger<ProductController> _logger;
         private readonly AppDbContext _context;
         private readonly IServiceProvider _serviceProvider;
+        private readonly IMemoryCache _cache;
 
-        public ProductController(IProductService productService, ILogger<ProductController> logger, AppDbContext context, IServiceProvider serviceProvider)
+        public ProductController(IProductService productService, ILogger<ProductController> logger, AppDbContext context, IServiceProvider serviceProvider, IMemoryCache cache)
         {
             _productService = productService;
             _logger = logger;
             _context = context;
             _serviceProvider = serviceProvider;
+            _cache = cache;
         }
 
         /// <summary>
@@ -256,7 +259,7 @@ namespace Berca_Backend.Controllers
                     });
                 }
 
-                // Parse branch IDs
+                // Parse and validate branch IDs
                 var branchIdList = branchIds.Split(',')
                     .Select(id => int.TryParse(id.Trim(), out var parsed) ? parsed : 0)
                     .Where(id => id > 0)
@@ -271,10 +274,15 @@ namespace Berca_Backend.Controllers
                     });
                 }
 
-                // Get user context for access validation
+                // Get user context for access validation (with caching)
                 var currentUserId = GetCurrentUserId();
                 var currentUserRole = GetCurrentUserRole();
-                var accessibleBranchIds = await GetUserAccessibleBranches(currentUserId, currentUserRole);
+                var cacheKey = $"user_branches_{currentUserId}_{currentUserRole}";
+                var accessibleBranchIds = await _cache.GetOrCreateAsync(cacheKey, async entry =>
+                {
+                    entry.AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(15); // Cache for 15 minutes
+                    return await GetUserAccessibleBranches(currentUserId, currentUserRole);
+                });
 
                 // Validate user has access to requested branches
                 var unauthorizedBranches = branchIdList.Except(accessibleBranchIds).ToList();
@@ -287,93 +295,120 @@ namespace Berca_Backend.Controllers
                     });
                 }
 
-                // Query products with filtering
-                var query = _context.Products
-                    .Where(p => isActive == null || p.IsActive == isActive)
-                    .Include(p => p.Category)
-                    .AsQueryable();
+                // OPTIMIZED: Single query with all necessary joins and filters
+                var productQuery = _context.Products
+                    .Where(p => isActive == null || p.IsActive == isActive);
 
+                // Apply filters
                 if (!string.IsNullOrWhiteSpace(search))
                 {
-                    query = query.Where(p => p.Name.Contains(search) || 
-                                           p.Barcode.Contains(search) ||
-                                           (p.Description != null && p.Description.Contains(search)));
+                    productQuery = productQuery.Where(p =>
+                        EF.Functions.Like(p.Name, $"%{search}%") ||
+                        EF.Functions.Like(p.Barcode, $"%{search}%") ||
+                        (p.Description != null && EF.Functions.Like(p.Description, $"%{search}%")));
                 }
 
                 if (categoryId.HasValue)
                 {
-                    query = query.Where(p => p.CategoryId == categoryId.Value);
+                    productQuery = productQuery.Where(p => p.CategoryId == categoryId.Value);
                 }
 
-                var totalItems = await query.CountAsync();
-                var products = await query
-                    .OrderBy(p => p.Name)
-                    .Skip((page - 1) * pageSize)
-                    .Take(pageSize)
-                    .ToListAsync();
+                // OPTIMIZED: Single query to get all data with proper joins
+                var result = await (from p in productQuery
+                                   from bi in _context.BranchInventories
+                                       .Where(bi => bi.ProductId == p.Id &&
+                                                   branchIdList.Contains(bi.BranchId) &&
+                                                   bi.IsActive &&
+                                                   bi.Stock > 0)
+                                       .DefaultIfEmpty()
+                                   join b in _context.Branches on (bi != null ? bi.BranchId : 0) equals b.Id into branchJoin
+                                   from branch in branchJoin.DefaultIfEmpty()
+                                   select new
+                                   {
+                                       Product = p,
+                                       BranchId = bi != null ? bi.BranchId : 0,
+                                       BranchStock = bi != null ? bi.Stock : 0,
+                                       BranchName = branch != null ? branch.BranchName : "",
+                                       HasInventory = bi != null
+                                   })
+                                   .OrderBy(x => x.Product.Name)
+                                   .Skip((page - 1) * pageSize)
+                                   .Take(pageSize * branchIdList.Count) // Account for multiple branches per product
+                                   .ToListAsync();
 
-                // Get real branch-specific inventory for these products
-                var productIds = products.Select(p => p.Id).ToList();
-                var branchInventories = await _context.BranchInventories
-                    .Where(bi => productIds.Contains(bi.ProductId) &&
-                                branchIdList.Contains(bi.BranchId) &&
-                                bi.IsActive)
-                    .Include(bi => bi.Branch)
-                    .ToListAsync();
-
-                // Create BranchProductDto objects - one per product with branch-specific data
+                // Group by product and create DTOs efficiently
                 var productDtos = new List<BranchProductDto>();
+                var productGroups = result.GroupBy(x => x.Product.Id);
 
-                foreach (var product in products)
+                foreach (var productGroup in productGroups)
                 {
-                    // Get branch inventories for this product
-                    var productBranchInventories = branchInventories
-                        .Where(bi => bi.ProductId == product.Id)
-                        .ToList();
+                    var product = productGroup.First().Product;
+                    var productInventories = productGroup.Where(x => x.HasInventory).ToList();
 
-                    // For each requested branch, create a BranchProductDto
-                    foreach (var branchId in branchIdList)
+                    // Handle branches with real inventory
+                    foreach (var inventory in productInventories)
                     {
-                        var branchInventory = productBranchInventories
-                            .FirstOrDefault(bi => bi.BranchId == branchId);
-
-                        int branchSpecificStock = 0;
-                        string branchName = "Unknown Branch";
-
-                        if (branchInventory != null)
+                        productDtos.Add(new BranchProductDto
                         {
-                            // Use real branch inventory data
-                            branchSpecificStock = branchInventory.Stock;
-                            branchName = branchInventory.Branch?.BranchName ?? $"Branch {branchId}";
-                        }
-                        else
+                            Id = product.Id,
+                            Name = product.Name,
+                            Barcode = product.Barcode,
+                            SellPrice = product.SellPrice,
+                            BuyPrice = product.BuyPrice,
+                            Stock = product.Stock,
+                            BranchStock = inventory.BranchStock,
+                            BranchId = inventory.BranchId,
+                            BranchName = inventory.BranchName,
+                            MinStock = product.MinimumStock,
+                            Unit = product.Unit,
+                            CategoryId = product.CategoryId,
+                            CategoryName = product.Category?.Name,
+                            IsActive = product.IsActive,
+                            Description = product.Description,
+                            CreatedAt = product.CreatedAt,
+                            UpdatedAt = product.UpdatedAt
+                        });
+                    }
+
+                    // Handle branches without inventory (fallback with demo data)
+                    var branchesWithInventory = productInventories.Select(x => x.BranchId).ToHashSet();
+                    var branchesWithoutInventory = branchIdList.Except(branchesWithInventory);
+
+                    // Cache branch names for fallback
+                    var branchNamesCacheKey = "branch_names_fallback";
+                    var branchNamesMap = await _cache.GetOrCreateAsync(branchNamesCacheKey, async entry =>
+                    {
+                        entry.AbsoluteExpirationRelativeToNow = TimeSpan.FromHours(1); // Cache for 1 hour
+
+                        var branches = await _context.Branches
+                            .Select(b => new { b.Id, b.BranchName })
+                            .ToDictionaryAsync(b => b.Id, b => b.BranchName);
+
+                        // Add fallback names for branches not in database
+                        branches.TryAdd(1, "Head Office Jakarta");
+                        branches.TryAdd(2, "Branch Purwakarta");
+                        branches.TryAdd(3, "Branch Bandung");
+                        branches.TryAdd(4, "Branch Surabaya");
+                        branches.TryAdd(6, "Test Branch");
+
+                        return branches;
+                    });
+
+                    foreach (var branchId in branchesWithoutInventory)
+                    {
+                        var branchSpecificStock = branchId switch
                         {
-                            // Fallback: Create demo data and optionally seed to database
-                            branchSpecificStock = branchId switch
-                            {
-                                1 => (int)(product.Stock * 0.6),  // Head Office - highest stock
-                                2 => (int)(product.Stock * 0.3),  // Purwakarta - medium stock
-                                3 => (int)(product.Stock * 0.25), // Bandung - medium stock
-                                4 => (int)(product.Stock * 0.15), // Surabaya - lower stock
-                                6 => (int)(product.Stock * 0.1),  // Test Branch - minimal stock
-                                _ => (int)(product.Stock * 0.2)   // Default for other branches
-                            };
+                            1 => (int)(product.Stock * 0.6),  // Head Office - highest stock
+                            2 => (int)(product.Stock * 0.3),  // Purwakarta - medium stock
+                            3 => (int)(product.Stock * 0.25), // Bandung - medium stock
+                            4 => (int)(product.Stock * 0.15), // Surabaya - lower stock
+                            6 => (int)(product.Stock * 0.1),  // Test Branch - minimal stock
+                            _ => (int)(product.Stock * 0.2)   // Default for other branches
+                        };
 
-                            branchName = branchId switch
-                            {
-                                1 => "Head Office Jakarta",
-                                2 => "Branch Purwakarta",
-                                3 => "Branch Bandung",
-                                4 => "Branch Surabaya",
-                                6 => "Test Branch",
-                                _ => $"Branch {branchId}"
-                            };
+                        var branchName = branchNamesMap.GetValueOrDefault(branchId, $"Branch {branchId}");
 
-                            // Auto-seed branch inventory data for demo
-                            _ = SeedBranchInventoryAsync(product.Id, branchId, branchSpecificStock, product);
-                        }
-
-                        // Only include products with stock > 0
+                        // Only include if has stock
                         if (branchSpecificStock > 0)
                         {
                             productDtos.Add(new BranchProductDto
@@ -383,8 +418,8 @@ namespace Berca_Backend.Controllers
                                 Barcode = product.Barcode,
                                 SellPrice = product.SellPrice,
                                 BuyPrice = product.BuyPrice,
-                                Stock = product.Stock, // Original stock
-                                BranchStock = branchSpecificStock, // Branch-specific stock
+                                Stock = product.Stock,
+                                BranchStock = branchSpecificStock,
                                 BranchId = branchId,
                                 BranchName = branchName,
                                 MinStock = product.MinimumStock,
@@ -419,6 +454,192 @@ namespace Berca_Backend.Controllers
                     Message = "Internal server error"
                 });
             }
+        }
+
+        /// <summary>
+        /// Get products by branch (OPTIMIZED - Compact version for better performance)
+        /// </summary>
+        [HttpGet("by-branch/compact")]
+        [Authorize(Policy = "Inventory.Read")]
+        public async Task<ActionResult<ApiResponse<BranchProductPagedResponse>>> GetProductsByBranchCompact(
+            [FromQuery] string branchIds,
+            [FromQuery] string? search = null,
+            [FromQuery] int? categoryId = null,
+            [FromQuery] bool? isActive = true,
+            [FromQuery] int page = 1,
+            [FromQuery] int pageSize = 50) // Increased default page size for better performance
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(branchIds))
+                {
+                    return BadRequest(new ApiResponse<BranchProductPagedResponse>
+                    {
+                        Success = false,
+                        Message = "Branch IDs are required"
+                    });
+                }
+
+                // Parse and validate branch IDs
+                var branchIdList = branchIds.Split(',')
+                    .Select(id => int.TryParse(id.Trim(), out var parsed) ? parsed : 0)
+                    .Where(id => id > 0)
+                    .ToList();
+
+                if (branchIdList.Count == 0)
+                {
+                    return BadRequest(new ApiResponse<BranchProductPagedResponse>
+                    {
+                        Success = false,
+                        Message = "Valid branch IDs are required"
+                    });
+                }
+
+                // Cache key for this specific request
+                var requestCacheKey = $"products_branch_compact_{string.Join(",", branchIdList)}_{search}_{categoryId}_{isActive}_{page}_{pageSize}";
+
+                var cachedResult = await _cache.GetOrCreateAsync(requestCacheKey, async entry =>
+                {
+                    entry.AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(5); // Cache for 5 minutes
+
+                    // Get user context for access validation (with caching)
+                    var currentUserId = GetCurrentUserId();
+                    var currentUserRole = GetCurrentUserRole();
+                    var userCacheKey = $"user_branches_{currentUserId}_{currentUserRole}";
+                    var accessibleBranchIds = await _cache.GetOrCreateAsync(userCacheKey, async userEntry =>
+                    {
+                        userEntry.AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(15);
+                        return await GetUserAccessibleBranches(currentUserId, currentUserRole);
+                    });
+
+                    // Validate user has access to requested branches
+                    var unauthorizedBranches = branchIdList.Except(accessibleBranchIds).ToList();
+                    if (unauthorizedBranches.Any())
+                    {
+                        return new BranchProductPagedResponse(); // Return empty result for unauthorized access
+                    }
+
+                    // OPTIMIZED: Single query with minimal data transfer
+                    var baseQuery = from p in _context.Products
+                                   from bi in _context.BranchInventories
+                                       .Where(bi => bi.ProductId == p.Id &&
+                                                   branchIdList.Contains(bi.BranchId) &&
+                                                   bi.IsActive &&
+                                                   bi.Stock > 0)
+                                       .DefaultIfEmpty()
+                                   join c in _context.Categories on p.CategoryId equals c.Id into categoryJoin
+                                   from category in categoryJoin.DefaultIfEmpty()
+                                   join b in _context.Branches on (bi != null ? bi.BranchId : 0) equals b.Id into branchJoin
+                                   from branch in branchJoin.DefaultIfEmpty()
+                                   where (isActive == null || p.IsActive == isActive)
+                                   select new
+                                   {
+                                       ProductId = p.Id,
+                                       ProductName = p.Name,
+                                       Barcode = p.Barcode,
+                                       SellPrice = p.SellPrice,
+                                       MinStock = p.MinimumStock,
+                                       Unit = p.Unit,
+                                       CategoryId = p.CategoryId,
+                                       CategoryName = category != null ? category.Name : null,
+                                       OriginalStock = p.Stock,
+                                       BranchId = bi != null ? bi.BranchId : 0,
+                                       BranchStock = bi != null ? bi.Stock : 0,
+                                       BranchName = branch != null ? branch.BranchName : "",
+                                       HasInventory = bi != null
+                                   };
+
+                    // Apply search filters
+                    if (!string.IsNullOrWhiteSpace(search))
+                    {
+                        baseQuery = baseQuery.Where(x =>
+                            EF.Functions.Like(x.ProductName, $"%{search}%") ||
+                            EF.Functions.Like(x.Barcode, $"%{search}%"));
+                    }
+
+                    if (categoryId.HasValue)
+                    {
+                        baseQuery = baseQuery.Where(x => x.CategoryId == categoryId.Value);
+                    }
+
+                    // Get total count
+                    var totalCount = await baseQuery.CountAsync();
+
+                    // Get paginated results
+                    var results = await baseQuery
+                        .OrderBy(x => x.ProductName)
+                        .Skip((page - 1) * pageSize)
+                        .Take(pageSize)
+                        .ToListAsync();
+
+                    // Convert to compact DTOs efficiently
+                    var compactDtos = new List<BranchProductCompactDto>();
+
+                    foreach (var result in results)
+                    {
+                        var stock = result.HasInventory ? result.BranchStock :
+                                   GetFallbackStock(result.BranchId, result.OriginalStock);
+
+                        if (stock > 0)
+                        {
+                            compactDtos.Add(new BranchProductCompactDto
+                            {
+                                Id = result.ProductId,
+                                Name = result.ProductName,
+                                Barcode = result.Barcode,
+                                SellPrice = result.SellPrice,
+                                Stock = stock,
+                                BranchId = result.BranchId,
+                                BranchName = result.BranchName,
+                                MinStock = result.MinStock,
+                                Unit = result.Unit,
+                                CategoryId = result.CategoryId,
+                                CategoryName = result.CategoryName
+                            });
+                        }
+                    }
+
+                    return new BranchProductPagedResponse
+                    {
+                        Products = compactDtos,
+                        TotalCount = totalCount,
+                        Page = page,
+                        PageSize = pageSize
+                    };
+                });
+
+                return Ok(new ApiResponse<BranchProductPagedResponse>
+                {
+                    Success = true,
+                    Data = cachedResult,
+                    Message = $"Retrieved {cachedResult.Products.Count} products (Page {page} of {cachedResult.TotalPages})"
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error retrieving products by branch (compact)");
+                return StatusCode(500, new ApiResponse<BranchProductPagedResponse>
+                {
+                    Success = false,
+                    Message = "Internal server error"
+                });
+            }
+        }
+
+        /// <summary>
+        /// Helper method for fallback stock calculation
+        /// </summary>
+        private static int GetFallbackStock(int branchId, int originalStock)
+        {
+            return branchId switch
+            {
+                1 => (int)(originalStock * 0.6),  // Head Office - highest stock
+                2 => (int)(originalStock * 0.3),  // Purwakarta - medium stock
+                3 => (int)(originalStock * 0.25), // Bandung - medium stock
+                4 => (int)(originalStock * 0.15), // Surabaya - lower stock
+                6 => (int)(originalStock * 0.1),  // Test Branch - minimal stock
+                _ => (int)(originalStock * 0.2)   // Default for other branches
+            };
         }
 
         /// <summary>
@@ -2047,8 +2268,12 @@ namespace Berca_Backend.Controllers
 
                 try
                 {
+                    // Create a new scope to get a fresh DbContext
+                    using var scope = _serviceProvider.CreateScope();
+                    var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
                     // Check if branch inventory already exists
-                    var existingInventory = await _context.BranchInventories
+                    var existingInventory = await context.BranchInventories
                         .FirstOrDefaultAsync(bi => bi.ProductId == productId && bi.BranchId == branchId);
 
                     if (existingInventory == null)
@@ -2071,8 +2296,8 @@ namespace Berca_Backend.Controllers
                             LastStockUpdate = DateTime.UtcNow
                         };
 
-                        _context.BranchInventories.Add(branchInventory);
-                        await _context.SaveChangesAsync();
+                        context.BranchInventories.Add(branchInventory);
+                        await context.SaveChangesAsync();
 
                         _logger.LogInformation("✅ Seeded branch inventory for Product {ProductId} in Branch {BranchId} with stock {Stock}",
                             productId, branchId, stock);
