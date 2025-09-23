@@ -518,7 +518,7 @@ namespace Berca_Backend.Controllers
         [Authorize(Policy = "Reports.Analytics")]
         public async Task<ActionResult<ApiResponse<List<EnhancedForecastDto>>>> GetEnhancedForecast(
             [FromQuery] int forecastDays = 90,
-            [FromQuery] string[] metrics = null,
+            [FromQuery] string[]? metrics = null,
             [FromQuery] bool includeSeasonality = true,
             [FromQuery] bool includeRiskAnalysis = true)
         {

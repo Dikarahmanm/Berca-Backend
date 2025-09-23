@@ -285,7 +285,7 @@ namespace Berca_Backend.Controllers
                 });
 
                 // Validate user has access to requested branches
-                var unauthorizedBranches = branchIdList.Except(accessibleBranchIds).ToList();
+                var unauthorizedBranches = branchIdList.Except(accessibleBranchIds ?? new List<int>()).ToList();
                 if (unauthorizedBranches.Any())
                 {
                     return StatusCode(403, new ApiResponse<List<BranchProductDto>>
@@ -406,7 +406,7 @@ namespace Berca_Backend.Controllers
                             _ => (int)(product.Stock * 0.2)   // Default for other branches
                         };
 
-                        var branchName = branchNamesMap.GetValueOrDefault(branchId, $"Branch {branchId}");
+                        var branchName = branchNamesMap?.GetValueOrDefault(branchId, $"Branch {branchId}") ?? $"Branch {branchId}";
 
                         // Only include if has stock
                         if (branchSpecificStock > 0)
@@ -513,7 +513,7 @@ namespace Berca_Backend.Controllers
                     });
 
                     // Validate user has access to requested branches
-                    var unauthorizedBranches = branchIdList.Except(accessibleBranchIds).ToList();
+                    var unauthorizedBranches = branchIdList.Except(accessibleBranchIds ?? new List<int>()).ToList();
                     if (unauthorizedBranches.Any())
                     {
                         return new BranchProductPagedResponse(); // Return empty result for unauthorized access
@@ -612,7 +612,7 @@ namespace Berca_Backend.Controllers
                 {
                     Success = true,
                     Data = cachedResult,
-                    Message = $"Retrieved {cachedResult.Products.Count} products (Page {page} of {cachedResult.TotalPages})"
+                    Message = $"Retrieved {cachedResult?.Products?.Count ?? 0} products (Page {page} of {cachedResult?.TotalPages ?? 0})"
                 });
             }
             catch (Exception ex)

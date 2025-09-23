@@ -514,7 +514,7 @@ namespace Berca_Backend.Controllers
         /// </summary>
         [HttpPost("validate-stock")]
         [Authorize(Policy = "POS.Read")]
-        public async Task<ActionResult<ApiResponse<bool>>> ValidateStock([FromBody] List<CreateSaleItemRequest> items)
+        public async Task<ActionResult<ApiResponse<bool>>> ValidateStock([FromBody] List<CreateSaleItemRequest>? items)
         {
             try
             {
@@ -554,7 +554,7 @@ namespace Berca_Backend.Controllers
                 }
 
                 _logger.LogInformation("✅ Authentication check passed, proceeding with stock validation");
-                var isValid = await _posService.ValidateStockAvailabilityAsync(items);
+                var isValid = await _posService.ValidateStockAvailabilityAsync(items ?? new List<CreateSaleItemRequest>());
                 
                 _logger.LogInformation("📊 Stock Validation Result: {IsValid}", isValid);
                 _logger.LogInformation("🛒 === POS STOCK VALIDATION END ===");
@@ -1165,7 +1165,8 @@ namespace Berca_Backend.Controllers
             [FromQuery] int? categoryId = null,
             [FromQuery] bool? isActive = true,
             [FromQuery] int page = 1,
-            [FromQuery] int pageSize = 20)
+            [FromQuery] int pageSize = 20,
+            [FromQuery] string? branchIds = null)
         {
             try
             {
@@ -1192,11 +1193,34 @@ namespace Berca_Backend.Controllers
                     });
                 }
 
-                // Get current branch context
-                var currentBranchId = GetCurrentBranchId();
-                var branchIdsToSearch = currentBranchId > 0 && accessibleBranchIds.Contains(currentBranchId) 
-                    ? new List<int> { currentBranchId } 
-                    : accessibleBranchIds;
+                // Determine which branches to search
+                List<int> branchIdsToSearch;
+
+                if (!string.IsNullOrWhiteSpace(branchIds))
+                {
+                    // Use specified branch IDs if provided
+                    branchIdsToSearch = branchIds.Split(',')
+                        .Select(id => int.TryParse(id.Trim(), out var parsed) ? parsed : 0)
+                        .Where(id => id > 0 && accessibleBranchIds.Contains(id))
+                        .ToList();
+
+                    if (branchIdsToSearch.Count == 0)
+                    {
+                        return BadRequest(new ApiResponse<List<ProductDto>>
+                        {
+                            Success = false,
+                            Message = "No valid or accessible branch IDs provided"
+                        });
+                    }
+                }
+                else
+                {
+                    // Get current branch context
+                    var currentBranchId = GetCurrentBranchId();
+                    branchIdsToSearch = currentBranchId > 0 && accessibleBranchIds.Contains(currentBranchId)
+                        ? new List<int> { currentBranchId }
+                        : accessibleBranchIds;
+                }
 
                 // Query products with filtering
                 var query = _context.Products
@@ -1238,13 +1262,28 @@ namespace Berca_Backend.Controllers
                     })
                     .ToListAsync();
 
-                var productDtos = products.Select(p => 
+                var productDtos = products.Select(p =>
                 {
                     var branchStockDict = branchStocks
                         .Where(bs => bs.ProductId == p.Id)
                         .ToDictionary(bs => bs.BranchId, bs => bs.CurrentStock);
 
-                    var totalBranchStock = branchStockDict.Values.Sum();
+                    // ✅ FIX: Calculate stock only for requested branches
+                    var branchSpecificStock = branchIdsToSearch
+                        .Sum(branchId => branchStockDict.GetValueOrDefault(branchId, 0));
+
+                    // ✅ ENHANCED LOGIC: Better fallback handling
+                    var finalStock = branchSpecificStock;
+
+                    // If no StockMutations data exists for this product, use distributed stock
+                    if (branchStockDict.Count == 0)
+                    {
+                        // Distribute original stock based on branch priority (temporary solution)
+                        finalStock = branchIdsToSearch.Contains(1) ? (int)(p.Stock * 0.6) : // Head Office gets 60%
+                                   branchIdsToSearch.Contains(2) ? (int)(p.Stock * 0.3) : // Purwakarta gets 30%
+                                   branchIdsToSearch.Contains(3) ? (int)(p.Stock * 0.25) : // Bandung gets 25%
+                                   (int)(p.Stock * 0.2); // Others get 20%
+                    }
 
                     return new ProductDto
                     {
@@ -1253,7 +1292,7 @@ namespace Berca_Backend.Controllers
                         Barcode = p.Barcode,
                         SellPrice = p.SellPrice,
                         BuyPrice = p.BuyPrice,
-                        Stock = totalBranchStock > 0 ? totalBranchStock : p.Stock,
+                        Stock = finalStock,
                         MinStock = p.MinimumStock,
                         Unit = p.Unit,
                         CategoryId = p.CategoryId,
@@ -1263,10 +1302,25 @@ namespace Berca_Backend.Controllers
                         CreatedAt = p.CreatedAt,
                         UpdatedAt = p.UpdatedAt
                     };
-                }).Where(p => p.Stock > 0).ToList();
+                }).Where(p => p.Stock > 0).ToList(); // ✅ Re-enabled stock filter
 
-                _logger.LogInformation("Retrieved {ProductCount} products for POS from {BranchCount} branches", 
-                    productDtos.Count, branchIdsToSearch.Count);
+                _logger.LogInformation("🏢 POS Products Debug: {ProductCount} products for {BranchCount} branches. BranchIds: [{BranchIds}]",
+                    productDtos.Count, branchIdsToSearch.Count, string.Join(",", branchIdsToSearch));
+
+                _logger.LogInformation("🔍 Stock Mutations found: {StockMutationsCount} entries", branchStocks.Count);
+
+                // Debug first few products stock calculation
+                if (productDtos.Count > 0)
+                {
+                    var firstProduct = productDtos.First();
+                    _logger.LogInformation("📦 First Product Debug: {ProductName} - Stock: {Stock}",
+                        firstProduct.Name, firstProduct.Stock);
+                }
+
+                if (productDtos.Count == 0 && products.Count > 0)
+                {
+                    _logger.LogWarning("⚠️ All {ProductCount} products filtered out due to zero stock", products.Count);
+                }
 
                 return Ok(new ApiResponse<List<ProductDto>>
                 {
@@ -1505,14 +1559,14 @@ namespace Berca_Backend.Controllers
                     Total = request.Total,
                     PaidAmount = request.PaidAmount,
                     ChangeAmount = request.ChangeAmount,
-                    Items = request.Items.Select(i => new CreateSaleItemRequest
+                    Items = request.Items?.Select(i => new CreateSaleItemRequest
                     {
                         ProductId = i.ProductId,
                         Quantity = i.Quantity,
                         UnitPrice = i.UnitPrice,
                         Discount = i.Discount,
                         Subtotal = i.Subtotal
-                    }).ToList(),
+                    }).ToList() ?? new List<CreateSaleItemRequest>(),
                     Notes = request.Notes
                 };
 

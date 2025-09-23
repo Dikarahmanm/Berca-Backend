@@ -306,10 +306,10 @@ namespace Berca_Backend.Services
                 // PERFORMANCE OPTIMIZATION: Use cached anomaly detection results
                 const string cacheKey = "ml_anomalies_global";
                 
-                var anomalies = await GetCachedOrExecuteAsync(cacheKey, async () =>
+                var anomalies = await GetCachedOrExecuteAsync(cacheKey, () =>
                 {
                     _logger.LogInformation("TEMP: Skipping ML anomaly detection");
-                    return new List<AnomalyDetectionResult>(); // Return empty list to skip ML
+                    return Task.FromResult(new List<AnomalyDetectionResult>()); // Return empty list to skip ML
                 });
 
                 if (anomalies?.Any() != true)
@@ -471,10 +471,10 @@ namespace Berca_Backend.Services
                 // PERFORMANCE OPTIMIZATION: Use cached clustering results
                 const string cacheKey = "ml_clustering_results";
                 
-                var clusteringResults = await GetCachedOrExecuteAsync(cacheKey, async () =>
+                var clusteringResults = await GetCachedOrExecuteAsync(cacheKey, () =>
                 {
                     _logger.LogInformation("Executing ML product clustering (cached for 5 minutes)");
-                    return new List<ProductCluster>(); // TEMP: Skip clustering
+                    return Task.FromResult(new List<ProductCluster>()); // TEMP: Skip clustering
                 });
                 
                 if (clusteringResults?.Any() == true)
@@ -616,16 +616,16 @@ namespace Berca_Backend.Services
             return productValue * avgAnomalyScore * 0.2m; // 20% of product value * anomaly severity
         }
 
-        private async Task<List<string>> GetBranchesWithProduct(int productId)
+        private Task<List<string>> GetBranchesWithProduct(int productId)
         {
             // Simplified return - would need proper branch relationship in Product model
-            return new List<string> { "Branch A", "Branch B" };
+            return Task.FromResult(new List<string> { "Branch A", "Branch B" });
         }
 
-        private async Task<List<string>> GetBranchesWithProducts(List<int> productIds)
+        private Task<List<string>> GetBranchesWithProducts(List<int> productIds)
         {
             // Simplified return - would need proper branch relationship in Product model
-            return new List<string> { "Branch A", "Branch B", "Branch C" };
+            return Task.FromResult(new List<string> { "Branch A", "Branch B", "Branch C" });
         }
 
         private async Task<decimal> CalculateBranchPerformanceScore(int branchId)
@@ -1593,12 +1593,12 @@ namespace Berca_Backend.Services
             };
         }
 
-        private async Task<GeographicAnalysisDto> CalculateGeographicAnalysis(List<Branch> branches)
+        private Task<GeographicAnalysisDto> CalculateGeographicAnalysis(List<Branch> branches)
         {
             var cityGroups = branches.GroupBy(b => b.City).OrderByDescending(g => g.Count()).ToList();
             var primaryCity = cityGroups.FirstOrDefault()?.Key ?? "Unknown";
 
-            return new GeographicAnalysisDto
+            return Task.FromResult(new GeographicAnalysisDto
             {
                 PrimaryCity = primaryCity,
                 TotalCities = cityGroups.Count,
@@ -1613,13 +1613,13 @@ namespace Berca_Backend.Services
                 }).ToList(),
                 DominantMarket = primaryCity,
                 GeographicConcentrationIndex = CalculateConcentrationIndex(cityGroups)
-            };
+            });
         }
 
-        private async Task<RegionalMarketShareDto> CalculateRegionalMarketShare(
+        private Task<RegionalMarketShareDto> CalculateRegionalMarketShare(
             List<Branch> branches, AnalyticsQueryParams parameters)
         {
-            return new RegionalMarketShareDto
+            return Task.FromResult(new RegionalMarketShareDto
             {
                 CurrentMarketShare = CalculateCurrentMarketShare(branches),
                 MarketShareGrowth = CalculateMarketShareGrowth(branches, parameters),
@@ -1627,7 +1627,7 @@ namespace Berca_Backend.Services
                 RegionalCompetitors = GenerateRegionalCompetitors(),
                 MarketPotential = CalculateMarketPotential(branches),
                 MarketTrend = DetermineMarketTrend(branches)
-            };
+            });
         }
 
         // Helper methods for network analytics
@@ -1728,7 +1728,7 @@ namespace Berca_Backend.Services
         private double CalculateRevenueGrowthRate(double totalRevenue, AnalyticsQueryParams parameters) => Math.Max(-10, Math.Min(25, new Random().NextDouble() * 15 - 2));
         private double CalculateRegionalEfficiency(List<Branch> branches) => Math.Max(60, Math.Min(95, 75 + new Random().NextDouble() * 20));
         private double CalculateRegionalCustomerSatisfaction(List<Branch> branches) => Math.Max(70, Math.Min(98, 82 + new Random().NextDouble() * 16));
-        private async Task<double> CalculateRegionalInventoryTurnover(List<Branch> branches) => Math.Max(2, Math.Min(12, 6 + new Random().NextDouble() * 4));
+        private Task<double> CalculateRegionalInventoryTurnover(List<Branch> branches) => Task.FromResult(Math.Max(2, Math.Min(12, 6 + new Random().NextDouble() * 4)));
         private double CalculateCityMarketPenetration(List<IGrouping<string, Branch>> cityGroups) => Math.Max(10, Math.Min(80, new Random().NextDouble() * 50 + 20));
         private double CalculateCityMarketShare(List<Branch> cityBranches) => Math.Max(5, Math.Min(40, new Random().NextDouble() * 25 + 10));
         private double CalculateCityGrowthRate(List<Branch> cityBranches) => Math.Max(-5, Math.Min(20, new Random().NextDouble() * 15 - 2));
@@ -1832,10 +1832,10 @@ namespace Berca_Backend.Services
         private async Task<double> CalculateNetworkTotalRevenue(List<Branch> branches, AnalyticsQueryParams parameters) =>
             await _context.Sales.Where(s => s.SaleDate >= parameters.StartDate && s.SaleDate <= parameters.EndDate).SumAsync(s => (double)s.Total);
 
-        private async Task<double> CalculateNetworkGrowthRate(List<Branch> branches, AnalyticsQueryParams parameters) =>
-            Math.Max(-5, Math.Min(20, new Random().NextDouble() * 15 - 2));
+        private Task<double> CalculateNetworkGrowthRate(List<Branch> branches, AnalyticsQueryParams parameters) => Task.FromResult(
+            Math.Max(-5, Math.Min(20, new Random().NextDouble() * 15 - 2)));
 
-        private async Task<bool> IsUnderperforming(int branchId, AnalyticsQueryParams parameters) => new Random().NextDouble() < 0.2;
+        private Task<bool> IsUnderperforming(int branchId, AnalyticsQueryParams parameters) => Task.FromResult(new Random().NextDouble() < 0.2);
 
         private string DetermineNetworkStatus(int active, int underperforming) =>
             underperforming < active * 0.1 ? "Excellent" : underperforming < active * 0.2 ? "Good" : "Needs Attention";
@@ -1843,8 +1843,8 @@ namespace Berca_Backend.Services
         private async Task<long> CalculateNetworkTotalTransactions(List<Branch> branches, AnalyticsQueryParams parameters) =>
             await _context.Sales.Where(s => s.SaleDate >= parameters.StartDate && s.SaleDate <= parameters.EndDate).CountAsync();
 
-        private async Task<double> CalculateTransactionGrowthRate(List<Branch> branches, AnalyticsQueryParams parameters) =>
-            Math.Max(-3, Math.Min(15, new Random().NextDouble() * 12 - 1));
+        private Task<double> CalculateTransactionGrowthRate(List<Branch> branches, AnalyticsQueryParams parameters) => Task.FromResult(
+            Math.Max(-3, Math.Min(15, new Random().NextDouble() * 12 - 1)));
 
         private async Task<double> CalculateNetworkAvgOrderValue(List<Branch> branches, AnalyticsQueryParams parameters)
         {
@@ -1855,38 +1855,38 @@ namespace Berca_Backend.Services
         private double CalculateNetworkCustomerSatisfaction(List<Branch> branches) =>
             Math.Max(70, Math.Min(95, 80 + new Random().NextDouble() * 15));
 
-        private async Task<double> CalculateNetworkEfficiencyScore(List<Branch> branches, AnalyticsQueryParams parameters) =>
-            Math.Max(60, Math.Min(90, 75 + new Random().NextDouble() * 15));
+        private Task<double> CalculateNetworkEfficiencyScore(List<Branch> branches, AnalyticsQueryParams parameters) => Task.FromResult(
+            Math.Max(60, Math.Min(90, 75 + new Random().NextDouble() * 15)));
 
-        private async Task<double> CalculateNetworkInventoryTurnover(List<Branch> branches) =>
-            Math.Max(3, Math.Min(10, 6 + new Random().NextDouble() * 3));
+        private Task<double> CalculateNetworkInventoryTurnover(List<Branch> branches) => Task.FromResult(
+            Math.Max(3, Math.Min(10, 6 + new Random().NextDouble() * 3)));
 
-        private async Task<double> CalculateNetworkProfitMargin(List<Branch> branches, AnalyticsQueryParams parameters) =>
-            Math.Max(5, Math.Min(25, 15 + new Random().NextDouble() * 8));
+        private Task<double> CalculateNetworkProfitMargin(List<Branch> branches, AnalyticsQueryParams parameters) => Task.FromResult(
+            Math.Max(5, Math.Min(25, 15 + new Random().NextDouble() * 8)));
 
         private async Task<double> CalculateNetworkOperationalCosts(List<Branch> branches, AnalyticsQueryParams parameters) =>
             (await CalculateNetworkTotalRevenue(branches, parameters)) * (0.7 + new Random().NextDouble() * 0.2);
 
-        private async Task<double> CalculateOverallHealthScore(List<Branch> branches, AnalyticsQueryParams parameters) =>
-            Math.Max(50, Math.Min(95, 75 + new Random().NextDouble() * 20));
+        private Task<double> CalculateOverallHealthScore(List<Branch> branches, AnalyticsQueryParams parameters) => Task.FromResult(
+            Math.Max(50, Math.Min(95, 75 + new Random().NextDouble() * 20)));
 
         private string DetermineHealthStatus(double score) => score switch { >= 85 => "Excellent", >= 75 => "Good", >= 65 => "Fair", _ => "Needs Attention" };
 
-        private async Task<List<NetworkHealthIndicatorDto>> GenerateHealthIndicators(List<Branch> branches, AnalyticsQueryParams parameters) => new()
+        private Task<List<NetworkHealthIndicatorDto>> GenerateHealthIndicators(List<Branch> branches, AnalyticsQueryParams parameters) => Task.FromResult(new List<NetworkHealthIndicatorDto>()
         {
             new() { Indicator = "Revenue Performance", Score = 82, Status = "Good", Description = "Revenue targets being met consistently" },
             new() { Indicator = "Operational Efficiency", Score = 78, Status = "Good", Description = "Operations running smoothly with minor improvements needed" },
             new() { Indicator = "Customer Satisfaction", Score = 85, Status = "Excellent", Description = "Customer satisfaction above target levels" },
             new() { Indicator = "Inventory Management", Score = 70, Status = "Fair", Description = "Inventory optimization opportunities identified" }
-        };
+        });
 
-        private async Task<string[]> GenerateCriticalAlerts(List<Branch> branches, AnalyticsQueryParams parameters) =>
-            new[] { "3 branches showing significant revenue decline", "Inventory shortages detected in 5 locations" };
+        private Task<string[]> GenerateCriticalAlerts(List<Branch> branches, AnalyticsQueryParams parameters) => Task.FromResult(
+            new[] { "3 branches showing significant revenue decline", "Inventory shortages detected in 5 locations" });
 
-        private async Task<string[]> GenerateWarnings(List<Branch> branches, AnalyticsQueryParams parameters) =>
-            new[] { "Customer satisfaction declining in 2 regions", "Supply chain delays affecting 8 branches" };
+        private Task<string[]> GenerateWarnings(List<Branch> branches, AnalyticsQueryParams parameters) => Task.FromResult(
+            new[] { "Customer satisfaction declining in 2 regions", "Supply chain delays affecting 8 branches" });
 
-        private async Task<List<RegionalSummaryDto>> CalculateRegionalBreakdown(List<Branch> branches, AnalyticsQueryParams parameters) =>
+        private Task<List<RegionalSummaryDto>> CalculateRegionalBreakdown(List<Branch> branches, AnalyticsQueryParams parameters) => Task.FromResult(
             branches.GroupBy(b => b.Province).Select(g => new RegionalSummaryDto
             {
                 Region = g.Key, BranchCount = g.Count(),
@@ -1894,9 +1894,9 @@ namespace Berca_Backend.Services
                 ContributionPercentage = (double)g.Count() / branches.Count * 100,
                 Performance = Math.Max(60, Math.Min(95, 75 + new Random().NextDouble() * 20)),
                 Status = new Random().NextDouble() > 0.3 ? "Good" : "Needs Attention"
-            }).ToList();
+            }).ToList());
 
-        private async Task<NetworkEfficiencyDto> CalculateNetworkEfficiency(List<Branch> branches, AnalyticsQueryParams parameters) => new()
+        private Task<NetworkEfficiencyDto> CalculateNetworkEfficiency(List<Branch> branches, AnalyticsQueryParams parameters) => Task.FromResult(new NetworkEfficiencyDto()
         {
             OverallEfficiencyScore = Math.Max(65, Math.Min(90, 77 + new Random().NextDouble() * 13)),
             ResourceUtilization = Math.Max(70, Math.Min(95, 80 + new Random().NextDouble() * 15)),
@@ -1909,14 +1909,14 @@ namespace Berca_Backend.Services
                 new() { Area = "Inventory Management", Recommendation = "Implement automated reorder points", PotentialImprovement = 12, Priority = "High", Impact = "Medium" },
                 new() { Area = "Supply Chain", Recommendation = "Optimize delivery routes", PotentialImprovement = 8, Priority = "Medium", Impact = "High" }
             }
-        };
+        });
 
-        private async Task<List<NetworkRiskFactorDto>> GenerateRiskFactors(List<Branch> branches, AnalyticsQueryParams parameters) => new()
+        private Task<List<NetworkRiskFactorDto>> GenerateRiskFactors(List<Branch> branches, AnalyticsQueryParams parameters) => Task.FromResult(new List<NetworkRiskFactorDto>
         {
             new() { RiskType = "Market Competition", Probability = 0.6, Impact = 0.7, RiskScore = 42, Description = "Increasing competitive pressure", AffectedAreas = "Revenue, Market Share" },
             new() { RiskType = "Supply Chain Disruption", Probability = 0.3, Impact = 0.8, RiskScore = 24, Description = "Potential supply chain interruptions", AffectedAreas = "Inventory, Customer Satisfaction" },
             new() { RiskType = "Economic Downturn", Probability = 0.4, Impact = 0.9, RiskScore = 36, Description = "Economic uncertainty affecting demand", AffectedAreas = "Revenue, Growth" }
-        };
+        });
 
         private double CalculateOverallRiskScore(List<NetworkRiskFactorDto> risks) => risks.Count > 0 ? risks.Average(r => r.RiskScore) : 0;
         private string DetermineRiskLevel(double riskScore) => riskScore switch { >= 70 => "High", >= 40 => "Medium", >= 20 => "Low", _ => "Very Low" };

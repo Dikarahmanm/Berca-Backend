@@ -103,6 +103,11 @@ namespace Berca_Backend.Services
                 // Train SSA model for this specific product
                 var forecastModel = TrainDemandForecastModel(historicalData);
 
+                if (forecastModel == null)
+                {
+                    return GenerateSimpleForecast(productId, historicalData, days);
+                }
+
                 // Generate predictions
                 var predictions = GenerateDemandPredictions(forecastModel, historicalData, days);
 
@@ -404,7 +409,7 @@ namespace Berca_Backend.Services
             return sales;
         }
 
-        private ITransformer TrainDemandForecastModel(List<DemandData> historicalData)
+        private ITransformer? TrainDemandForecastModel(List<DemandData> historicalData)
         {
             try
             {
@@ -519,11 +524,11 @@ namespace Berca_Backend.Services
         // Additional ML helper methods would continue here...
         // Including anomaly detection, clustering, and model training implementations
 
-        private async Task<List<AnomalyDetectionResult>> DetectSalesAnomaliesAsync(List<Sale> salesData)
+        private Task<List<AnomalyDetectionResult>> DetectSalesAnomaliesAsync(List<Sale> salesData)
         {
             var anomalies = new List<AnomalyDetectionResult>();
             
-            if (!salesData.Any()) return anomalies;
+            if (!salesData.Any()) return Task.FromResult(anomalies);
 
             try
             {
@@ -534,7 +539,7 @@ namespace Berca_Backend.Services
                     .OrderBy(d => d.Date)
                     .ToList();
 
-                if (dailySales.Count < 7) return anomalies; // Need at least a week of data
+                if (dailySales.Count < 7) return Task.FromResult(anomalies); // Need at least a week of data
 
                 // Calculate rolling average and standard deviation
                 var recentSales = dailySales.TakeLast(30).ToList();
@@ -573,12 +578,12 @@ namespace Berca_Backend.Services
                     }
                 }
 
-                return anomalies;
+                return Task.FromResult(anomalies);
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error detecting sales anomalies");
-                return anomalies;
+                return Task.FromResult(anomalies);
             }
         }
 
@@ -908,7 +913,7 @@ namespace Berca_Backend.Services
             }
         }
 
-        private async Task<List<MLTransferRecommendation>> ScoreTransferRecommendations(List<MLTransferRecommendation> recommendations)
+        private Task<List<MLTransferRecommendation>> ScoreTransferRecommendations(List<MLTransferRecommendation> recommendations)
         {
             try
             {
@@ -926,12 +931,12 @@ namespace Berca_Backend.Services
                     rec.MLConfidenceScore *= (1.0f - rec.RiskScore); // Higher risk = lower confidence
                 }
 
-                return recommendations.OrderByDescending(r => r.MLConfidenceScore).ToList();
+                return Task.FromResult(recommendations.OrderByDescending(r => r.MLConfidenceScore).ToList());
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error scoring transfer recommendations");
-                return recommendations;
+                return Task.FromResult(recommendations);
             }
         }
 
