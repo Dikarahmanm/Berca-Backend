@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using System.Security.Claims;
 using Berca_Backend.Data;
 using Berca_Backend.Models;
@@ -13,11 +14,13 @@ namespace Berca_Backend.Controllers
     public class AnalyticsController : ControllerBase
     {
         private readonly AppDbContext _context;
+        private readonly IMemoryCache _cache;
         private readonly ILogger<AnalyticsController> _logger;
 
-        public AnalyticsController(AppDbContext context, ILogger<AnalyticsController> logger)
+        public AnalyticsController(AppDbContext context, IMemoryCache cache, ILogger<AnalyticsController> logger)
         {
             _context = context;
+            _cache = cache;
             _logger = logger;
         }
 
@@ -32,6 +35,17 @@ namespace Berca_Backend.Controllers
             {
                 var currentUserId = GetCurrentUserId();
                 var currentUserRole = GetCurrentUserRole();
+
+                // ✅ CACHE ASIDE PATTERN: Check cache first
+                var cacheKey = $"analytics_dashboard_{currentUserId}_{branchIds ?? "all"}_{DateTime.UtcNow.Date:yyyyMMdd}";
+
+                if (_cache.TryGetValue(cacheKey, out object? cachedAnalytics))
+                {
+                    _logger.LogInformation("🔄 Cache HIT: Retrieved dashboard analytics from cache for user {UserId}", currentUserId);
+                    return Ok(cachedAnalytics);
+                }
+
+                _logger.LogInformation("🔄 Cache MISS: Fetching dashboard analytics from database for user {UserId}", currentUserId);
 
                 if (currentUserId == 0)
                 {
@@ -217,7 +231,8 @@ namespace Berca_Backend.Controllers
 
                 var stockAlertsCount = stockAlertsList.Count;
 
-                return Ok(new
+                // Prepare the response object
+                var analyticsResult = new
                 {
                     success = true,
                     data = new
@@ -232,7 +247,20 @@ namespace Berca_Backend.Controllers
                         branchPerformance = sortedBranchPerformance,
                         stockAlertsList = stockAlertsList
                     }
-                });
+                };
+
+                // ✅ CACHE ASIDE PATTERN: Update cache after database fetch
+                var cacheOptions = new MemoryCacheEntryOptions
+                {
+                    AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(15), // Analytics data cache for 15 minutes
+                    SlidingExpiration = TimeSpan.FromMinutes(5),
+                    Priority = CacheItemPriority.Normal
+                };
+
+                _cache.Set(cacheKey, analyticsResult, cacheOptions);
+                _logger.LogInformation("💾 Cache UPDATED: Stored dashboard analytics in cache for user {UserId}", currentUserId);
+
+                return Ok(analyticsResult);
             }
             catch (Exception ex)
             {

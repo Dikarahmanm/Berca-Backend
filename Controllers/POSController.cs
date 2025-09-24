@@ -6,6 +6,7 @@ using Berca_Backend.Data;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using System.ComponentModel.DataAnnotations;
 using System.Security.Claims;
 
@@ -18,13 +19,15 @@ namespace Berca_Backend.Controllers
     {
         private readonly IPOSService _posService;
         private readonly AppDbContext _context;
+        private readonly IMemoryCache _cache;
         // TODO: Add IMemberCreditService when implementation is complete
         private readonly ILogger<POSController> _logger;
 
-        public POSController(IPOSService posService, AppDbContext context, ILogger<POSController> logger)
+        public POSController(IPOSService posService, AppDbContext context, IMemoryCache cache, ILogger<POSController> logger)
         {
             _posService = posService;
             _context = context;
+            _cache = cache;
             _logger = logger;
         }
 
@@ -1170,6 +1173,23 @@ namespace Berca_Backend.Controllers
         {
             try
             {
+                // ✅ CACHE ASIDE PATTERN: Step 1 - Check cache first
+                var cacheKey = $"pos_products_{branchIds ?? "default"}_{search ?? "all"}_{categoryId ?? 0}_{isActive}_{page}_{pageSize}";
+
+                if (_cache.TryGetValue(cacheKey, out List<ProductDto>? cachedProducts))
+                {
+                    _logger.LogInformation("🔄 Cache HIT: Retrieved {ProductCount} products from cache for key: {CacheKey}",
+                        cachedProducts?.Count ?? 0, cacheKey);
+
+                    return Ok(new ApiResponse<List<ProductDto>>
+                    {
+                        Success = true,
+                        Data = cachedProducts ?? new List<ProductDto>(),
+                        Message = $"Retrieved {cachedProducts?.Count ?? 0} products for POS (cached)"
+                    });
+                }
+
+                _logger.LogInformation("🔄 Cache MISS: Fetching products from database for key: {CacheKey}", cacheKey);
                 var currentUserId = GetCurrentUserId();
                 if (currentUserId == 0)
                 {
@@ -1322,6 +1342,18 @@ namespace Berca_Backend.Controllers
                     _logger.LogWarning("⚠️ All {ProductCount} products filtered out due to zero stock", products.Count);
                 }
 
+                // ✅ CACHE ASIDE PATTERN: Step 2 - Update cache after database fetch
+                var cacheOptions = new MemoryCacheEntryOptions
+                {
+                    AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(5), // Cache for 5 minutes
+                    SlidingExpiration = TimeSpan.FromMinutes(2), // Extend by 2 minutes if accessed
+                    Priority = CacheItemPriority.High
+                };
+
+                _cache.Set(cacheKey, productDtos, cacheOptions);
+                _logger.LogInformation("💾 Cache UPDATED: Stored {ProductCount} products in cache with key: {CacheKey}",
+                    productDtos.Count, cacheKey);
+
                 return Ok(new ApiResponse<List<ProductDto>>
                 {
                     Success = true,
@@ -1349,6 +1381,21 @@ namespace Berca_Backend.Controllers
         {
             try
             {
+                // ✅ CACHE ASIDE PATTERN: Check cache first
+                var cacheKey = $"product_branch_stock_{productId}_{GetCurrentUserId()}";
+
+                if (_cache.TryGetValue(cacheKey, out Dictionary<int, int>? cachedStock))
+                {
+                    _logger.LogInformation("🔄 Cache HIT: Retrieved branch stock from cache for product: {ProductId}", productId);
+                    return Ok(new ApiResponse<Dictionary<int, int>>
+                    {
+                        Success = true,
+                        Data = cachedStock ?? new Dictionary<int, int>(),
+                        Message = $"Retrieved stock for product {productId} across {cachedStock?.Count ?? 0} branches (cached)"
+                    });
+                }
+
+                _logger.LogInformation("🔄 Cache MISS: Fetching branch stock from database for product: {ProductId}", productId);
                 var currentUserId = GetCurrentUserId();
                 if (currentUserId == 0)
                 {
@@ -1365,12 +1412,23 @@ namespace Berca_Backend.Controllers
                 var branchStock = await _context.StockMutations
                     .Where(sm => sm.ProductId == productId && accessibleBranchIds.Contains(sm.BranchId ?? 0))
                     .GroupBy(sm => sm.BranchId)
-                    .Select(g => new 
+                    .Select(g => new
                     {
                         BranchId = g.Key ?? 0,
                         CurrentStock = g.OrderByDescending(sm => sm.CreatedAt).First().StockAfter
                     })
                     .ToDictionaryAsync(x => x.BranchId, x => x.CurrentStock);
+
+                // ✅ CACHE ASIDE PATTERN: Update cache after database fetch
+                var stockCacheOptions = new MemoryCacheEntryOptions
+                {
+                    AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(3), // Stock data changes more frequently
+                    SlidingExpiration = TimeSpan.FromMinutes(1),
+                    Priority = CacheItemPriority.High
+                };
+
+                _cache.Set(cacheKey, branchStock, stockCacheOptions);
+                _logger.LogInformation("💾 Cache UPDATED: Stored branch stock for product {ProductId} in cache", productId);
 
                 return Ok(new ApiResponse<Dictionary<int, int>>
                 {

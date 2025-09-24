@@ -4,6 +4,7 @@ using Berca_Backend.Services;
 using Berca_Backend.Services.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Caching.Memory;
 using System.Security.Claims;
 namespace Berca_Backend.Controllers
 {
@@ -13,12 +14,16 @@ namespace Berca_Backend.Controllers
     public class MemberController : ControllerBase
     {
         private readonly IMemberService _memberService;
+        private readonly IMemoryCache _cache;
+        private readonly ICacheInvalidationService _cacheInvalidation;
         // TODO: Add IMemberCreditService when implementation is complete
         private readonly ILogger<MemberController> _logger;
 
-        public MemberController(IMemberService memberService, ILogger<MemberController> logger)
+        public MemberController(IMemberService memberService, IMemoryCache cache, ICacheInvalidationService cacheInvalidation, ILogger<MemberController> logger)
         {
             _memberService = memberService;
+            _cache = cache;
+            _cacheInvalidation = cacheInvalidation;
             _logger = logger;
         }
 
@@ -37,14 +42,38 @@ namespace Berca_Backend.Controllers
             {
                 if (pageSize > 100) pageSize = 100; // Limit page size
 
+                // ✅ CACHE ASIDE PATTERN: Check cache first
+                var cacheKey = $"member_search_{search ?? "all"}_{isActive}_{page}_{pageSize}";
+
+                if (_cache.TryGetValue(cacheKey, out ApiResponse<MemberSearchResponse>? cachedSearch))
+                {
+                    _logger.LogInformation("🔄 Cache HIT: Retrieved member search results from cache");
+                    return Ok(cachedSearch);
+                }
+
+                _logger.LogInformation("🔄 Cache MISS: Performing member search in database");
                 var response = await _memberService.SearchMembersAsync(search, isActive, page, pageSize);
 
-                return Ok(new ApiResponse<MemberSearchResponse>
+                // Prepare the response object
+                var searchResponse = new ApiResponse<MemberSearchResponse>
                 {
                     Success = true,
                     Data = response,
                     Message = $"Retrieved {response.Members.Count} members"
-                });
+                };
+
+                // ✅ CACHE ASIDE PATTERN: Update cache after database fetch
+                var cacheOptions = new MemoryCacheEntryOptions
+                {
+                    AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(15), // Member search cache for 15 minutes
+                    SlidingExpiration = TimeSpan.FromMinutes(5),
+                    Priority = CacheItemPriority.Normal
+                };
+
+                _cache.Set(cacheKey, searchResponse, cacheOptions);
+                _logger.LogInformation("💾 Cache UPDATED: Stored member search results in cache");
+
+                return Ok(searchResponse);
             }
             catch (Exception ex)
             {
@@ -66,6 +95,16 @@ namespace Berca_Backend.Controllers
         {
             try
             {
+                // ✅ CACHE ASIDE PATTERN: Check cache first
+                var cacheKey = $"member_by_id_{id}";
+
+                if (_cache.TryGetValue(cacheKey, out ApiResponse<MemberDto>? cachedMember))
+                {
+                    _logger.LogInformation("🔄 Cache HIT: Retrieved member from cache for ID {MemberId}", id);
+                    return Ok(cachedMember);
+                }
+
+                _logger.LogInformation("🔄 Cache MISS: Fetching member from database for ID {MemberId}", id);
                 var member = await _memberService.GetMemberByIdAsync(id);
                 if (member == null)
                 {
@@ -76,11 +115,25 @@ namespace Berca_Backend.Controllers
                     });
                 }
 
-                return Ok(new ApiResponse<MemberDto>
+                // Prepare the response object
+                var memberResponse = new ApiResponse<MemberDto>
                 {
                     Success = true,
                     Data = member
-                });
+                };
+
+                // ✅ CACHE ASIDE PATTERN: Update cache after database fetch
+                var cacheOptions = new MemoryCacheEntryOptions
+                {
+                    AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(30), // Member data cache for 30 minutes
+                    SlidingExpiration = TimeSpan.FromMinutes(10),
+                    Priority = CacheItemPriority.Normal
+                };
+
+                _cache.Set(cacheKey, memberResponse, cacheOptions);
+                _logger.LogInformation("💾 Cache UPDATED: Stored member data in cache for ID {MemberId}", id);
+
+                return Ok(memberResponse);
             }
             catch (Exception ex)
             {
@@ -188,6 +241,13 @@ namespace Berca_Backend.Controllers
 
                 var member = await _memberService.CreateMemberAsync(request, username);
 
+                // ✅ CACHE INVALIDATION: Clear member-related caches after creation
+                _cacheInvalidation.InvalidateByPattern("member_search_*");
+                _cacheInvalidation.InvalidateByPattern("analytics_*"); // Member statistics might change
+
+                _logger.LogInformation("🗑️ Cache invalidated after member creation: {MemberName} (ID: {MemberId})",
+                    member.Name, member.Id);
+
                 return CreatedAtAction(nameof(GetMember), new { id = member.Id }, new ApiResponse<MemberDto>
                 {
                     Success = true,
@@ -228,6 +288,13 @@ namespace Berca_Backend.Controllers
                 }
 
                 var member = await _memberService.UpdateMemberAsync(id, request, username);
+
+                // ✅ CACHE INVALIDATION: Clear member-related caches after update
+                _cacheInvalidation.InvalidateByPattern("member_search_*");
+                _cacheInvalidation.InvalidateByPattern($"member_by_id_{id}");
+                _cacheInvalidation.InvalidateByPattern("analytics_*"); // Member statistics might change
+
+                _logger.LogInformation("🗑️ Cache invalidated after member update: {MemberId}", id);
 
                 return Ok(new ApiResponse<MemberDto>
                 {

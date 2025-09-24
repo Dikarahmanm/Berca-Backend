@@ -5,6 +5,7 @@ using Berca_Backend.Models;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using System.Security.Claims;
 
 namespace Berca_Backend.Controllers
@@ -17,6 +18,7 @@ namespace Berca_Backend.Controllers
         private readonly IBranchService _branchService;
         private readonly IUserBranchAssignmentService _userBranchService;
         private readonly ITimezoneService _timezoneService;
+        private readonly IMemoryCache _cache;
         private readonly ILogger<BranchController> _logger;
         private readonly AppDbContext _context;
 
@@ -24,12 +26,14 @@ namespace Berca_Backend.Controllers
             IBranchService branchService,
             IUserBranchAssignmentService userBranchService,
             ITimezoneService timezoneService,
+            IMemoryCache cache,
             ILogger<BranchController> logger,
             AppDbContext context)
         {
             _branchService = branchService;
             _userBranchService = userBranchService;
             _timezoneService = timezoneService;
+            _cache = cache;
             _logger = logger;
             _context = context;
         }
@@ -72,7 +76,7 @@ namespace Berca_Backend.Controllers
             {
                 var currentUserId = GetCurrentUserId();
                 var currentUserRole = GetCurrentUserRole();
-                
+
                 if (currentUserId == 0)
                 {
                     return Unauthorized(new
@@ -81,6 +85,17 @@ namespace Berca_Backend.Controllers
                         message = "Invalid user session"
                     });
                 }
+
+                // ✅ CACHE ASIDE PATTERN: Check cache first
+                var cacheKey = $"accessible_branches_{currentUserId}_{currentUserRole}";
+
+                if (_cache.TryGetValue(cacheKey, out object? cachedBranches))
+                {
+                    _logger.LogInformation("🔄 Cache HIT: Retrieved accessible branches from cache for user {UserId}", currentUserId);
+                    return Ok(cachedBranches);
+                }
+
+                _logger.LogInformation("🔄 Cache MISS: Fetching accessible branches from database for user {UserId}", currentUserId);
 
                 var branches = new List<object>();
                 
@@ -179,11 +194,25 @@ namespace Berca_Backend.Controllers
                     }
                 }
 
-                return Ok(new
+                // Prepare the response object
+                var branchesResponse = new
                 {
                     success = true,
                     data = branches
-                });
+                };
+
+                // ✅ CACHE ASIDE PATTERN: Update cache after database fetch
+                var cacheOptions = new MemoryCacheEntryOptions
+                {
+                    AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(60), // Branch data cache for 1 hour (changes infrequently)
+                    SlidingExpiration = TimeSpan.FromMinutes(20),
+                    Priority = CacheItemPriority.High // Critical for UI branch selector
+                };
+
+                _cache.Set(cacheKey, branchesResponse, cacheOptions);
+                _logger.LogInformation("💾 Cache UPDATED: Stored accessible branches in cache for user {UserId}", currentUserId);
+
+                return Ok(branchesResponse);
             }
             catch (Exception ex)
             {

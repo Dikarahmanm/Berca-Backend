@@ -3,6 +3,7 @@ using Berca_Backend.DTOs;
 using Berca_Backend.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Caching.Memory;
 using System.Security.Claims;
 
 namespace Berca_Backend.Controllers
@@ -13,11 +14,15 @@ namespace Berca_Backend.Controllers
     public class CategoryController : ControllerBase
     {
         private readonly ICategoryService _categoryService;
+        private readonly IMemoryCache _cache;
+        private readonly ICacheInvalidationService _cacheInvalidation;
         private readonly ILogger<CategoryController> _logger;
 
-        public CategoryController(ICategoryService categoryService, ILogger<CategoryController> logger)
+        public CategoryController(ICategoryService categoryService, IMemoryCache cache, ICacheInvalidationService cacheInvalidation, ILogger<CategoryController> logger)
         {
             _categoryService = categoryService;
+            _cache = cache;
+            _cacheInvalidation = cacheInvalidation;
             _logger = logger;
         }
 
@@ -30,9 +35,31 @@ namespace Berca_Backend.Controllers
             try
             {
                 var username = User.FindFirst(ClaimTypes.Name)?.Value ?? "Unknown";
-                _logger.LogInformation("User {Username} requested categories with filter: {@Filter}", username, filter);
+
+                // ✅ CACHE ASIDE PATTERN: Check cache first
+                var cacheKey = $"categories_{filter?.SearchTerm ?? "all"}_{filter?.Page}_{filter?.PageSize}_{filter?.SortBy}";
+
+                if (_cache.TryGetValue(cacheKey, out CategoryListDto? cachedCategories))
+                {
+                    _logger.LogInformation("🔄 Cache HIT: Retrieved categories from cache for user {Username}", username);
+                    return Ok(cachedCategories);
+                }
+
+                _logger.LogInformation("🔄 Cache MISS: Fetching categories from database for user {Username} with filter: {@Filter}", username, filter);
 
                 var result = await _categoryService.GetCategoriesAsync(filter);
+
+                // ✅ CACHE ASIDE PATTERN: Update cache after database fetch
+                var cacheOptions = new MemoryCacheEntryOptions
+                {
+                    AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(45), // Categories cache for 45 minutes (changes infrequently)
+                    SlidingExpiration = TimeSpan.FromMinutes(15),
+                    Priority = CacheItemPriority.Normal
+                };
+
+                _cache.Set(cacheKey, result, cacheOptions);
+                _logger.LogInformation("💾 Cache UPDATED: Stored categories in cache");
+
                 return Ok(result);
             }
             catch (Exception ex)
@@ -55,11 +82,33 @@ namespace Berca_Backend.Controllers
                     return BadRequest(new { message = "Invalid category ID" });
                 }
 
+                // ✅ CACHE ASIDE PATTERN: Check cache first
+                var cacheKey = $"category_by_id_{id}";
+
+                if (_cache.TryGetValue(cacheKey, out CategoryDto? cachedCategory))
+                {
+                    _logger.LogInformation("🔄 Cache HIT: Retrieved category from cache for ID {CategoryId}", id);
+                    return Ok(cachedCategory);
+                }
+
+                _logger.LogInformation("🔄 Cache MISS: Fetching category from database for ID {CategoryId}", id);
+
                 var category = await _categoryService.GetCategoryByIdAsync(id);
                 if (category == null)
                 {
                     return NotFound(new { message = $"Category with ID {id} not found" });
                 }
+
+                // ✅ CACHE ASIDE PATTERN: Update cache after database fetch
+                var cacheOptions = new MemoryCacheEntryOptions
+                {
+                    AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(60), // Individual categories cache for 1 hour
+                    SlidingExpiration = TimeSpan.FromMinutes(20),
+                    Priority = CacheItemPriority.Normal
+                };
+
+                _cache.Set(cacheKey, category, cacheOptions);
+                _logger.LogInformation("💾 Cache UPDATED: Stored category in cache for ID {CategoryId}", id);
 
                 return Ok(category);
             }
@@ -88,6 +137,14 @@ namespace Berca_Backend.Controllers
                 _logger.LogInformation("User {Username} creating category: {CategoryName}", username, createDto.Name);
 
                 var category = await _categoryService.CreateCategoryAsync(createDto);
+
+                // ✅ CACHE INVALIDATION: Clear category-related caches after creation
+                _cacheInvalidation.InvalidateByPattern("categories_*");
+                _cacheInvalidation.InvalidateByPattern("pos_products_*"); // Product filtering might change
+                _cacheInvalidation.InvalidateByPattern("products_*");
+
+                _logger.LogInformation("🗑️ Cache invalidated after category creation: {CategoryName} (ID: {CategoryId})",
+                    category.Name, category.Id);
 
                 // Log activity
                 _logger.LogInformation("Category created successfully by {Username}: {CategoryName} (ID: {CategoryId})",
@@ -135,6 +192,13 @@ namespace Berca_Backend.Controllers
                     return NotFound(new { message = $"Category with ID {id} not found" });
                 }
 
+                // ✅ CACHE INVALIDATION: Clear category-related caches after update
+                _cacheInvalidation.InvalidateByPattern("categories_*");
+                _cacheInvalidation.InvalidateByPattern($"category_by_id_{id}");
+                _cacheInvalidation.InvalidateByPattern("pos_products_*"); // Product filtering might change
+                _cacheInvalidation.InvalidateByPattern("products_*");
+
+                _logger.LogInformation("🗑️ Cache invalidated after category update: {CategoryId}", id);
                 _logger.LogInformation("Category updated successfully by {Username}: {CategoryName} (ID: {CategoryId})",
                     username, category.Name, category.Id);
 

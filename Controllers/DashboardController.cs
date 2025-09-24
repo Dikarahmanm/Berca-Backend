@@ -1,6 +1,7 @@
 ﻿// Controllers/DashboardController.cs - Sprint 2 Dashboard API Controller (FIXED)
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.Extensions.Caching.Memory;
 using Berca_Backend.DTOs;
 using Berca_Backend.Services;
 
@@ -12,11 +13,13 @@ namespace Berca_Backend.Controllers
     public class DashboardController : ControllerBase
     {
         private readonly IDashboardService _dashboardService;
+        private readonly IMemoryCache _cache;
         private readonly ILogger<DashboardController> _logger;
 
-        public DashboardController(IDashboardService dashboardService, ILogger<DashboardController> logger)
+        public DashboardController(IDashboardService dashboardService, IMemoryCache cache, ILogger<DashboardController> logger)
         {
             _dashboardService = dashboardService;
+            _cache = cache;
             _logger = logger;
         }
 
@@ -30,7 +33,34 @@ namespace Berca_Backend.Controllers
         {
             try
             {
+                // ✅ CACHE ASIDE PATTERN: Check cache first
+                var cacheKey = $"dashboard_kpis_{startDate?.ToString("yyyyMMdd") ?? "null"}_{endDate?.ToString("yyyyMMdd") ?? "null"}";
+
+                if (_cache.TryGetValue(cacheKey, out DashboardKPIDto? cachedKpis))
+                {
+                    _logger.LogInformation("🔄 Cache HIT: Retrieved dashboard KPIs from cache");
+                    return Ok(new ApiResponse<DashboardKPIDto>
+                    {
+                        Success = true,
+                        Message = "Dashboard KPIs retrieved successfully (cached)",
+                        Data = cachedKpis!
+                    });
+                }
+
+                _logger.LogInformation("🔄 Cache MISS: Fetching dashboard KPIs from database");
                 var kpis = await _dashboardService.GetDashboardKPIsAsync(startDate, endDate);
+
+                // ✅ CACHE ASIDE PATTERN: Update cache after database fetch
+                var cacheOptions = new MemoryCacheEntryOptions
+                {
+                    AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(10), // Dashboard KPIs cache for 10 minutes
+                    SlidingExpiration = TimeSpan.FromMinutes(3),
+                    Priority = CacheItemPriority.High
+                };
+
+                _cache.Set(cacheKey, kpis, cacheOptions);
+                _logger.LogInformation("💾 Cache UPDATED: Stored dashboard KPIs in cache");
+
                 return Ok(new ApiResponse<DashboardKPIDto>
                 {
                     Success = true,
@@ -57,7 +87,34 @@ namespace Berca_Backend.Controllers
         {
             try
             {
+                // ✅ CACHE ASIDE PATTERN: Check cache first
+                var cacheKey = "dashboard_quick_stats";
+
+                if (_cache.TryGetValue(cacheKey, out QuickStatsDto? cachedStats))
+                {
+                    _logger.LogInformation("🔄 Cache HIT: Retrieved quick stats from cache");
+                    return Ok(new ApiResponse<QuickStatsDto>
+                    {
+                        Success = true,
+                        Message = "Quick stats retrieved successfully (cached)",
+                        Data = cachedStats!
+                    });
+                }
+
+                _logger.LogInformation("🔄 Cache MISS: Fetching quick stats from database");
                 var quickStats = await _dashboardService.GetQuickStatsAsync();
+
+                // ✅ CACHE ASIDE PATTERN: Update cache after database fetch
+                var cacheOptions = new MemoryCacheEntryOptions
+                {
+                    AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(5), // Quick stats cache for 5 minutes
+                    SlidingExpiration = TimeSpan.FromMinutes(2),
+                    Priority = CacheItemPriority.High
+                };
+
+                _cache.Set(cacheKey, quickStats, cacheOptions);
+                _logger.LogInformation("💾 Cache UPDATED: Stored quick stats in cache");
+
                 return Ok(new ApiResponse<QuickStatsDto>
                 {
                     Success = true,
@@ -156,7 +213,34 @@ namespace Berca_Backend.Controllers
         {
             try
             {
+                // ✅ CACHE ASIDE PATTERN: Check cache first
+                var cacheKey = $"dashboard_top_products_{count}_{startDate?.ToString("yyyyMMdd") ?? "null"}_{endDate?.ToString("yyyyMMdd") ?? "null"}_{sortBy}";
+
+                if (_cache.TryGetValue(cacheKey, out List<TopProductDto>? cachedProducts))
+                {
+                    _logger.LogInformation("🔄 Cache HIT: Retrieved top selling products from cache");
+                    return Ok(new ApiResponse<List<TopProductDto>>
+                    {
+                        Success = true,
+                        Message = "Top selling products retrieved successfully (cached)",
+                        Data = cachedProducts!
+                    });
+                }
+
+                _logger.LogInformation("🔄 Cache MISS: Fetching top selling products from database");
                 var topProducts = await _dashboardService.GetTopSellingProductsAsync(count, startDate, endDate, sortBy);
+
+                // ✅ CACHE ASIDE PATTERN: Update cache after database fetch
+                var cacheOptions = new MemoryCacheEntryOptions
+                {
+                    AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(15), // Top products cache for 15 minutes
+                    SlidingExpiration = TimeSpan.FromMinutes(5),
+                    Priority = CacheItemPriority.Normal
+                };
+
+                _cache.Set(cacheKey, topProducts, cacheOptions);
+                _logger.LogInformation("💾 Cache UPDATED: Stored top selling products in cache");
+
                 return Ok(new ApiResponse<List<TopProductDto>>
                 {
                     Success = true,
@@ -183,7 +267,34 @@ namespace Berca_Backend.Controllers
         {
             try
             {
+                // ✅ CACHE ASIDE PATTERN: Check cache first
+                var cacheKey = "dashboard_low_stock_alerts";
+
+                if (_cache.TryGetValue(cacheKey, out List<ProductDto>? cachedAlerts))
+                {
+                    _logger.LogInformation("🔄 Cache HIT: Retrieved low stock alerts from cache");
+                    return Ok(new ApiResponse<List<ProductDto>>
+                    {
+                        Success = true,
+                        Message = "Low stock alerts retrieved successfully (cached)",
+                        Data = cachedAlerts!
+                    });
+                }
+
+                _logger.LogInformation("🔄 Cache MISS: Fetching low stock alerts from database");
                 var lowStockProducts = await _dashboardService.GetLowStockAlertsAsync();
+
+                // ✅ CACHE ASIDE PATTERN: Update cache after database fetch
+                var cacheOptions = new MemoryCacheEntryOptions
+                {
+                    AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(3), // Low stock alerts need frequent updates
+                    SlidingExpiration = TimeSpan.FromMinutes(1),
+                    Priority = CacheItemPriority.High // Important for operations
+                };
+
+                _cache.Set(cacheKey, lowStockProducts, cacheOptions);
+                _logger.LogInformation("💾 Cache UPDATED: Stored low stock alerts in cache");
+
                 return Ok(new ApiResponse<List<ProductDto>>
                 {
                     Success = true,

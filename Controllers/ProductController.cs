@@ -22,14 +22,16 @@ namespace Berca_Backend.Controllers
         private readonly AppDbContext _context;
         private readonly IServiceProvider _serviceProvider;
         private readonly IMemoryCache _cache;
+        private readonly ICacheInvalidationService _cacheInvalidation;
 
-        public ProductController(IProductService productService, ILogger<ProductController> logger, AppDbContext context, IServiceProvider serviceProvider, IMemoryCache cache)
+        public ProductController(IProductService productService, ILogger<ProductController> logger, AppDbContext context, IServiceProvider serviceProvider, IMemoryCache cache, ICacheInvalidationService cacheInvalidation)
         {
             _productService = productService;
             _logger = logger;
             _context = context;
             _serviceProvider = serviceProvider;
             _cache = cache;
+            _cacheInvalidation = cacheInvalidation;
         }
 
         /// <summary>
@@ -665,6 +667,15 @@ namespace Berca_Backend.Controllers
 
                 var product = await _productService.CreateProductAsync(request, username);
 
+                // ✅ CACHE INVALIDATION: Clear product-related caches after creation
+                _cacheInvalidation.InvalidateByPattern("pos_products_*");
+                _cacheInvalidation.InvalidateByPattern("products_*");
+                _cacheInvalidation.InvalidateByPattern("dashboard_*");
+                _cacheInvalidation.InvalidateByPattern("categories_*"); // Category counts might change
+
+                _logger.LogInformation("🗑️ Cache invalidated after product creation: {ProductName} (ID: {ProductId})",
+                    product.Name, product.Id);
+
                 return CreatedAtAction(nameof(GetProduct), new { id = product.Id }, new ApiResponse<ProductDto>
                 {
                     Success = true,
@@ -699,6 +710,14 @@ namespace Berca_Backend.Controllers
                 var username = User.Identity?.Name ?? "system";
                 var result = await _productService.UpdateProductAsync(id, request, username);
 
+                // ✅ CACHE INVALIDATION: Clear product-related caches after update
+                _cacheInvalidation.InvalidateByPattern("pos_products_*");
+                _cacheInvalidation.InvalidateByPattern("products_*");
+                _cacheInvalidation.InvalidateByPattern($"product_by_id_{id}");
+                _cacheInvalidation.InvalidateByPattern("dashboard_*");
+                _cacheInvalidation.InvalidateByPattern("categories_*"); // Category counts might change
+
+                _logger.LogInformation("🗑️ Cache invalidated after product update: {ProductId}", id);
                 _logger.LogInformation("✅ Product {ProductId} updated successfully", id);
                 return Ok(new ApiResponse<ProductDto>
                 {
@@ -752,6 +771,14 @@ namespace Berca_Backend.Controllers
 
                 if (result)
                 {
+                    // ✅ CACHE INVALIDATION: Clear product-related caches after deletion
+                    _cacheInvalidation.InvalidateByPattern("pos_products_*");
+                    _cacheInvalidation.InvalidateByPattern("products_*");
+                    _cacheInvalidation.InvalidateByPattern($"product_by_id_{id}");
+                    _cacheInvalidation.InvalidateByPattern("dashboard_*");
+                    _cacheInvalidation.InvalidateByPattern("categories_*"); // Category counts might change
+
+                    _logger.LogInformation("🗑️ Cache invalidated after product deletion: {ProductId}", id);
                     _logger.LogInformation("✅ Product {ProductId} deleted successfully", id);
                     return Ok(new ApiResponse<bool>
                     {
@@ -845,6 +872,13 @@ namespace Berca_Backend.Controllers
 
                 if (result)
                 {
+                    // ✅ CACHE INVALIDATION: Clear stock-related caches after update
+                    _cacheInvalidation.InvalidateByPattern("pos_products_*");
+                    _cacheInvalidation.InvalidateByPattern($"product_branch_stock_{id}_*");
+                    _cacheInvalidation.InvalidateByPattern("dashboard_*");
+                    _cacheInvalidation.InvalidateByPattern("analytics_*");
+
+                    _logger.LogInformation("🗑️ Cache invalidated after stock update for product: {ProductId}", id);
                     _logger.LogInformation("✅ Stock updated successfully for product {ProductId}", id);
                     return Ok(new ApiResponse<bool>
                     {

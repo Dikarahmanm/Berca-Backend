@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using System.Security.Claims;
 using Berca_Backend.Data;
 using Berca_Backend.DTOs;
@@ -17,11 +18,13 @@ namespace Berca_Backend.Controllers
     public class ReportsController : ControllerBase
     {
         private readonly AppDbContext _context;
+        private readonly IMemoryCache _cache;
         private readonly ILogger<ReportsController> _logger;
 
-        public ReportsController(AppDbContext context, ILogger<ReportsController> logger)
+        public ReportsController(AppDbContext context, IMemoryCache cache, ILogger<ReportsController> logger)
         {
             _context = context;
+            _cache = cache;
             _logger = logger;
         }
 
@@ -37,6 +40,16 @@ namespace Berca_Backend.Controllers
         {
             try
             {
+                // ✅ CACHE ASIDE PATTERN: Check cache first
+                var cacheKey = $"reports_credit_{branchId ?? 0}_{startDate?.ToString("yyyyMMdd") ?? "null"}_{endDate?.ToString("yyyyMMdd") ?? "null"}_{GetCurrentUserId()}";
+
+                if (_cache.TryGetValue(cacheKey, out object? cachedReport))
+                {
+                    _logger.LogInformation("🔄 Cache HIT: Retrieved credit report from cache");
+                    return Ok(cachedReport);
+                }
+
+                _logger.LogInformation("🔄 Cache MISS: Generating credit report from database");
                 var currentUserId = GetCurrentUserId();
                 var currentUserRole = GetCurrentUserRole();
 
@@ -125,12 +138,26 @@ namespace Berca_Backend.Controllers
                         .ToList()
                 };
 
-                return Ok(new ApiResponse<object>
+                // Prepare the response object
+                var reportResponse = new ApiResponse<object>
                 {
                     Success = true,
                     Data = creditReport,
                     Message = "Credit report generated successfully"
-                });
+                };
+
+                // ✅ CACHE ASIDE PATTERN: Update cache after database fetch
+                var cacheOptions = new MemoryCacheEntryOptions
+                {
+                    AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(20), // Credit reports cache for 20 minutes
+                    SlidingExpiration = TimeSpan.FromMinutes(5),
+                    Priority = CacheItemPriority.Normal
+                };
+
+                _cache.Set(cacheKey, reportResponse, cacheOptions);
+                _logger.LogInformation("💾 Cache UPDATED: Stored credit report in cache");
+
+                return Ok(reportResponse);
             }
             catch (Exception ex)
             {
@@ -155,6 +182,16 @@ namespace Berca_Backend.Controllers
         {
             try
             {
+                // ✅ CACHE ASIDE PATTERN: Check cache first
+                var cacheKey = $"reports_inventory_{branchId ?? 0}_{includeZeroStock}_{categoryId ?? 0}_{GetCurrentUserId()}";
+
+                if (_cache.TryGetValue(cacheKey, out object? cachedInventoryReport))
+                {
+                    _logger.LogInformation("🔄 Cache HIT: Retrieved inventory report from cache");
+                    return Ok(cachedInventoryReport);
+                }
+
+                _logger.LogInformation("🔄 Cache MISS: Generating inventory report from database");
                 var currentUserId = GetCurrentUserId();
                 var currentUserRole = GetCurrentUserRole();
 

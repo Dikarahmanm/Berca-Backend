@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 #pragma warning disable CS1998 // Async method lacks 'await' operators and will run synchronously
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.Extensions.Caching.Memory;
 using Berca_Backend.Services;
 using Berca_Backend.DTOs;
 using System.Security.Claims;
@@ -18,13 +19,16 @@ namespace Berca_Backend.Controllers
 public class MLInventoryController : ControllerBase
     {
         private readonly IMLInventoryService _mlInventoryService;
+        private readonly IMemoryCache _cache;
         private readonly ILogger<MLInventoryController> _logger;
 
         public MLInventoryController(
             IMLInventoryService mlInventoryService,
+            IMemoryCache cache,
             ILogger<MLInventoryController> logger)
         {
             _mlInventoryService = mlInventoryService;
+            _cache = cache;
             _logger = logger;
         }
 
@@ -52,20 +56,43 @@ public class MLInventoryController : ControllerBase
                     });
                 }
 
-                _logger.LogInformation("Forecasting demand for product {ProductId} for {Days} days using ML.NET SSA", 
+                // ✅ CACHE ASIDE PATTERN: Check cache first (ML predictions are expensive!)
+                var cacheKey = $"ml_demand_forecast_{productId}_{days}_{DateTime.UtcNow.Date:yyyyMMdd}";
+
+                if (_cache.TryGetValue(cacheKey, out ApiResponse<DemandForecastResult>? cachedForecast))
+                {
+                    _logger.LogInformation("🔄 Cache HIT: Retrieved ML demand forecast from cache for product {ProductId}", productId);
+                    return Ok(cachedForecast);
+                }
+
+                _logger.LogInformation("🔄 Cache MISS: Generating ML demand forecast for product {ProductId} for {Days} days using ML.NET SSA",
                     productId, days);
 
                 var forecast = await _mlInventoryService.ForecastDemandAsync(productId, days);
 
-                _logger.LogInformation("Demand forecast completed for product {ProductId}: {Confidence}% confidence, {ModelType} model", 
+                _logger.LogInformation("Demand forecast completed for product {ProductId}: {Confidence}% confidence, {ModelType} model",
                     productId, forecast.Confidence, forecast.ModelType);
 
-                return Ok(new ApiResponse<DemandForecastResult>
+                // Prepare the response object
+                var forecastResponse = new ApiResponse<DemandForecastResult>
                 {
                     Success = true,
                     Data = forecast,
                     Message = $"Prediksi permintaan berhasil dibuat dengan tingkat kepercayaan {forecast.Confidence:F1}%"
-                });
+                };
+
+                // ✅ CACHE ASIDE PATTERN: Update cache after ML computation
+                var cacheOptions = new MemoryCacheEntryOptions
+                {
+                    AbsoluteExpirationRelativeToNow = TimeSpan.FromHours(4), // ML predictions cache for 4 hours (expensive to compute)
+                    SlidingExpiration = TimeSpan.FromHours(1),
+                    Priority = CacheItemPriority.High // ML results are expensive to compute
+                };
+
+                _cache.Set(cacheKey, forecastResponse, cacheOptions);
+                _logger.LogInformation("💾 Cache UPDATED: Stored ML demand forecast in cache for product {ProductId}", productId);
+
+                return Ok(forecastResponse);
             }
             catch (Exception ex)
             {
@@ -90,18 +117,41 @@ public class MLInventoryController : ControllerBase
         {
             try
             {
-                _logger.LogInformation("Getting products suitable for demand forecasting");
+                // ✅ CACHE ASIDE PATTERN: Check cache first
+                var cacheKey = "ml_forecastable_products";
+
+                if (_cache.TryGetValue(cacheKey, out ApiResponse<List<object>>? cachedProducts))
+                {
+                    _logger.LogInformation("🔄 Cache HIT: Retrieved forecastable products from cache");
+                    return Ok(cachedProducts);
+                }
+
+                _logger.LogInformation("🔄 Cache MISS: Getting products suitable for demand forecasting from database");
 
                 var forecastableProducts = await _mlInventoryService.GetForecastableProductsAsync();
 
                 _logger.LogInformation("Found {Count} products suitable for forecasting", forecastableProducts.Count);
 
-                return Ok(new ApiResponse<List<object>>
+                // Prepare the response object
+                var productsResponse = new ApiResponse<List<object>>
                 {
                     Success = true,
                     Data = forecastableProducts.Cast<object>().ToList(),
                     Message = $"Ditemukan {forecastableProducts.Count} produk yang dapat diprediksi berdasarkan data penjualan"
-                });
+                };
+
+                // ✅ CACHE ASIDE PATTERN: Update cache after database fetch
+                var cacheOptions = new MemoryCacheEntryOptions
+                {
+                    AbsoluteExpirationRelativeToNow = TimeSpan.FromHours(2), // Product list changes less frequently
+                    SlidingExpiration = TimeSpan.FromMinutes(30),
+                    Priority = CacheItemPriority.Normal
+                };
+
+                _cache.Set(cacheKey, productsResponse, cacheOptions);
+                _logger.LogInformation("💾 Cache UPDATED: Stored forecastable products in cache");
+
+                return Ok(productsResponse);
             }
             catch (Exception ex)
             {

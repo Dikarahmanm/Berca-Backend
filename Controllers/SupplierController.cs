@@ -1,9 +1,11 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using System.Security.Claims;
 using System.ComponentModel.DataAnnotations;
 using Berca_Backend.DTOs;
+using Berca_Backend.Services;
 using Berca_Backend.Services.Interfaces;
 using Berca_Backend.Models;
 using Berca_Backend.Data;
@@ -20,15 +22,21 @@ namespace Berca_Backend.Controllers
     public class SupplierController : ControllerBase
     {
         private readonly ISupplierService _supplierService;
+        private readonly IMemoryCache _cache;
+        private readonly ICacheInvalidationService _cacheInvalidation;
         private readonly ILogger<SupplierController> _logger;
         private readonly AppDbContext _context;
 
         public SupplierController(
             ISupplierService supplierService,
+            IMemoryCache cache,
+            ICacheInvalidationService cacheInvalidation,
             ILogger<SupplierController> logger,
             AppDbContext context)
         {
             _supplierService = supplierService;
+            _cache = cache;
+            _cacheInvalidation = cacheInvalidation;
             _logger = logger;
             _context = context;
         }
@@ -51,6 +59,16 @@ namespace Berca_Backend.Controllers
         {
             try
             {
+                // ✅ CACHE ASIDE PATTERN: Check cache first
+                var cacheKey = $"suppliers_{search ?? "all"}_{branchIds ?? "all"}_{isActive}_{page}_{pageSize}_{sortBy}_{sortOrder}_{GetCurrentUserId()}";
+
+                if (_cache.TryGetValue(cacheKey, out object? cachedSuppliers))
+                {
+                    _logger.LogInformation("🔄 Cache HIT: Retrieved suppliers from cache");
+                    return Ok(cachedSuppliers);
+                }
+
+                _logger.LogInformation("🔄 Cache MISS: Fetching suppliers from database");
                 var currentUserId = GetCurrentUserId();
                 var currentUserRole = GetCurrentUserRole();
                 
@@ -163,7 +181,8 @@ namespace Berca_Backend.Controllers
                     })
                     .ToListAsync();
 
-                return Ok(new
+                // Prepare the response object
+                var suppliersResponse = new
                 {
                     success = true,
                     data = suppliers,
@@ -174,7 +193,20 @@ namespace Berca_Backend.Controllers
                         totalItems = totalCount,
                         itemsPerPage = pageSize
                     }
-                });
+                };
+
+                // ✅ CACHE ASIDE PATTERN: Update cache after database fetch
+                var cacheOptions = new MemoryCacheEntryOptions
+                {
+                    AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(30), // Suppliers cache for 30 minutes
+                    SlidingExpiration = TimeSpan.FromMinutes(10),
+                    Priority = CacheItemPriority.Normal
+                };
+
+                _cache.Set(cacheKey, suppliersResponse, cacheOptions);
+                _logger.LogInformation("💾 Cache UPDATED: Stored suppliers in cache");
+
+                return Ok(suppliersResponse);
             }
             catch (Exception ex)
             {
@@ -327,6 +359,13 @@ namespace Berca_Backend.Controllers
                 }
 
                 var supplier = await _supplierService.CreateSupplierAsync(createDto, currentUserId.Value);
+
+                // ✅ CACHE INVALIDATION: Clear supplier-related caches after creation
+                _cacheInvalidation.InvalidateByPattern("suppliers_*");
+
+                _logger.LogInformation("🗑️ Cache invalidated after supplier creation: (ID: {SupplierId})",
+                    supplier.Id);
+
                 return CreatedAtAction(
                     nameof(GetSupplierById),
                     new { id = supplier.Id },
@@ -369,6 +408,11 @@ namespace Berca_Backend.Controllers
                 var supplier = await _supplierService.UpdateSupplierAsync(id, updateDto, currentUserId.Value);
                 if (supplier == null)
                     return NotFound(ApiResponse<SupplierDto>.ErrorResponse("Supplier not found"));
+
+                // ✅ CACHE INVALIDATION: Clear supplier-related caches after update
+                _cacheInvalidation.InvalidateByPattern("suppliers_*");
+
+                _logger.LogInformation("🗑️ Cache invalidated after supplier update: {SupplierId}", id);
 
                 return Ok(ApiResponse<SupplierDto>.SuccessResponse(supplier, "Supplier updated successfully"));
             }

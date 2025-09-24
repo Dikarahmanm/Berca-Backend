@@ -188,6 +188,10 @@ builder.Services.AddAuthorization(options =>
     options.AddPolicy("Admin.AI", policy =>
         policy.RequireRole("Admin"));
 
+    // Cache system administration - Admin only for cache management
+    options.AddPolicy("Admin.Cache", policy =>
+        policy.RequireRole("Admin"));
+
     // AI model training - HeadManager and Admin can train models
     options.AddPolicy("AI.ModelTraining", policy =>
         policy.RequireRole("Admin", "HeadManager"));
@@ -650,6 +654,18 @@ static bool ValidateBranchHierarchyAccess(AuthorizationHandlerContext context)
 
 // ✅ Add Memory Cache for ConsolidatedReportService
 builder.Services.AddMemoryCache();
+
+// ✅ Register Cache Invalidation Service
+builder.Services.AddSingleton<ICacheInvalidationService, CacheInvalidationService>();
+
+// ✅ Register Cache Warmup Service
+builder.Services.AddScoped<ICacheWarmupService, CacheWarmupService>();
+
+// ✅ Register Cache Warmup Hosted Service for startup warmup
+builder.Services.AddHostedService<CacheWarmupHostedService>();
+
+// ✅ Register Cache Refresh Background Service for periodic refresh
+builder.Services.AddHostedService<CacheRefreshBackgroundService>();
 
 // ✅ Register services in correct dependency order
 builder.Services.AddScoped<ITimezoneService, TimezoneService>(); // FIRST - other services depend on this
