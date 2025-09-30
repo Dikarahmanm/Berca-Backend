@@ -123,6 +123,9 @@ namespace Berca_Backend.Data
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             base.OnModelCreating(modelBuilder);
+
+            // Configure database indexes for optimal performance
+            // DatabaseIndexes.ConfigureIndexes(modelBuilder); // Temporarily commented until model properties are updated
             // Branch configuration
             // Branch configuration
             // ===== BRANCH CONFIGURATION (NEW) ===== //

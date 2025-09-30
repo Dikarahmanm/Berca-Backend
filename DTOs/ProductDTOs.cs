@@ -30,6 +30,7 @@ namespace Berca_Backend.DTOs
         public string? CategoryColor { get; set; }
         public DateTime CreatedAt { get; set; }
         public DateTime UpdatedAt { get; set; }
+        public DateTime? ExpiryDate { get; set; }
         public decimal ProfitMargin { get; set; }
         public bool IsLowStock { get; set; }
         public bool IsOutOfStock { get; set; }

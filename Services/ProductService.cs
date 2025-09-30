@@ -33,6 +33,7 @@ namespace Berca_Backend.Services
             try
             {
                 var query = _context.Products
+                    .AsNoTracking()
                     .Include(p => p.Category)
                     .AsQueryable();
 
@@ -101,6 +102,7 @@ namespace Berca_Backend.Services
             try
             {
                 return await _context.Products
+                    .AsNoTracking()
                     .Include(p => p.Category)
                     .Where(p => p.Id == id)
                     .Select(p => new ProductDto
